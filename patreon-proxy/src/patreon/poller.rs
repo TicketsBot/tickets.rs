@@ -34,7 +34,7 @@ impl Poller {
     }
 
     async fn poll_page(&self, uri: String) -> Result<PledgeResponse, Box<dyn Error>> {
-        let client = reqwest::Client::new();
+        let client = reqwest::ClientBuilder::new().use_rustls_tls().build().unwrap();
         let res: PledgeResponse = client.get(&uri)
             .header("Authorization", format!("Bearer {}", self.tokens.access_token))
             .send()

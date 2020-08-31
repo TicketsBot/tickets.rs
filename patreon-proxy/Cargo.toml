@@ -9,6 +9,7 @@ tokio = { version = "0.2", features = ["full", "time"] }
 tokio-postgres = { version = "0.5.5", features = ["with-chrono-0_4"] }
 thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-reqwest = { version = "0.10", features = ["json"] }
+reqwest = { version = "0.10", features = ["json", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 warp = "0.2"
+rustls = "0.18"
