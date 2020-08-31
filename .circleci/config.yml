@@ -21,7 +21,7 @@ jobs:
 
       - run:
           name: Build
-          command: cargo build
+          command: cargo build --release
 
       - store_artifacts:
           path: ./target/debug/patreon-proxy
