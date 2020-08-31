@@ -2,7 +2,7 @@ version: 2
 jobs:
   build:
     docker:
-      - image: cimg/rust:1.46.0
+      - image: rust:alpine
 
     steps:
       - checkout
