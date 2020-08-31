@@ -16,8 +16,8 @@ jobs:
           command: cargo --version
 
       - run:
-          name: Install musl-dev & pkgconfig
-          command: apk add musl-dev pkgconfig
+          name: Install build dependencies
+          command: apk add musl-dev pkgconfig libssl-dev
 
       - run:
           name: Build
