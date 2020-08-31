@@ -3,7 +3,6 @@ jobs:
   build:
     docker:
       - image: cimg/rust:1.46.0
-    working_directory: /go/src/github.com/TicketsBot/tickets.rs
 
     steps:
       - checkout
@@ -21,5 +20,5 @@ jobs:
           command: cargo build --release
 
       - store_artifacts:
-          path: /go/src/github.com/TicketsBot/tickets.rs/target/release/patreon-proxy
+          path: ./target/release/patreon-proxy
           destination: patreon-proxy
