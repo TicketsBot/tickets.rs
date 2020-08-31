@@ -5,5 +5,10 @@ authors = ["rxdn"]
 edition = "2018"
 
 [dependencies]
-tokio = { version = "0.2", features = ["full"] }
-tokio-postgres = "0.5.5"
+tokio = { version = "0.2", features = ["full", "time"] }
+tokio-postgres = { version = "0.5.5", features = ["with-chrono-0_4"] }
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.10", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+warp = "0.2"
