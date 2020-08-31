@@ -29,6 +29,8 @@ impl Poller {
             patrons.extend(res.convert().into_iter());
             res = self.poll_page(next.to_string()).await?;
         }
+        
+        patrons.extend(res.convert().into_iter());
 
         Ok(patrons)
     }

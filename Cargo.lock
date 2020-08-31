@@ -438,7 +438,7 @@ dependencies = [
  "headers-core",
  "http",
  "mime 0.3.16",
- "sha-1",
+ "sha-1 0.8.2",
  "time",
 ]
 
@@ -1486,6 +1486,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha-1"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "170a36ea86c864a3f16dd2687712dd6646f7019f301e57537c7f4dc9f5916770"
+dependencies = [
+ "block-buffer 0.9.0",
+ "cfg-if",
+ "cpuid-bool",
+ "digest 0.9.0",
+ "opaque-debug 0.3.0",
+]
+
+[[package]]
 name = "sha2"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1496,6 +1509,14 @@ dependencies = [
  "cpuid-bool",
  "digest 0.9.0",
  "opaque-debug 0.3.0",
+]
+
+[[package]]
+name = "sharder"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tokio-tungstenite 0.11.0",
 ]
 
 [[package]]
@@ -1717,7 +1738,20 @@ dependencies = [
  "log 0.4.11",
  "pin-project",
  "tokio",
- "tungstenite",
+ "tungstenite 0.10.1",
+]
+
+[[package]]
+name = "tokio-tungstenite"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d9e878ad426ca286e4dcae09cbd4e1973a7f8987d97570e2469703dd7f5720c"
+dependencies = [
+ "futures-util",
+ "log 0.4.11",
+ "pin-project",
+ "tokio",
+ "tungstenite 0.11.1",
 ]
 
 [[package]]
@@ -1790,7 +1824,26 @@ dependencies = [
  "input_buffer",
  "log 0.4.11",
  "rand 0.7.3",
- "sha-1",
+ "sha-1 0.8.2",
+ "url",
+ "utf-8",
+]
+
+[[package]]
+name = "tungstenite"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0308d80d86700c5878b9ef6321f020f29b1bb9d5ff3cab25e75e23f3a492a23"
+dependencies = [
+ "base64 0.12.3",
+ "byteorder",
+ "bytes",
+ "http",
+ "httparse",
+ "input_buffer",
+ "log 0.4.11",
+ "rand 0.7.3",
+ "sha-1 0.9.1",
  "url",
  "utf-8",
 ]
@@ -1930,7 +1983,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "tokio",
- "tokio-tungstenite",
+ "tokio-tungstenite 0.10.1",
  "tower-service",
  "tracing",
  "tracing-futures",
