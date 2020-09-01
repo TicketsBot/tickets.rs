@@ -5,6 +5,13 @@ authors = ["rxdn"]
 edition = "2018"
 
 [dependencies]
-tokio = { version = "0.2", features = ["full", "time"] }
-tokio-tungstenite = "0.11.0"
-
+tokio = { version = "0.2", features = ["full", "time", "sync"] }
+tokio-tungstenite = { version = "0.10", features = ["tls"] }
+tokio-tls = "0.3"
+url = "2.1"
+futures-util = "0.3"
+flate2 = { version = "1.0", features = ["tokio", "zlib-ng-compat"], default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_repr = "0.1"
+thiserror = "1.0"
