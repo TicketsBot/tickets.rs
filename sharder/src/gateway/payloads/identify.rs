@@ -1,4 +1,5 @@
 use super::Opcode;
+use crate::gateway::ShardInfo;
 use serde::Serialize;
 
 #[derive(Serialize, Debug)]
@@ -11,12 +12,33 @@ pub struct Identify {
 }
 
 impl Identify {
-    pub fn new(token: String) -> Identify {
+    /// large_threshold must be between 50 and 250 inclusive, if Some
+    pub fn new(
+        token: String,
+        large_threshold: Option<i32>,
+        shard_info: ShardInfo,
+        presence: Option<crate::model::user::StatusUpdate>,
+        guild_subscriptions: bool,
+        intents: u64,
+    ) -> Identify {
+        if let Some(large_threshold) = large_threshold {
+            if large_threshold > 250 || large_threshold < 50 {
+                panic!("large_threshold must be between 50 and 250 inclusive");
+            }
+        }
+
         Identify {
             opcode: Opcode::Identify,
             data: IdentifyData {
                 token,
-            }
+                properties: ConnectionProperties::new(),
+                compress: Some(true),
+                large_threshold,
+                shard_info,
+                presence,
+                guild_subscriptions: Some(guild_subscriptions),
+                intents,
+            },
         }
     }
 }
@@ -24,4 +46,47 @@ impl Identify {
 #[derive(Serialize, Debug)]
 pub struct IdentifyData {
     pub token: String,
+
+    pub properties: ConnectionProperties,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compress: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub large_threshold: Option<i32>,
+
+    #[serde(rename = "shard")]
+    pub shard_info: ShardInfo,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presence: Option<crate::model::user::StatusUpdate>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guild_subscriptions: Option<bool>,
+
+    pub intents: u64,
+}
+
+#[derive(Serialize, Debug)]
+pub struct ConnectionProperties {
+    #[serde(rename = "$os")]
+    pub os: String,
+
+    #[serde(rename = "browser")]
+    pub browser: String,
+
+    #[serde(rename = "device")]
+    pub device: String,
+}
+
+const LIBRARY_NAME: &'static str = "tickets.rs";
+
+impl ConnectionProperties {
+    pub fn new() -> ConnectionProperties {
+        ConnectionProperties {
+            os: std::env::consts::OS.to_owned(),
+            browser: LIBRARY_NAME.to_owned(),
+            device: LIBRARY_NAME.to_owned(),
+        }
+    }
 }

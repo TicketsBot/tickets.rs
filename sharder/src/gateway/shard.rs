@@ -19,9 +19,10 @@ use futures_util::{StreamExt, SinkExt, stream::{SplitSink, SplitStream}};
 use tokio_tungstenite::{WebSocketStream, connect_async, tungstenite::Message};
 use tokio::net::TcpStream;
 use tokio_tls::TlsStream;
-use tokio::sync::oneshot::error::RecvError;
+use serde::Serialize;
 
 pub struct Shard {
+    identify: payloads::Identify,
     seq: Arc<RwLock<Option<usize>>>,
     writer: Option<mpsc::Sender<OutboundMessage>>,
     kill_heartbeat: Option<oneshot::Sender<()>>,
@@ -35,8 +36,9 @@ type WebSocketTx = SplitSink<WebSocketStream<tokio_tungstenite::stream::Stream<T
 type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>>;
 
 impl Shard {
-    pub fn new() -> Shard {
+    pub fn new(identify: payloads::Identify) -> Shard {
         Shard {
+            identify,
             seq: Arc::new(RwLock::new(None)),
             writer: None,
             kill_heartbeat: None,
@@ -57,7 +59,7 @@ impl Shard {
         });
         self.writer = Some(writer_tx);
 
-        let (kill_shard_tx, mut kill_shard_rx) = mpsc::channel(1);
+        let (kill_shard_tx, kill_shard_rx) = mpsc::channel(1);
         self.kill_shard = Some(kill_shard_tx);
 
         // start read loop
@@ -77,6 +79,16 @@ impl Shard {
                 eprintln!("Error while sending write result back to caller: {:?}", e);
             }
         }
+    }
+
+    // helper function
+    async fn write<T: Serialize>(
+        &self,
+        msg: T,
+        tx: oneshot::Sender<Result<(), tokio_tungstenite::tungstenite::Error>>
+    ) -> Result<(), Box<dyn Error>> {
+        OutboundMessage::new(msg, tx)?.send(self.writer.clone().unwrap()).await?;
+        Ok(())
     }
 
     async fn listen(&mut self, mut ws_rx: WebSocketRx, mut kill_shard_rx: mpsc::Receiver<()>) -> Result<(), tokio_tungstenite::tungstenite::Error> {
@@ -236,7 +248,9 @@ impl Shard {
     }
 
     // TODO: Ratelimit
-    async fn do_identify(&mut self) {
-        
+    async fn do_identify(&mut self) -> Result<(), Box<dyn Error>> {
+        let (tx, rx) = oneshot::channel();
+        self.write(&self.identify, tx).await?;
+        Ok(rx.await??)
     }
 }

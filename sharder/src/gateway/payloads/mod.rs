@@ -11,4 +11,4 @@ mod heartbeat;
 pub use heartbeat::Heartbeat;
 
 mod identify;
-pub use identify::Identify;
+pub use identify::{Identify, IdentifyData};
