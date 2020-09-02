@@ -1,5 +1,6 @@
 use super::payloads;
 use super::payloads::{Opcode, Payload};
+use super::payloads::event::Event;
 
 use super::OutboundMessage;
 
@@ -10,6 +11,7 @@ use flate2::{Decompress, FlushDecompress, Status};
 
 use tokio::time::delay_for;
 use std::time::Duration;
+use std::time::Instant;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -23,10 +25,14 @@ use serde::Serialize;
 
 pub struct Shard {
     identify: payloads::Identify,
+    total_rx: u64,
     seq: Arc<RwLock<Option<usize>>>,
+    session_id: Arc<RwLock<Option<String>>>,
     writer: Option<mpsc::Sender<OutboundMessage>>,
     kill_heartbeat: Option<oneshot::Sender<()>>,
-    kill_shard: Option<mpsc::Sender<()>>,
+    kill_shard_tx: mpsc::Sender<()>,
+    kill_shard_rx: mpsc::Receiver<()>,
+    last_ack: Arc<RwLock<Instant>>,
 }
 
 // 16 KiB
@@ -37,12 +43,18 @@ type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream
 
 impl Shard {
     pub fn new(identify: payloads::Identify) -> Shard {
+        let (kill_shard_tx, kill_shard_rx) = mpsc::channel(1);
+
         Shard {
             identify,
+            total_rx: 0,
             seq: Arc::new(RwLock::new(None)),
+            session_id: Arc::new(RwLock::new((None))),
             writer: None,
             kill_heartbeat: None,
-            kill_shard: None,
+            kill_shard_tx,
+            kill_shard_rx,
+            last_ack: Arc::new(RwLock::new(Instant::now())),
         }
     }
 
@@ -59,19 +71,14 @@ impl Shard {
         });
         self.writer = Some(writer_tx);
 
-        let (kill_shard_tx, kill_shard_rx) = mpsc::channel(1);
-        self.kill_shard = Some(kill_shard_tx);
-
         // start read loop
-        self.listen(ws_rx, kill_shard_rx).await?;
+        self.listen(ws_rx).await?;
 
         Ok(())
     }
 
     async fn handle_writes(mut ws_tx: WebSocketTx, mut rx: mpsc::Receiver<super::OutboundMessage>) {
         while let Some(msg) = rx.recv().await {
-            println!("{}", msg.message);
-
             let payload = tokio_tungstenite::tungstenite::Message::text(msg.message);
             let res = ws_tx.send(payload).await;
 
@@ -91,10 +98,15 @@ impl Shard {
         Ok(())
     }
 
-    async fn listen(&mut self, mut ws_rx: WebSocketRx, mut kill_shard_rx: mpsc::Receiver<()>) -> Result<(), tokio_tungstenite::tungstenite::Error> {
+    // helper function
+    async fn kill(&mut self) {
+        self.kill_shard_tx.send(()).await;
+    }
+
+    async fn listen(&mut self, mut ws_rx: WebSocketRx) -> Result<(), tokio_tungstenite::tungstenite::Error> {
         let mut decoder = Decompress::new(true);
 
-        while let Err(mpsc::error::TryRecvError::Empty) = kill_shard_rx.try_recv() {
+        while let Err(mpsc::error::TryRecvError::Empty) = self.kill_shard_rx.try_recv() {
             while let Some(msg) = ws_rx.next().await {
                 if let Err(e) = msg {
                     return Err(e);
@@ -111,13 +123,15 @@ impl Shard {
                     continue;
                 }
 
-                let payload = Shard::read_payload(msg, &mut decoder).await;
+                let payload = self.read_payload(msg, &mut decoder).await;
                 if payload.is_none() {
                     continue;
                 }
                 let (payload, raw) = payload.unwrap();
 
-                self.process_payload(payload, raw).await;
+                if let Err(e) = self.process_payload(payload, raw).await {
+                    eprintln!("Error reading payload: {}", e);
+                }
             }
         }
 
@@ -125,13 +139,13 @@ impl Shard {
     }
 
     // we return None because it's ok to discard the payload
-    async fn read_payload(msg: tokio_tungstenite::tungstenite::protocol::Message, decoder: &mut Decompress) -> Option<(Payload, Vec<u8>)> {
+    async fn read_payload(&mut self, msg: tokio_tungstenite::tungstenite::protocol::Message, decoder: &mut Decompress) -> Option<(Payload, Vec<u8>)> {
         let compressed = msg.into_data();
 
         let mut output: Vec<u8> = Vec::new();
         let mut offset: usize = 0;
 
-        while (decoder.total_in() as usize) < compressed.len() {
+        while ((decoder.total_in() - self.total_rx) as usize) < compressed.len() {
             let mut temp: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
 
             match decoder.decompress_vec(&compressed[offset..], &mut temp, FlushDecompress::Sync) {
@@ -141,15 +155,16 @@ impl Shard {
                     offset = decoder.total_in() as usize;
                 }
 
+                // TODO: Should we reconnect?
                 Err(e) => {
                     eprintln!("Error while decompressing: {}", e);
+                    self.total_rx = decoder.total_in();
                     return None;
                 }
             };
         }
 
-        // TODO: REMOVE DEBUG
-        println!("{:?}", str::from_utf8(&output).unwrap());
+        self.total_rx = decoder.total_in();
 
         // deserialize payload
         match serde_json::from_slice(&output[..]) {
@@ -170,25 +185,74 @@ impl Shard {
 
         // figure out which payload we need
         match payload.opcode {
+            Opcode::Dispatch => {
+                let payload: payloads::Dispatch = serde_json::from_slice(&raw[..])?;
+                self.handle_event(payload.data).await;
+                Ok(())
+            },
+            Opcode::Reconnect => {
+                self.kill();
+                Ok(())
+            },
+            Opcode::InvalidSession => {
+                let res: Result<payloads::InvalidSession, serde_json::Error> = serde_json::from_slice(&raw[..]);
+
+                match &res {
+                    Ok(payload) => {
+                        if !payload.is_resumable {
+                            *self.session_id.write().await = None;
+                        }
+                    },
+                    Err(e) => {
+                        *self.session_id.write().await = None;
+                    },
+                };
+
+                res.map(|_| ()).map_err(|e| Box::new(e) as Box<dyn Error>)
+            }
             Opcode::Hello => {
                 let hello: payloads::Hello = serde_json::from_slice(&raw[..])?;
 
-                self.do_identify().await;
+                if self.session_id.read().await.is_some() && self.seq.read().await.is_some() {
+                    self.do_resume().await;
+                } else {
+                    self.do_identify().await;
+                }
 
                 // we unwrap here because writer should never be None.
                 let kill_tx = Shard::start_heartbeat(
                     hello.data.heartbeat_interval,
                     self.writer.as_ref().unwrap().clone(),
-                    self.kill_shard.as_ref().unwrap().clone(),
-                    Arc::clone(&self.seq)
+                    self.kill_shard_tx.clone(),
+                    Arc::clone(&self.seq),
+                    Arc::clone(&self.last_ack),
                 ).await;
 
                 self.kill_heartbeat = Some(kill_tx);
 
                 Ok(())
+            },
+            Opcode::HeartbeatAck => {
+                let mut last_ack = self.last_ack.write().await;
+                *last_ack = Instant::now();
+
+                Ok(())
             }
             _ => Ok(()),
         }
+    }
+
+    async fn handle_event(&mut self, event: Event) {
+        match event {
+            Event::Ready(ready) => {
+                *self.session_id.write().await = Some(ready.session_id);
+                println!("Connected on {}#{} ({}) shard {} / {}", ready.user.username, ready.user.discriminator, ready.user.id, ready.shard.shard_id, ready.shard.num_shards);
+            },
+            Event::ChannelCreate(channel) => {
+                println!("{:?}", channel);
+            }
+            _ => {},
+        };
     }
 
     // returns cancellation channel
@@ -197,6 +261,7 @@ impl Shard {
         writer_tx: mpsc::Sender<OutboundMessage>,
         mut kill_shard_tx: mpsc::Sender<()>,
         seq: Arc<RwLock<Option<usize>>>,
+        last_ack: Arc<RwLock<Instant>>,
     ) -> oneshot::Sender<()> {
         let interval = Duration::from_millis(interval as u64);
 
@@ -205,14 +270,26 @@ impl Shard {
         tokio::spawn(async move {
             delay_for(interval).await;
 
+            let mut has_sent_heartbeat = false;
             while let Err(oneshot::error::TryRecvError::Empty) = cancel_rx.try_recv() {
+                // check if we've received an ack
+                {
+                    let last_ack = last_ack.read().await;
+                    if has_sent_heartbeat && last_ack.elapsed() > interval {
+                        kill_shard_tx.send(()).await;
+                        break
+                    }
+                }
+
                 let mut should_kill = false;
 
-                if let Err(e) = Shard::do_heartbeat(writer_tx.clone(), Arc::clone(&seq)).await {
-                    eprintln!("Error while heartbeating: {:?}", e);
-                    should_kill = true;
-                    break
-                }
+                match Shard::do_heartbeat(writer_tx.clone(), Arc::clone(&seq)).await {
+                    Ok(()) => has_sent_heartbeat = true,
+                    Err(e) => {
+                        eprintln!("Error while heartbeating: {:?}", e);
+                        should_kill = true;
+                    },
+                };
 
                 // rust is a terrible language
                 // if you put the kill channel in the above block, you are told e might be used later
@@ -220,6 +297,7 @@ impl Shard {
                 // found a compiler bug on my second day of rust, wahey!
                 if should_kill {
                     kill_shard_tx.send(()).await;
+                    break
                 }
 
                 delay_for(interval).await;
@@ -251,6 +329,21 @@ impl Shard {
     async fn do_identify(&mut self) -> Result<(), Box<dyn Error>> {
         let (tx, rx) = oneshot::channel();
         self.write(&self.identify, tx).await?;
+        Ok(rx.await??)
+    }
+
+    /// Shard.session_id & Shard.seq should not be None when calling this function
+    /// if they are, the function will panic
+    async fn do_resume(&mut self) -> Result<(), Box<dyn Error>> {
+        let payload = payloads::Resume::new(
+            self.identify.data.token.clone(),
+            self.session_id.read().await.as_ref().unwrap().clone(),
+            self.seq.read().await.unwrap()
+        );
+
+        let (tx, rx) = oneshot::channel();
+        self.write(payload, tx).await;
+
         Ok(rx.await??)
     }
 }

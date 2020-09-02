@@ -18,7 +18,6 @@ impl Identify {
         large_threshold: Option<i32>,
         shard_info: ShardInfo,
         presence: Option<crate::model::user::StatusUpdate>,
-        guild_subscriptions: bool,
         intents: u64,
     ) -> Identify {
         if let Some(large_threshold) = large_threshold {
@@ -36,7 +35,7 @@ impl Identify {
                 large_threshold,
                 shard_info,
                 presence,
-                guild_subscriptions: Some(guild_subscriptions),
+                guild_subscriptions: None,
                 intents,
             },
         }

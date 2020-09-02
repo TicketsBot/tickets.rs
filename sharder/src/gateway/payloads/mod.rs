@@ -1,3 +1,5 @@
+pub mod event;
+
 mod payload;
 pub use payload::Payload;
 
@@ -12,3 +14,18 @@ pub use heartbeat::Heartbeat;
 
 mod identify;
 pub use identify::{Identify, IdentifyData};
+
+mod heartbeat_ack;
+pub use heartbeat_ack::HeartbeatAck;
+
+mod reconnect;
+pub use reconnect::Reconnect;
+
+mod invalid_session;
+pub use invalid_session::InvalidSession;
+
+mod resume;
+pub use resume::Resume;
+
+mod dispatch;
+pub use dispatch::Dispatch;

@@ -7,8 +7,8 @@ pub use payloads::Identify;
 mod error;
 pub use error::GatewayError;
 
-mod outboundmessage;
-use outboundmessage::OutboundMessage;
+mod outbound_message;
+use outbound_message::OutboundMessage;
 
 mod shardinfo;
 pub use shardinfo::ShardInfo;

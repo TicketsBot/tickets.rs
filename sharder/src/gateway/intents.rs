@@ -1,4 +1,5 @@
 #[derive(Copy, Clone)]
+#[allow(dead_code)]
 pub enum Intents {
     Guilds = 1 << 0,
     GuildMembers = 1 << 1,

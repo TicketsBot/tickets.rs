@@ -1,6 +1,5 @@
 use serde::{Serialize, Deserialize};
 
-use super::ActivityType;
 use crate::model::Snowflake;
 
 #[derive(Serialize, Deserialize, Debug)]
