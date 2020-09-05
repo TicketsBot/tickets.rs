@@ -1,0 +1,16 @@
+[package]
+name = "cache"
+version = "0.1.0"
+authors = ["rxdn <29165304+rxdn@users.noreply.github.com>"]
+edition = "2018"
+
+[dependencies]
+model = { path = "../model" }
+tokio = { version = "0.2", features = ["full", "time", "sync"] }
+futures-util = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+sqlx = { version = "0.4.0-beta.1", features = ["macros", "runtime-tokio", "postgres", "chrono", "json"], default-features = false }
+async-trait = "0.1"

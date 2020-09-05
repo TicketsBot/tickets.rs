@@ -1,11 +1,11 @@
-use serde::Deserialize;
+use serde::{Serialize, Deserialize};
 
-use crate::model::channel::Channel;
-use crate::model::guild::{Guild, UnavailableGuild, VoiceState};
-use crate::model::channel::message::Message;
-use crate::model::user::{PresenceUpdate, User};
+use model::channel::Channel;
+use model::guild::{Guild, UnavailableGuild, VoiceState};
+use model::channel::message::Message;
+use model::user::{PresenceUpdate, User};
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "t", content = "d")]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Event {
@@ -43,5 +43,5 @@ pub enum Event {
     UserUpdate(User),
     VoiceStateUpdate(VoiceState),
     VoiceServerUpdate(super::VoiceServerUpdate),
-    WebhooksUpdate(super::WebhooksUpdate),
+    WebhookUpdate(super::WebhooksUpdate),
 }

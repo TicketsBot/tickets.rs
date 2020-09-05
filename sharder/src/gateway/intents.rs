@@ -21,7 +21,7 @@ pub enum Intents {
 impl Intents {
     pub fn build(intents: Vec<Intents>) -> u64 {
         let mut sum = 0;
-        intents.into_iter().for_each(|i| sum |= (i as u64));
+        intents.into_iter().for_each(|i| sum |= i as u64);
         sum
     }
 }

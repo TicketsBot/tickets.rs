@@ -1,8 +1,6 @@
 use serde::Deserialize;
-use serde_json::value::Value;
 
 use super::Opcode;
-use super::event::Event;
 
 #[derive(Deserialize, Debug)]
 pub struct Dispatch {
@@ -10,5 +8,5 @@ pub struct Dispatch {
     opcode: Opcode,
 
     #[serde(rename = "d", flatten)]
-    pub data: Event,
+    pub data: serde_json::Value,
 }

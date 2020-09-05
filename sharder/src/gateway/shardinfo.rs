@@ -3,12 +3,12 @@ use serde::ser::SerializeSeq;
 
 #[derive(Debug)]
 pub struct ShardInfo {
-    pub shard_id: i32,
-    pub num_shards: i32,
+    pub shard_id: u16,
+    pub num_shards: u16,
 }
 
 impl ShardInfo {
-    pub fn new(shard_id: i32, num_shards: i32) -> ShardInfo {
+    pub fn new(shard_id: u16, num_shards: u16) -> ShardInfo {
         ShardInfo { shard_id, num_shards }
     }
 }
@@ -26,7 +26,7 @@ impl Serialize for ShardInfo {
 
 impl<'de> Deserialize<'de> for ShardInfo {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let seq: [i32; 2] = Deserialize::deserialize(deserializer)?;
+        let seq: [u16; 2] = Deserialize::deserialize(deserializer)?;
 
         Ok(ShardInfo {
             shard_id: seq[0],

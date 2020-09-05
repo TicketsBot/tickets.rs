@@ -1,5 +1,9 @@
 [workspace]
 members = [
     "patreon-proxy",
-    "sharder"
+    "sharder",
+    "cache",
+    "model",
+    "common",
+    "database"
 ]

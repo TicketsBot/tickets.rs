@@ -17,7 +17,7 @@ impl Identify {
         token: String,
         large_threshold: Option<i32>,
         shard_info: ShardInfo,
-        presence: Option<crate::model::user::StatusUpdate>,
+        presence: Option<model::user::StatusUpdate>,
         intents: u64,
     ) -> Identify {
         if let Some(large_threshold) = large_threshold {
@@ -58,7 +58,7 @@ pub struct IdentifyData {
     pub shard_info: ShardInfo,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub presence: Option<crate::model::user::StatusUpdate>,
+    pub presence: Option<model::user::StatusUpdate>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guild_subscriptions: Option<bool>,
