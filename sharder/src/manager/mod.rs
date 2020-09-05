@@ -10,6 +10,9 @@ pub use whitelabel_shard_manager::WhitelabelShardManager;
 mod options;
 pub use options::*;
 
+mod fatal_error;
+pub use fatal_error::FatalError;
+
 use crate::gateway::Intents;
 fn get_intents() -> u64 {
     Intents::build(vec![

@@ -23,7 +23,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let redis = Arc::new(build_redis().await);
 
     let mut sm = PublicShardManager::connect(options, cache, redis);
-    futures::future::join_all(sm.get_join_handles()).await;
+
+    sm.start_error_loop().await;
+
+    //futures::future::join_all(sm.get_join_handles()).await;
 
     Ok(())
 }

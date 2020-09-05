@@ -61,12 +61,22 @@ impl Whitelabel {
         }
     }
 
-    pub async fn get_bots_by_sharder(&self, sharder_count: i32, sharder_id: i32) -> Result<Vec<WhitelabelBot>, Error> {
+    pub async fn get_bot_by_token(&self, token: &str) -> Result<Option<WhitelabelBot>, Error> {
+        let query = r#"SELECT * FROM whitelabel WHERE "token" = $1"#;
+
+        match sqlx::query_as::<_, WhitelabelBot>(query).bind(token).fetch_one(&*self.db).await {
+            Ok(bot) => Ok(Some(bot)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub async fn get_bots_by_sharder(&self, sharder_count: u16, sharder_id: u16) -> Result<Vec<WhitelabelBot>, Error> {
         let query = r#"SELECT * FROM whitelabel WHERE "bot_id" % $1 = $2"#;
 
         let mut rows = sqlx::query_as::<_, WhitelabelBot>(query)
-            .bind(sharder_count)
-            .bind(sharder_id)
+            .bind(sharder_count as i32)
+            .bind(sharder_id as i32)
             .fetch(&*self.db);
 
         let mut bots = Vec::new();
@@ -110,7 +120,7 @@ ON CONFLICT("user_id") DO
         Ok(())
     }
 
-    pub async fn delete_by_token(&self, token: String) -> Result<(), Error> {
+    pub async fn delete_by_token(&self, token: &str) -> Result<(), Error> {
         let query = r#"DELETE FROM whitelabel WHERE "token" = $1;"#;
 
         sqlx::query(query)

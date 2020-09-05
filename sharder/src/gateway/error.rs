@@ -1,5 +1,7 @@
 use thiserror::Error;
 use std::fmt::Display;
+use crate::gateway::outbound_message::OutboundMessage;
+use crate::manager::FatalError;
 
 #[derive(Error, Debug)]
 pub enum GatewayError {
@@ -23,6 +25,18 @@ pub enum GatewayError {
 
     #[error("error while operating on Redis: {0}")]
     RedisError(#[from] r2d2_redis::redis::RedisError),
+
+    #[error("error while operating on websocket: {0}")]
+    WebsocketError(#[from] tokio_tungstenite::tungstenite::Error),
+
+    #[error("error while reading oneshot channel: {0}")]
+    RecvError(#[from] tokio::sync::oneshot::error::RecvError),
+
+    #[error("error while sending message to writer: {0}")]
+    SendMessageError(#[from] tokio::sync::mpsc::error::SendError<OutboundMessage>),
+
+    #[error("error while sending message to error chan: {0}")]
+    SendErrorError(#[from] tokio::sync::mpsc::error::SendError<FatalError>),
 }
 
 impl GatewayError {

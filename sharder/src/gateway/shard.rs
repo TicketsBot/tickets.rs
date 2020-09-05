@@ -34,6 +34,9 @@ use crate::gateway::payloads::Dispatch;
 use serde_json::{Value, Map};
 use r2d2_redis::{RedisConnectionManager, redis};
 use crate::gateway::GatewayError;
+use crate::manager::FatalError;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 pub struct Shard {
     identify: payloads::Identify,
@@ -41,6 +44,7 @@ pub struct Shard {
     cache: Arc<PostgresCache>,
     redis: Arc<Pool<RedisConnectionManager>>,
     is_whitelabel: bool,
+    error_tx: mpsc::Sender<FatalError>,
     bot_id: RwLock<Option<Snowflake>>,
     total_rx: u64,
     seq: Arc<RwLock<Option<usize>>>,
@@ -65,6 +69,7 @@ impl Shard {
         cache: Arc<PostgresCache>,
         redis: Arc<Pool<RedisConnectionManager>>,
         is_whitelabel: bool,
+        error_tx: mpsc::Sender<FatalError>
     ) -> Shard {
         let (kill_shard_tx, kill_shard_rx) = mpsc::channel(1);
 
@@ -74,6 +79,7 @@ impl Shard {
             cache,
             redis,
             is_whitelabel,
+            error_tx,
             bot_id: RwLock::new(None),
             total_rx: 0,
             seq: Arc::new(RwLock::new(None)),
@@ -95,7 +101,7 @@ impl Shard {
         let (ws_tx, ws_rx) = wss.split();
 
         // start writer
-        let (writer_tx, writer_rx) = mpsc::channel(100);
+        let (writer_tx, writer_rx) = mpsc::channel(16);
         tokio::spawn(async move {
             Shard::handle_writes(ws_tx, writer_rx).await;
         });
@@ -125,25 +131,32 @@ impl Shard {
         &self,
         msg: T,
         tx: oneshot::Sender<Result<(), tokio_tungstenite::tungstenite::Error>>,
-    ) -> Result<(), Box<dyn Error>> {
-        OutboundMessage::new(msg, tx)?.send(self.writer.clone().unwrap()).await?;
+    ) -> Result<(), GatewayError> {
+        OutboundMessage::new(msg, tx)
+            .map_err(GatewayError::JsonError)?
+            .send(self.writer.clone().unwrap())
+            .await
+            .map_err(GatewayError::SendMessageError)?;
+
         Ok(())
     }
 
     // helper function
     async fn kill(&mut self) {
-        self.kill_shard_tx.send(()).await;
+        // BIG problem
+        // TODO: panic?
+        if let Err(e) = self.kill_shard_tx.send(()).await {
+            eprintln!("Failed to kill shard! {}", e);
+        }
     }
 
-    async fn listen(&mut self, mut ws_rx: WebSocketRx) -> Result<(), tokio_tungstenite::tungstenite::Error> {
+    async fn listen(&mut self, mut ws_rx: WebSocketRx) -> Result<(), GatewayError> {
         let mut decoder = Decompress::new(true);
 
-        let mut killed = false;
-        while !killed {
+        loop {
             match self.kill_shard_rx.try_recv() {
                 Err(mpsc::error::TryRecvError::Empty) => {}
                 _ => {
-                    killed = true;
                     break;
                 }
             };
@@ -155,12 +168,22 @@ impl Shard {
                 }
 
                 Some(Err(e)) => {
-                    return Err(e);
+                    return Err(GatewayError::WebsocketError(e));
                 }
 
                 Some(Ok(msg)) => {
-                    if msg.is_close() {
-                        println!("Shard {} closed: {:?}", self.get_shard_id(), msg.to_text());
+                    if let Message::Close(frame) = msg {
+                        let frame = frame.unwrap_or(CloseFrame {
+                            code: CloseCode::Invalid,
+                            reason: Default::default(),
+                        });
+
+                        let wrapped = FatalError::new(self.identify.data.token.clone(), frame.code, frame.reason.to_string());
+
+                        if let Err(e) = self.error_tx.send(wrapped).await {
+                            return Err(GatewayError::SendErrorError(e))
+                        }
+
                         return Ok(());
                     }
 
@@ -267,10 +290,17 @@ impl Shard {
             Opcode::Hello => {
                 let hello: payloads::Hello = serde_json::from_slice(&raw[..])?;
 
-                if self.session_id.read().await.is_some() && self.seq.read().await.is_some() {
-                    self.do_resume().await; // TODO: Handle error
+                let res = if self.session_id.read().await.is_some() && self.seq.read().await.is_some() {
+                    self.do_resume().await
                 } else {
-                    self.do_identify().await; // TODO: Handle error
+                    self.do_identify().await
+                };
+
+                // TODO: Fatal error log, check if we should remove token
+                if let Err(e) = res {
+                    eprintln!("Received error while authenticating: {}", e);
+                    self.kill().await;
+                    return Err(Box::new(e));
                 }
 
                 // we unwrap here because writer should never be None.
@@ -413,7 +443,7 @@ impl Shard {
             is_whitelabel: self.is_whitelabel,
             shard_id: self.get_shard_id(),
             event_type: event_type.to_owned(),
-            data: payload.data.clone(),
+            data: payload.data.get("d").unwrap(),
             extra,
         };
 
@@ -454,7 +484,12 @@ impl Shard {
                 {
                     let last_ack = last_ack.read().await;
                     if has_sent_heartbeat && last_ack.elapsed() > interval {
-                        kill_shard_tx.send(()).await;
+                        // BIG problem
+                        // TODO: panic?
+                        if let Err(e) = kill_shard_tx.send(()).await {
+                            eprintln!("Failed to kill shard! {}", e);
+                        }
+
                         break;
                     }
                 }
@@ -474,7 +509,12 @@ impl Shard {
                 // even if you explicitly drop(e), it still says e is dropped after the `if let` scope ends.
                 // found a compiler bug on my second day of rust, wahey!
                 if should_kill {
-                    kill_shard_tx.send(()).await;
+                    // BIG problem
+                    // TODO: panic?
+                    if let Err(e) = kill_shard_tx.send(()).await {
+                        eprintln!("Failed to kill shard! {}", e);
+                    }
+
                     break;
                 }
 
@@ -503,13 +543,12 @@ impl Shard {
         Ok(())
     }
 
-    // TODO: Ratelimit
-    async fn do_identify(&mut self) -> Result<(), Box<dyn Error>> {
+    async fn do_identify(&mut self) -> Result<(), GatewayError> {
         self.wait_for_ratelimit().await?;
 
         let (tx, rx) = oneshot::channel();
         self.write(&self.identify, tx).await?;
-        Ok(rx.await??)
+        Ok(rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketError)?)
     }
 
     async fn wait_for_ratelimit(&self) -> Result<(), GatewayError> {
@@ -534,7 +573,7 @@ impl Shard {
 
     /// Shard.session_id & Shard.seq should not be None when calling this function
     /// if they are, the function will panic
-    async fn do_resume(&mut self) -> Result<(), Box<dyn Error>> {
+    async fn do_resume(&mut self) -> Result<(), GatewayError> {
         let payload = payloads::Resume::new(
             self.identify.data.token.clone(),
             self.session_id.read().await.as_ref().unwrap().clone(),
@@ -542,9 +581,9 @@ impl Shard {
         );
 
         let (tx, rx) = oneshot::channel();
-        self.write(payload, tx).await;
+        self.write(payload, tx).await?;
 
-        Ok(rx.await??)
+        Ok(rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketError)?)
     }
 
     /// helper
