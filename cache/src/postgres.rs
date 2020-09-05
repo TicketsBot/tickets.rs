@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use model::channel::Channel;
 use model::guild::{Role, Guild, Member, Emoji, VoiceState};
+use serde_json::Value;
 
 pub struct PostgresCache {
     opts: Options,
@@ -132,7 +133,16 @@ impl Cache for PostgresCache {
         match sqlx::query!(r#"SELECT "data" FROM guilds WHERE "guild_id" = $1;"#, id.0 as i64).fetch_one(&self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => Ok(Some(serde_json::from_value::<Guild>(r.data)?)),
+            Ok(r) => {
+                let r: Value = r.data;
+                match r {
+                    Value::Object(mut m) => {
+                        m.insert("guild_id".to_owned(), Value::Number(serde_json::Number::from(id.0)));
+                        Ok(Some(serde_json::from_value::<Guild>(Value::Object(m))?))
+                    }
+                    _ => Err(CacheError::WrongType()),
+                }
+            },
         }
     }
 
@@ -183,7 +193,7 @@ impl Cache for PostgresCache {
         match sqlx::query!(r#"SELECT "data" FROM channels WHERE "channel_id" = $1;"#, id.0 as i64).fetch_one(&self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => Ok(Some(serde_json::from_value::<Channel>(r.data)?)),
+            Ok(r) => Ok(Some(serde_json::from_value::<Channel>(r.data)?)), // TODO: Insert channel_id
         }
     }
 
@@ -232,7 +242,7 @@ impl Cache for PostgresCache {
         match sqlx::query!(r#"SELECT "data" FROM users WHERE "user_id" = $1;"#, id.0 as i64).fetch_one(&self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => Ok(Some(serde_json::from_value::<User>(r.data)?)),
+            Ok(r) => Ok(Some(serde_json::from_value::<User>(r.data)?)), // TODO: Insert user_id
         }
     }
 
@@ -283,7 +293,7 @@ impl Cache for PostgresCache {
         match sqlx::query!(r#"SELECT "data" FROM members WHERE "guild_id" = $1 AND "user_id" = $2;"#, user_id.0 as i64, guild_id.0 as i64).fetch_one(&self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => Ok(Some(serde_json::from_value::<Member>(r.data)?)),
+            Ok(r) => Ok(Some(serde_json::from_value::<Member>(r.data)?)), // TODO: Insert guild_id & user_id
         }
     }
 
@@ -332,7 +342,7 @@ impl Cache for PostgresCache {
         match sqlx::query!(r#"SELECT "data" FROM roles WHERE "role_id" = $1;"#, id.0 as i64).fetch_one(&self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => Ok(Some(serde_json::from_value::<Role>(r.data)?)),
+            Ok(r) => Ok(Some(serde_json::from_value::<Role>(r.data)?)), // TODO: Insert role_id
         }
     }
 
@@ -383,7 +393,7 @@ impl Cache for PostgresCache {
         match sqlx::query!(r#"SELECT "data" FROM emojis WHERE "emoji_id" = $1;"#, emoji_id.0 as i64).fetch_one(&self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => Ok(Some(serde_json::from_value::<Emoji>(r.data)?)),
+            Ok(r) => Ok(Some(serde_json::from_value::<Emoji>(r.data)?)), // TODO: Insert emoji_id
         }
     }
 
@@ -434,7 +444,7 @@ impl Cache for PostgresCache {
         match sqlx::query!(r#"SELECT "data" FROM voice_states WHERE "guild_id" = $1 AND "user_id" = $2;"#, guild_id.0 as i64, user_id.0 as i64).fetch_one(&self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => Ok(Some(serde_json::from_value::<VoiceState>(r.data)?)),
+            Ok(r) => Ok(Some(serde_json::from_value::<VoiceState>(r.data)?)), // TODO: Insert guild_id & user_id
         }
     }
 

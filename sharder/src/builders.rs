@@ -12,11 +12,11 @@ use r2d2_redis::redis::{ConnectionInfo, ConnectionAddr};
 pub async fn build_cache() -> PostgresCache {
     let cache_uri = &var_or_panic("CACHE_URI");
     let cache_opts = Options {
-        users: true,
-        guilds: true,
-        members: true,
-        channels: true,
-        roles: true,
+        users: false,
+        guilds: false,
+        members: false,
+        channels: false,
+        roles: false,
         emojis: false,
         voice_states: false,
     };

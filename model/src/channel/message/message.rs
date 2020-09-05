@@ -35,7 +35,7 @@ pub struct Message {
     pub embed: Option<Vec<Embed>>,
     #[serde(default)]
     pub reactions: Vec<Reaction>,
-    pub nonce: Option<String>,
+    pub nonce: Option<serde_json::Value>,
     #[serde(default)]
     pub pinned: bool,
     pub webhook_id: Option<Snowflake>,

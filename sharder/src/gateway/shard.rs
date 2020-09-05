@@ -87,7 +87,8 @@ impl Shard {
     }
 
     pub async fn connect(&mut self) -> Result<(), Box<dyn Error>> {
-        println!("connecting {}", self.get_shard_id());
+        self.total_rx = 0; // rst
+
         let uri = url::Url::parse("wss://gateway.discord.gg/?v=6&encoding=json&compress=zlib-stream").unwrap();
 
         let (wss, _) = connect_async(uri).await?;
@@ -514,7 +515,6 @@ impl Shard {
     async fn wait_for_ratelimit(&self) -> Result<(), GatewayError> {
         let key = &format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets);
 
-        println!("{}", key);
         let mut res: Option<()> = None;
         while res.is_none() {
             res = redis::cmd("SET")
@@ -526,7 +526,6 @@ impl Shard {
                 .query(self.redis.get().map_err(GatewayError::PoolError)?.deref_mut()) // TODO: Use asyncio
                 .map_err(GatewayError::RedisError)?;
 
-            println!("{:?}", res);
             delay_for(Duration::from_secs(1)).await;
         }
 

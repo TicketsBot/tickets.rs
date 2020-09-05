@@ -8,7 +8,7 @@ pub struct Role {
     pub name: String,
     pub color: u32,
     pub hoist: bool,
-    pub position: u16,
+    pub position: i16,
     pub permissions: u32,
     pub permissions_new: PermissionBitSet,
     pub managed: bool,
