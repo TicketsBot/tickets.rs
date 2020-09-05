@@ -28,9 +28,9 @@ jobs:
           destination: patreon-proxy
 
       - store_artifacts:
-          path: ./target/release/patreon-proxy
+          path: ./target/release/public
           destination: public-sharder
 
-      - store_artifacts:
-          path: ./target/release/patreon-proxy
-          destination: whitelabel-sharder
+     # - store_artifacts:
+          #path: ./target/release/patreon-proxy
+         # destination: whitelabel-sharder
