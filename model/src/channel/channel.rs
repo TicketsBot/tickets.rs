@@ -22,7 +22,7 @@ pub struct Channel {
     pub topic: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nsfw: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
     pub last_message_id: Option<Snowflake>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bitrate: Option<u32>,

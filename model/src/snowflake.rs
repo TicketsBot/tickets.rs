@@ -7,9 +7,24 @@ use sqlx::error::BoxDynError;
 use sqlx::Postgres;
 use sqlx::postgres::{PgValueRef, PgArgumentBuffer};
 use sqlx::encode::IsNull;
+use std::str::FromStr;
+use std::num::ParseIntError;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct Snowflake(pub u64);
+
+impl Snowflake {
+    pub fn serialize_to_int<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u64(self.0)
+    }
+
+    pub fn serialize_option_to_int<S: Serializer>(op: &Option<Snowflake>, serializer: S) -> Result<S::Ok, S::Error> {
+        match op {
+            Some(s) => s.serialize_to_int(serializer),
+            None => serializer.serialize_none()
+        }
+    }
+}
 
 impl Serialize for Snowflake {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -36,6 +51,14 @@ impl<'de> Deserialize<'de> for Snowflake {
 impl fmt::Display for Snowflake {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for Snowflake {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Snowflake(s.parse()?))
     }
 }
 

@@ -78,7 +78,6 @@ impl Cache for PostgresCache {
             query.push_str(&format!(r#"({}, {}::jsonb)"#, guild.id.0, quote_literal(encoded)));
         }
 
-        //e
         query.push_str(r#" ON CONFLICT("guild_id") DO UPDATE SET "data" = excluded.data;"#);
 
         // TODO: Don't prepare statement

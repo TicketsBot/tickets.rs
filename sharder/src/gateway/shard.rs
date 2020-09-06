@@ -15,8 +15,6 @@ use std::time::Instant;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use r2d2::Pool;
-
 use tokio::sync::{mpsc, oneshot};
 use futures_util::{StreamExt, SinkExt, stream::{SplitSink, SplitStream}};
 use tokio_tungstenite::{WebSocketStream, connect_async, tungstenite::Message};
@@ -26,26 +24,28 @@ use serde::Serialize;
 use cache::{Cache, PostgresCache};
 use model::guild::Member;
 use chrono::Utc;
-use std::ops::{Sub, DerefMut};
+use std::ops::Sub;
 use model::channel::Channel;
 use model::Snowflake;
 use common::event_forwarding;
-use crate::gateway::payloads::Dispatch;
+use crate::gateway::payloads::{Dispatch, PresenceUpdate};
 use serde_json::{Value, Map};
-use r2d2_redis::{RedisConnectionManager, redis};
 use crate::gateway::GatewayError;
 use crate::manager::FatalError;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use model::user::StatusUpdate;
+use darkredis::{ConnectionPool, Command};
 
 pub struct Shard {
     identify: payloads::Identify,
     large_sharding_buckets: u16,
     cache: Arc<PostgresCache>,
-    redis: Arc<Pool<RedisConnectionManager>>,
+    redis: Arc<ConnectionPool>,
     is_whitelabel: bool,
     error_tx: mpsc::Sender<FatalError>,
-    bot_id: RwLock<Option<Snowflake>>,
+    status_update_rx: Option<mpsc::Receiver<StatusUpdate>>,
+    bot_id: Arc<RwLock<Option<Snowflake>>>,
     total_rx: u64,
     seq: Arc<RwLock<Option<usize>>>,
     session_id: Arc<RwLock<Option<String>>>,
@@ -67,9 +67,10 @@ impl Shard {
         identify: payloads::Identify,
         large_sharding_buckets: u16,
         cache: Arc<PostgresCache>,
-        redis: Arc<Pool<RedisConnectionManager>>,
+        redis: Arc<ConnectionPool>,
         is_whitelabel: bool,
-        error_tx: mpsc::Sender<FatalError>
+        error_tx: mpsc::Sender<FatalError>,
+        status_update_rx: Option<mpsc::Receiver<StatusUpdate>>,
     ) -> Shard {
         let (kill_shard_tx, kill_shard_rx) = mpsc::channel(1);
 
@@ -80,7 +81,8 @@ impl Shard {
             redis,
             is_whitelabel,
             error_tx,
-            bot_id: RwLock::new(None),
+            status_update_rx,
+            bot_id: Arc::new(RwLock::new(None)),
             total_rx: 0,
             seq: Arc::new(RwLock::new(None)),
             session_id: Arc::new(RwLock::new(None)),
@@ -106,6 +108,10 @@ impl Shard {
             Shard::handle_writes(ws_tx, writer_rx).await;
         });
         self.writer = Some(writer_tx);
+
+        if let Some(_) = self.status_update_rx {
+            self.listen_status_updates();
+        }
 
         // start read loop
         if let Err(e) = self.listen(ws_rx).await {
@@ -150,6 +156,38 @@ impl Shard {
         }
     }
 
+    fn listen_status_updates(&mut self) {
+        // we can take here as this loop should continue running infinitely, even after
+        // a shard restart.
+        let mut rx = self.status_update_rx.take().unwrap();
+        let writer = self.writer.clone().unwrap();
+
+        tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                // create payload
+                let payload = PresenceUpdate::new(msg);
+
+                let (res_tx, res_rx) = oneshot::channel();
+
+                match OutboundMessage::new(payload, res_tx) {
+                    Ok(msg) => {
+                        match msg.send(writer.clone()).await {
+                            Ok(_) => {
+                                match res_rx.await {
+                                    Ok(Err(e)) => eprintln!("Error writing status update: {}", e),
+                                    Err(e) => eprintln!("Error writing status update: {}", e),
+                                    _ => {}
+                                }
+                            }
+                            Err(e) => eprintln!("Error writing status update: {}", e),
+                        }
+                    }
+                    Err(e) => eprintln!("Failed to serialize status update: {}", e),
+                }
+            }
+        });
+    }
+
     async fn listen(&mut self, mut ws_rx: WebSocketRx) -> Result<(), GatewayError> {
         let mut decoder = Decompress::new(true);
 
@@ -168,7 +206,7 @@ impl Shard {
                 }
 
                 Some(Err(e)) => {
-                    return Err(GatewayError::WebsocketError(e));
+                    return GatewayError::WebsocketError(e).into();
                 }
 
                 Some(Ok(msg)) => {
@@ -181,7 +219,7 @@ impl Shard {
                         let wrapped = FatalError::new(self.identify.data.token.clone(), frame.code, frame.reason.to_string());
 
                         if let Err(e) = self.error_tx.send(wrapped).await {
-                            return Err(GatewayError::SendErrorError(e))
+                            return GatewayError::SendErrorError(e).into();
                         }
 
                         return Ok(());
@@ -285,6 +323,7 @@ impl Shard {
                     }
                 };
 
+                self.kill().await;
                 res.map(|_| ()).map_err(|e| Box::new(e) as Box<dyn Error>)
             }
             Opcode::Hello => {
@@ -439,7 +478,7 @@ impl Shard {
         // push to redis
         let wrapped = event_forwarding::Event {
             bot_token: self.identify.data.token.clone(),
-            bot_id,
+            bot_id: bot_id.0,
             is_whitelabel: self.is_whitelabel,
             shard_id: self.get_shard_id(),
             event_type: event_type.to_owned(),
@@ -448,10 +487,12 @@ impl Shard {
         };
 
         let json = serde_json::to_string(&wrapped).map_err(GatewayError::JsonError)?;
-        redis::cmd("RPUSH")
-            .arg(common::event_forwarding::KEY)
-            .arg(json)
-            .execute(self.redis.get().map_err(GatewayError::PoolError)?.deref_mut());
+
+
+        self.redis.get().await
+            .rpush(event_forwarding::KEY, json)
+            .await
+            .map_err(GatewayError::RedisError)?;
 
         Ok(())
     }
@@ -552,20 +593,35 @@ impl Shard {
     }
 
     async fn wait_for_ratelimit(&self) -> Result<(), GatewayError> {
-        let key = &format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets);
+        let key = format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets);
 
-        let mut res: Option<()> = None;
-        while res.is_none() {
-            res = redis::cmd("SET")
-                .arg(key)
-                .arg("1") // some arbitrary value
-                .arg("NX") // set if key doesn't exist
-                .arg("PX") // set expiry (millis)
-                .arg("6000") // expiry in 6s
-                .query(self.redis.get().map_err(GatewayError::PoolError)?.deref_mut()) // TODO: Use asyncio
-                .map_err(GatewayError::RedisError)?;
+        let mut res = darkredis::Value::Nil;
+        while res == darkredis::Value::Nil {
+            let mut conn = self.redis.get().await;
 
-            delay_for(Duration::from_secs(1)).await;
+            // some arbitrary value, set if not exist, set expiry, of 6s
+            res = conn.run_command(
+                Command::new("SET")
+                    .args(&[&key[..], "1", "NX", "PX", "6000"])
+            ).await.map_err(GatewayError::RedisError)?;
+            println!("{:?}", res);
+
+            if res == darkredis::Value::Nil {
+                // get time to delay
+                let cmd = Command::new("PTTL").arg(&key);
+
+                match conn.run_command(cmd).await.map_err(GatewayError::RedisError)? {
+                    darkredis::Value::Integer(ttl) => {
+                        // if number is negative, we can go ahead and identify
+                        // -1 = no expire, -2 = doesn't exist
+                        if ttl > 0 {
+                            let ttl = Duration::from_millis(ttl as u64);
+                            delay_for(ttl).await
+                        }
+                    },
+                    _ => {}
+                }
+            }
         }
 
         Ok(())

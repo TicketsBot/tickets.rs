@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use sharder::{PublicShardManager, ShardManager, ShardCount, build_redis};
+use sharder::{PublicShardManager, ShardManager, ShardCount};
 use model::user::{StatusUpdate, ActivityType, StatusType};
 
-use sharder::{var_or_panic, build_cache};
+use sharder::{var_or_panic, build_cache, build_redis};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

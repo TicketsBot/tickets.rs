@@ -20,11 +20,8 @@ pub enum GatewayError {
     #[error("error while encoding redis payload: {0}")]
     JsonError(#[from] serde_json::Error),
 
-    #[error("error while obtaining connection from pool: {0}")]
-    PoolError(#[from] r2d2::Error),
-
     #[error("error while operating on Redis: {0}")]
-    RedisError(#[from] r2d2_redis::redis::RedisError),
+    RedisError(#[from] darkredis::Error),
 
     #[error("error while operating on websocket: {0}")]
     WebsocketError(#[from] tokio_tungstenite::tungstenite::Error),
@@ -42,5 +39,11 @@ pub enum GatewayError {
 impl GatewayError {
     pub fn custom<T: Display>(msg: T) -> GatewayError {
         GatewayError::GenericError(msg.to_string())
+    }
+}
+
+impl<T> Into<Result<T, GatewayError>> for GatewayError {
+    fn into(self) -> Result<T, GatewayError> {
+        Err(self)
     }
 }

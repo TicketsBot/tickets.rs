@@ -1,12 +1,9 @@
 use super::var_or_panic;
 
-use std::env;
-
 use cache::{PostgresCache, Options};
 use sqlx::postgres::PgPoolOptions;
-use r2d2_redis::r2d2::Pool;
-use r2d2_redis::RedisConnectionManager;
-use r2d2_redis::redis::{ConnectionInfo, ConnectionAddr};
+use darkredis::ConnectionPool;
+use std::env;
 
 /// panics on err
 pub async fn build_cache() -> PostgresCache {
@@ -29,26 +26,10 @@ pub async fn build_cache() -> PostgresCache {
 }
 
 /// panics on err
-pub async fn build_redis() -> Pool<RedisConnectionManager> {
-    let pwd = match env::var("REDIS_PASSWD") {
-        Ok(pwd) => Some(pwd),
-        Err(_) => None,
-    };
-
-    let conn_addr = ConnectionAddr::Tcp(
-        var_or_panic("REDIS_ADDR"),
-        env::var("REDIS_PORT").map(|p| p.parse().unwrap_or(6379)).unwrap_or(6379)
-    );
-
-    let connection_info = ConnectionInfo {
-        addr: Box::new(conn_addr),
-        db: 0,
-        passwd: pwd,
-    };
-
-    let manager = RedisConnectionManager::new(connection_info).unwrap();
-    r2d2::Pool::builder()
-        .max_size(var_or_panic("REDIS_THREADS").parse().unwrap())
-        .build(manager)
-        .unwrap()
+pub async fn build_redis() -> ConnectionPool {
+    ConnectionPool::create(
+        var_or_panic("REDIS_URI"),
+        env::var("REDIS_PASSWORD").ok().as_ref().map(|s| s.as_str()),
+        var_or_panic("REDIS_THREADS").parse().unwrap()
+    ).await.unwrap()
 }

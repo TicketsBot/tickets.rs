@@ -23,6 +23,5 @@ thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 sqlx = { version = "0.4.0-beta.1", features = ["macros", "runtime-tokio", "postgres", "chrono", "json"], default-features = false }
 async-trait = "0.1"
-redis = { version = "0.17", features = ["r2d2", "tokio-rt-core", "connection-manager"] }
-r2d2 = "0.8"
-r2d2_redis = "0.13"
+redis = { version = "0.17", features = ["tokio-rt-core", "connection-manager"] }
+darkredis = "0.7"
