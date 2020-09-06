@@ -51,7 +51,7 @@ pub struct Shard {
     session_id: Arc<RwLock<Option<String>>>,
     writer: Option<mpsc::Sender<OutboundMessage>>,
     kill_heartbeat: Option<oneshot::Sender<()>>,
-    kill_shard_tx: mpsc::Sender<()>,
+    pub kill_shard_tx: mpsc::Sender<()>,
     kill_shard_rx: mpsc::Receiver<()>,
     last_ack: Arc<RwLock<Instant>>,
 }
@@ -486,8 +486,7 @@ impl Shard {
             extra,
         };
 
-        let json = serde_json::to_string(&wrapped).map_err(GatewayError::JsonError)?;
-
+        let json = &serde_json::to_string(&wrapped).map_err(GatewayError::JsonError)?;
 
         self.redis.get().await
             .rpush(event_forwarding::KEY, json)
@@ -604,7 +603,6 @@ impl Shard {
                 Command::new("SET")
                     .args(&[&key[..], "1", "NX", "PX", "6000"])
             ).await.map_err(GatewayError::RedisError)?;
-            println!("{:?}", res);
 
             if res == darkredis::Value::Nil {
                 // get time to delay

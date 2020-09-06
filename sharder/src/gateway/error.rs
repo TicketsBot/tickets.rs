@@ -34,6 +34,9 @@ pub enum GatewayError {
 
     #[error("error while sending message to error chan: {0}")]
     SendErrorError(#[from] tokio::sync::mpsc::error::SendError<FatalError>),
+
+    #[error("error occurred while compressing payload: {0}")]
+    CompressError(#[from] flate2::CompressError),
 }
 
 impl GatewayError {
