@@ -10,7 +10,7 @@ model = { path = "../model" }
 common = { path = "../common" }
 database = { path = "../database" }
 tokio = { version = "0.2", features = ["full", "time", "sync"] }
-tokio-tungstenite = { version = "0.10", features = ["tls"] }
+tokio-tungstenite = { version = "0.11", features = ["tls"] }
 tokio-tls = "0.3"
 url = "2.1"
 futures = "0.3"
@@ -25,4 +25,5 @@ sqlx = { version = "0.4.0-beta.1", features = ["macros", "runtime-tokio", "postg
 async-trait = "0.1"
 redis = { version = "0.17", features = ["tokio-rt-core", "connection-manager"] }
 darkredis = "0.7"
-native-tls = { version = "0.2", features = ["vendorer"] } # statically linking bad!!!
+native-tls = { version = "0.2", features = ["vendored"] } # statically linking bad!!!
+rustls = "0.18" # statically linking bad!!!

@@ -527,7 +527,6 @@ impl Shard {
                 {
                     let last_ack = *self.last_ack.read().await;
                     let last_heartbeat = *self.last_heartbeat.read().await;
-                    println!("{:?} {:?}", last_ack, last_heartbeat);
                     if has_sent_heartbeat && (last_heartbeat > last_ack || last_ack.duration_since(last_heartbeat) > interval) {
                         // BIG problem
                         // TODO: panic?
