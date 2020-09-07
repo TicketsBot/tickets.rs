@@ -198,7 +198,7 @@ impl Shard {
 
             match shard.kill_shard_rx.lock().await.try_recv() {
                 Err(mpsc::error::TryRecvError::Empty) => {}
-                other => {
+                _ => {
                     // kill heartbeat loop
                     if let Some(kill_heartbeat) = shard.kill_heartbeat.lock().await.take() {
                         if let Err(_) = kill_heartbeat.send(()) {
