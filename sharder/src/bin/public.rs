@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use sharder::{PublicShardManager, ShardManager, ShardCount};
+use sharder::{PublicShardManager, ShardCount, ShardManager};
 use model::user::{StatusUpdate, ActivityType, StatusType};
 
 use sharder::{var_or_panic, build_cache, build_redis};
@@ -22,7 +22,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // init redis
     let redis = Arc::new(build_redis().await);
 
-    let mut sm = PublicShardManager::connect(options, cache, redis);
+    let sm = PublicShardManager::new(options, cache, redis).await;
+    Arc::clone(&sm).connect().await;
 
     sm.start_error_loop().await;
 

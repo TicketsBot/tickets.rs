@@ -13,7 +13,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Mutex};
 
 use tokio::sync::{mpsc, oneshot};
 use futures_util::{StreamExt, SinkExt, stream::{SplitSink, SplitStream}};
@@ -43,16 +43,16 @@ pub struct Shard {
     cache: Arc<PostgresCache>,
     redis: Arc<ConnectionPool>,
     is_whitelabel: bool,
-    error_tx: mpsc::Sender<FatalError>,
-    status_update_rx: Option<mpsc::Receiver<StatusUpdate>>,
+    error_tx: Mutex<mpsc::Sender<FatalError>>,
+    pub status_update_tx: mpsc::Sender<StatusUpdate>,
     bot_id: Arc<RwLock<Option<Snowflake>>>,
-    total_rx: u64,
+    total_rx: Mutex<u64>,
     seq: Arc<RwLock<Option<usize>>>,
     session_id: Arc<RwLock<Option<String>>>,
-    writer: Option<mpsc::Sender<OutboundMessage>>,
-    kill_heartbeat: Option<oneshot::Sender<()>>,
+    writer: RwLock<Option<mpsc::Sender<OutboundMessage>>>,
+    kill_heartbeat: Mutex<Option<oneshot::Sender<()>>>,
     pub kill_shard_tx: mpsc::Sender<()>,
-    kill_shard_rx: mpsc::Receiver<()>,
+    kill_shard_rx: Mutex<mpsc::Receiver<()>>,
     last_ack: Arc<RwLock<Instant>>,
 }
 
@@ -70,32 +70,36 @@ impl Shard {
         redis: Arc<ConnectionPool>,
         is_whitelabel: bool,
         error_tx: mpsc::Sender<FatalError>,
-        status_update_rx: Option<mpsc::Receiver<StatusUpdate>>,
-    ) -> Shard {
+    ) -> Arc<Shard> {
         let (kill_shard_tx, kill_shard_rx) = mpsc::channel(1);
+        let (status_update_tx, status_update_rx) = mpsc::channel(1);
 
-        Shard {
+        let shard = Arc::new(Shard {
             identify,
             large_sharding_buckets,
             cache,
             redis,
             is_whitelabel,
-            error_tx,
-            status_update_rx,
+            error_tx: Mutex::new(error_tx),
+            status_update_tx,
             bot_id: Arc::new(RwLock::new(None)),
-            total_rx: 0,
+            total_rx: Mutex::new(0),
             seq: Arc::new(RwLock::new(None)),
             session_id: Arc::new(RwLock::new(None)),
-            writer: None,
-            kill_heartbeat: None,
+            writer: RwLock::new(None),
+            kill_heartbeat: Mutex::new(None),
             kill_shard_tx,
-            kill_shard_rx,
+            kill_shard_rx: Mutex::new(kill_shard_rx),
             last_ack: Arc::new(RwLock::new(Instant::now())),
-        }
+        });
+
+        Arc::clone(&shard).listen_status_updates(status_update_rx);
+
+        shard
     }
 
-    pub async fn connect(&mut self) -> Result<(), Box<dyn Error>> {
-        self.total_rx = 0; // rst
+    pub async fn connect(self: Arc<Self>) -> Result<(), Box<dyn Error>> {
+        *self.total_rx.lock().await = 0; // rst
 
         let uri = url::Url::parse("wss://gateway.discord.gg/?v=6&encoding=json&compress=zlib-stream").unwrap();
 
@@ -107,11 +111,7 @@ impl Shard {
         tokio::spawn(async move {
             Shard::handle_writes(ws_tx, writer_rx).await;
         });
-        self.writer = Some(writer_tx);
-
-        if let Some(_) = self.status_update_rx {
-            self.listen_status_updates();
-        }
+        *self.writer.write().await = Some(writer_tx);
 
         // start read loop
         if let Err(e) = self.listen(ws_rx).await {
@@ -140,7 +140,7 @@ impl Shard {
     ) -> Result<(), GatewayError> {
         OutboundMessage::new(msg, tx)
             .map_err(GatewayError::JsonError)?
-            .send(self.writer.clone().unwrap())
+            .send(self.writer.read().await.clone().unwrap())
             .await
             .map_err(GatewayError::SendMessageError)?;
 
@@ -148,22 +148,19 @@ impl Shard {
     }
 
     // helper function
-    async fn kill(&mut self) {
+    async fn kill(self: Arc<Self>) {
         // BIG problem
         // TODO: panic?
-        if let Err(e) = self.kill_shard_tx.send(()).await {
+        if let Err(e) = self.kill_shard_tx.clone().send(()).await {
             eprintln!("Failed to kill shard! {}", e);
         }
     }
 
-    fn listen_status_updates(&mut self) {
-        // we can take here as this loop should continue running infinitely, even after
-        // a shard restart.
-        let mut rx = self.status_update_rx.take().unwrap();
-        let writer = self.writer.clone().unwrap();
-
+    fn listen_status_updates(self: Arc<Self>, mut status_update_rx: mpsc::Receiver<StatusUpdate>) {
         tokio::spawn(async move {
-            while let Some(msg) = rx.recv().await {
+            while let Some(msg) = status_update_rx.recv().await {
+                let shard = Arc::clone(&self);
+
                 // create payload
                 let payload = PresenceUpdate::new(msg);
 
@@ -171,15 +168,17 @@ impl Shard {
 
                 match OutboundMessage::new(payload, res_tx) {
                     Ok(msg) => {
-                        match msg.send(writer.clone()).await {
-                            Ok(_) => {
-                                match res_rx.await {
-                                    Ok(Err(e)) => eprintln!("Error writing status update: {}", e),
-                                    Err(e) => eprintln!("Error writing status update: {}", e),
-                                    _ => {}
+                        if let Some(writer) = &*shard.writer.read().await {
+                            match msg.send(writer.clone()).await {
+                                Ok(_) => {
+                                    match res_rx.await {
+                                        Ok(Err(e)) => eprintln!("Error writing status update: {}", e),
+                                        Err(e) => eprintln!("Error writing status update: {}", e),
+                                        _ => {}
+                                    }
                                 }
+                                Err(e) => eprintln!("Error writing status update: {}", e),
                             }
-                            Err(e) => eprintln!("Error writing status update: {}", e),
                         }
                     }
                     Err(e) => eprintln!("Failed to serialize status update: {}", e),
@@ -188,13 +187,22 @@ impl Shard {
         });
     }
 
-    async fn listen(&mut self, mut ws_rx: WebSocketRx) -> Result<(), GatewayError> {
+    async fn listen(self: Arc<Self>, mut ws_rx: WebSocketRx) -> Result<(), GatewayError> {
         let mut decoder = Decompress::new(true);
 
+        let shard = Arc::clone(&self);
         loop {
-            match self.kill_shard_rx.try_recv() {
+            let shard = Arc::clone(&shard);
+
+            match shard.kill_shard_rx.lock().await.try_recv() {
                 Err(mpsc::error::TryRecvError::Empty) => {}
                 _ => {
+                    // kill heartbeat loop
+                    if let Some(kill_heartbeat) = shard.kill_heartbeat.lock().await.take() {
+                        if let Err(_) = kill_heartbeat.send(()) {
+                            eprintln!("Error killing heartbeat on shard {}", shard.get_shard_id());
+                        }
+                    }
                     break;
                 }
             };
@@ -218,7 +226,7 @@ impl Shard {
 
                         let wrapped = FatalError::new(self.identify.data.token.clone(), frame.code, frame.reason.to_string());
 
-                        if let Err(e) = self.error_tx.send(wrapped).await {
+                        if let Err(e) = self.error_tx.lock().await.send(wrapped).await {
                             return GatewayError::SendErrorError(e).into();
                         }
 
@@ -230,12 +238,12 @@ impl Shard {
                         continue;
                     }
 
-                    let (payload, raw) = match self.read_payload(msg, &mut decoder).await {
+                    let (payload, raw) = match shard.read_payload(msg, &mut decoder).await {
                         Some(r) => r,
                         _ => continue,
                     };
 
-                    if let Err(e) = self.process_payload(payload, raw).await {
+                    if let Err(e) = Arc::clone(&self).process_payload(payload, raw).await {
                         eprintln!("Error reading payload: {}", e);
                     }
                 }
@@ -246,14 +254,16 @@ impl Shard {
     }
 
     // we return None because it's ok to discard the payload
-    async fn read_payload(&mut self, msg: tokio_tungstenite::tungstenite::protocol::Message, decoder: &mut Decompress) -> Option<(Payload, Vec<u8>)> {
+    async fn read_payload(self: Arc<Self>, msg: tokio_tungstenite::tungstenite::protocol::Message, decoder: &mut Decompress) -> Option<(Payload, Vec<u8>)> {
         let compressed = msg.into_data();
 
+        let mut total_rx = self.total_rx.lock().await;
+
         let mut output: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
-        let before = self.total_rx;
+        let before = total_rx.clone();
         let mut offset: usize = 0;
 
-        while ((decoder.total_in() - self.total_rx) as usize) < compressed.len() {
+        while ((decoder.total_in() - *total_rx) as usize) < compressed.len() {
             let mut temp: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
 
             match decoder.decompress_vec(&compressed[offset..], &mut temp, FlushDecompress::Sync) {
@@ -267,7 +277,7 @@ impl Shard {
                 Err(e) => {
                     eprintln!("Error while decompressing: {}", e);
 
-                    self.total_rx = 0;
+                    *total_rx = 0;
                     decoder.reset(true);
 
                     return None;
@@ -275,7 +285,7 @@ impl Shard {
             };
         }
 
-        self.total_rx = decoder.total_in();
+        *total_rx = decoder.total_in();
 
         // deserialize payload
         match serde_json::from_slice(&output[..]) {
@@ -287,7 +297,7 @@ impl Shard {
         }
     }
 
-    async fn process_payload(&mut self, payload: Payload, raw: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    async fn process_payload(self: Arc<Self>, payload: Payload, raw: Vec<u8>) -> Result<(), GatewayError> {
         // update sequence number
         if let Some(seq) = payload.seq {
             let mut stored_seq = self.seq.write().await;
@@ -299,7 +309,7 @@ impl Shard {
             Opcode::Dispatch => {
                 //let payload: payloads::Dispatch = serde_json::from_slice(&raw[..])?;
                 // perform all deserialization in handle_event
-                let payload: Map<String, Value> = serde_json::from_slice(&raw[..])?;
+                let payload: Map<String, Value> = serde_json::from_slice(&raw[..]).map_err(GatewayError::JsonError)?;
                 self.handle_event(payload).await?;
                 Ok(())
             }
@@ -324,34 +334,34 @@ impl Shard {
                 };
 
                 self.kill().await;
-                res.map(|_| ()).map_err(|e| Box::new(e) as Box<dyn Error>)
+                res.map(|_| ()).map_err(GatewayError::JsonError)
             }
             Opcode::Hello => {
                 let hello: payloads::Hello = serde_json::from_slice(&raw[..])?;
 
                 let res = if self.session_id.read().await.is_some() && self.seq.read().await.is_some() {
-                    self.do_resume().await
+                    Arc::clone(&self).do_resume().await
                 } else {
-                    self.do_identify().await
+                    Arc::clone(&self).do_identify().await
                 };
 
                 // TODO: Fatal error log, check if we should remove token
                 if let Err(e) = res {
                     eprintln!("Received error while authenticating: {}", e);
                     self.kill().await;
-                    return Err(Box::new(e));
+                    return Err(e);
                 }
 
                 // we unwrap here because writer should never be None.
                 let kill_tx = Shard::start_heartbeat(
                     hello.data.heartbeat_interval,
-                    self.writer.as_ref().unwrap().clone(),
+                    self.writer.read().await.as_ref().unwrap().clone(),
                     self.kill_shard_tx.clone(),
                     Arc::clone(&self.seq),
                     Arc::clone(&self.last_ack),
                 ).await;
 
-                self.kill_heartbeat = Some(kill_tx);
+                *self.kill_heartbeat.lock().await = Some(kill_tx);
 
                 Ok(())
             }
@@ -365,7 +375,7 @@ impl Shard {
         }
     }
 
-    async fn handle_event(&mut self, data: Map<String, Value>) -> Result<(), GatewayError> {
+    async fn handle_event(self: Arc<Self>, data: Map<String, Value>) -> Result<(), GatewayError> {
         let event_type = if let Some(v) = data.get("t") {
             if let Some(s) = v.as_str() {
                 s
@@ -583,7 +593,7 @@ impl Shard {
         Ok(())
     }
 
-    async fn do_identify(&mut self) -> Result<(), GatewayError> {
+    async fn do_identify(self: Arc<Self>) -> Result<(), GatewayError> {
         self.wait_for_ratelimit().await?;
 
         let (tx, rx) = oneshot::channel();
@@ -627,7 +637,7 @@ impl Shard {
 
     /// Shard.session_id & Shard.seq should not be None when calling this function
     /// if they are, the function will panic
-    async fn do_resume(&mut self) -> Result<(), GatewayError> {
+    async fn do_resume(self: Arc<Self>) -> Result<(), GatewayError> {
         let payload = payloads::Resume::new(
             self.identify.data.token.clone(),
             self.session_id.read().await.as_ref().unwrap().clone(),

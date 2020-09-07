@@ -14,20 +14,24 @@ use std::collections::HashMap;
 use cache::PostgresCache;
 use darkredis::ConnectionPool;
 
-use tokio::task::JoinHandle;
 use crate::manager::FatalError;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::time::delay_for;
+use std::time::Duration;
 
 pub struct PublicShardManager {
-    join_handles: Vec<JoinHandle<()>>,
-    error_rx: mpsc::Receiver<FatalError>,
+    shards: RwLock<HashMap<u16, Arc<Shard>>>,
+    error_rx: Mutex<mpsc::Receiver<FatalError>>,
 }
 
 impl PublicShardManager {
-    pub fn connect(options: Options, cache: Arc<PostgresCache>, redis: Arc<ConnectionPool>) -> PublicShardManager {
-        let mut shards = HashMap::new();
-
+    pub async fn new(options: Options, cache: Arc<PostgresCache>, redis: Arc<ConnectionPool>) -> Arc<PublicShardManager> {
         let (error_tx, error_rx) = mpsc::channel(16);
+
+        let sm = Arc::new(PublicShardManager {
+            shards: RwLock::new(HashMap::new()),
+            error_rx: Mutex::new(error_rx),
+        });
 
         for i in options.shard_count.lowest..options.shard_count.highest {
             let shard_info = ShardInfo::new(i, options.shard_count.total);
@@ -40,16 +44,10 @@ impl PublicShardManager {
                 Arc::clone(&redis),
                 false,
                 error_tx.clone(),
-                Option::<mpsc::Receiver<StatusUpdate>>::None,
             );
 
-            shards.insert(i, shard);
+            sm.shards.write().await.insert(i, shard);
         }
-
-        let sm = PublicShardManager {
-            join_handles: <PublicShardManager as ShardManager>::connect(shards),
-            error_rx,
-        };
 
         sm
     }
@@ -57,13 +55,29 @@ impl PublicShardManager {
 
 #[async_trait]
 impl ShardManager for PublicShardManager {
-    fn get_join_handles(&mut self) -> &mut Vec<JoinHandle<()>> {
-        &mut self.join_handles
+    async fn connect(self: Arc<Self>) {
+        for (i, shard) in self.shards.read().await.iter() {
+            let (i, shard) = (i.clone(), Arc::clone(&shard));
+
+            tokio::spawn(async move {
+                loop {
+                    let shard = Arc::clone(&shard);
+                    println!("Starting shard {}", i);
+
+                    match shard.connect().await {
+                        Ok(()) => println!("Shard {} exited with Ok", i),
+                        Err(e) => eprintln!("Shard {} exited with err: {:?}", i, e)
+                    }
+
+                    delay_for(Duration::from_millis(500)).await;
+                }
+            });
+        }
     }
 
     // TODO: Sentry
-    async fn start_error_loop(&mut self) {
-        while let Some(msg) = self.error_rx.recv().await {
+    async fn start_error_loop(self: Arc<Self>) {
+        while let Some(msg) = self.error_rx.lock().await.recv().await {
             eprintln!("A fatal error occurred: {:?}", msg);
         }
     }
