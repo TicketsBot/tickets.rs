@@ -9,6 +9,7 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 use model::channel::Channel;
 use model::guild::{Role, Guild, Member, Emoji, VoiceState};
 use serde_json::Value;
+use futures_util::core_reexport::cmp::Ordering::Equal;
 
 pub struct PostgresCache {
     opts: Options,
@@ -55,7 +56,7 @@ impl Cache for PostgresCache {
         self.store_guilds(vec![guild]).await
     }
 
-    async fn store_guilds(&self, guilds: Vec<&Guild>) -> Result<(), CacheError> {
+    async fn store_guilds(&self, mut guilds: Vec<&Guild>) -> Result<(), CacheError> {
         if !self.opts.guilds {
             return Ok(());
         }
@@ -63,6 +64,9 @@ impl Cache for PostgresCache {
         if guilds.len() == 0 {
             return Ok(());
         }
+
+        guilds.sort_by(|g1, g2| g1.id.cmp(&g2.id));
+        guilds.dedup();
 
         let mut query = String::from(r#"INSERT INTO guilds("guild_id", "data") VALUES"#);
 
@@ -90,12 +94,14 @@ impl Cache for PostgresCache {
         for guild in guilds {
             if let Some(channels) = &guild.channels {
                 if let Err(e) = self.store_channels(channels.iter().collect()).await {
+                    println!("chan");
                     res = Err(e);
                 }
             }
 
             if let Some(members) = &guild.members {
                 if let Err(e) = self.store_members(members.iter().collect(), guild.id).await {
+                    println!("mem");
                     res = Err(e);
                 }
 
@@ -107,11 +113,13 @@ impl Cache for PostgresCache {
                     .collect();
 
                 if let Err(e) = self.store_users(users).await {
+                    println!("user");
                     res = Err(e)
                 }
             }
 
             if let Err(e) = self.store_roles(guild.roles.iter().collect(), guild.id).await {
+                println!("rol");
                 res = Err(e);
             }
 
@@ -137,7 +145,7 @@ impl Cache for PostgresCache {
                 let r: Value = r.data;
                 match r {
                     Value::Object(mut m) => {
-                        m.insert("guild_id".to_owned(), Value::Number(serde_json::Number::from(id.0)));
+                        m.insert("id".to_owned(), Value::Number(serde_json::Number::from(id.0)));
                         Ok(Some(serde_json::from_value::<Guild>(Value::Object(m))?))
                     }
                     _ => Err(CacheError::WrongType()),
@@ -161,11 +169,14 @@ impl Cache for PostgresCache {
             return Ok(());
         }
 
-        let channels = channels.into_iter().filter(|c| c.guild_id.is_some()).collect::<Vec<&Channel>>();
+        let mut channels = channels.into_iter().filter(|c| c.guild_id.is_some()).collect::<Vec<&Channel>>();
 
         if channels.len() == 0 {
             return Ok(());
         }
+
+        channels.sort_by(|c1, c2| c1.id.cmp(&c2.id));
+        channels.dedup();
 
         let mut query = String::from(r#"INSERT INTO channels("channel_id", "guild_id", "data") VALUES"#);
 
@@ -190,10 +201,20 @@ impl Cache for PostgresCache {
     }
 
     async fn get_channel(&self, id: Snowflake) -> Result<Option<Channel>, CacheError> {
-        match sqlx::query!(r#"SELECT "data" FROM channels WHERE "channel_id" = $1;"#, id.0 as i64).fetch_one(&self.pool).await {
+        match sqlx::query!(r#"SELECT "guild_id", "data" FROM channels WHERE "channel_id" = $1;"#, id.0 as i64).fetch_one(&self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => Ok(Some(serde_json::from_value::<Channel>(r.data)?)), // TODO: Insert channel_id
+            Ok(r) => {
+                let data: Value = r.data;
+                match data {
+                    Value::Object(mut m) => {
+                        m.insert("channel_id".to_owned(), Value::Number(serde_json::Number::from(id.0)));
+                        m.insert("guild_id".to_owned(), Value::Number(serde_json::Number::from(r.guild_id)));
+                        Ok(Some(serde_json::from_value::<Channel>(Value::Object(m))?))
+                    }
+                    _ => Err(CacheError::WrongType()),
+                }
+            },
         }
     }
 
@@ -207,7 +228,7 @@ impl Cache for PostgresCache {
         self.store_users(vec![user]).await
     }
 
-    async fn store_users(&self, users: Vec<&User>) -> Result<(), CacheError> {
+    async fn store_users(&self, mut users: Vec<&User>) -> Result<(), CacheError> {
         if !self.opts.users {
             return Ok(());
         }
@@ -215,6 +236,9 @@ impl Cache for PostgresCache {
         if users.len() == 0 {
             return Ok(());
         }
+
+        users.sort_by(|one, two| one.id.cmp(&two.id));
+        users.dedup();
 
         let mut query = String::from(r#"INSERT INTO users("user_id", "data") VALUES"#);
 
@@ -233,7 +257,10 @@ impl Cache for PostgresCache {
         query.push_str(r#" ON CONFLICT("user_id") DO UPDATE SET "data" = excluded.data;"#);
 
         // TODO: Don't prepare statement
-        sqlx::query(&query).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        if let Err(e) = sqlx::query(&query).execute(&self.pool).await.map_err(CacheError::DatabaseError) {
+            println!("{}", query);
+            return e.into();
+        }
 
         Ok(())
     }
@@ -242,7 +269,16 @@ impl Cache for PostgresCache {
         match sqlx::query!(r#"SELECT "data" FROM users WHERE "user_id" = $1;"#, id.0 as i64).fetch_one(&self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => Ok(Some(serde_json::from_value::<User>(r.data)?)), // TODO: Insert user_id
+            Ok(r) => {
+                let data: Value = r.data;
+                match data {
+                    Value::Object(mut m) => {
+                        m.insert("user_id".to_owned(), Value::Number(serde_json::Number::from(id.0)));
+                        Ok(Some(serde_json::from_value::<User>(Value::Object(m))?))
+                    }
+                    _ => Err(CacheError::WrongType()),
+                }
+            },
         }
     }
 
@@ -261,11 +297,27 @@ impl Cache for PostgresCache {
             return Ok(());
         }
 
-        let members = members.into_iter().filter(|m| m.user.is_some()).collect::<Vec<&Member>>();
+        let mut members = members.into_iter().filter(|m| m.user.is_some()).collect::<Vec<&Member>>();
 
         if members.len() == 0 {
             return Ok(());
         }
+
+        members.sort_by(|one, two| {
+            if let (Some(user_one), Some(user_two)) = (&one.user, &two.user) {
+                return user_one.id.cmp(&user_two.id);
+            }
+
+            Equal // idk
+        });
+
+        members.dedup_by(|one, two| {
+            if let (Some(user_one), Some(user_two)) = (&one.user, &two.user) {
+                return user_one.id == user_two.id;
+            }
+
+            false
+        });
 
         let mut query = String::from(r#"INSERT INTO members("guild_id", "user_id", "data") VALUES"#);
 
@@ -293,7 +345,17 @@ impl Cache for PostgresCache {
         match sqlx::query!(r#"SELECT "data" FROM members WHERE "guild_id" = $1 AND "user_id" = $2;"#, user_id.0 as i64, guild_id.0 as i64).fetch_one(&self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => Ok(Some(serde_json::from_value::<Member>(r.data)?)), // TODO: Insert guild_id & user_id
+            Ok(r) => {
+                let data: Value = r.data;
+                match data {
+                    Value::Object(mut m) => {
+                        m.insert("user_id".to_owned(), Value::Number(serde_json::Number::from(user_id.0)));
+                        m.insert("guild_id".to_owned(), Value::Number(serde_json::Number::from(guild_id.0)));
+                        Ok(Some(serde_json::from_value::<Member>(Value::Object(m))?))
+                    }
+                    _ => Err(CacheError::WrongType()),
+                }
+            },
         }
     }
 
@@ -307,7 +369,7 @@ impl Cache for PostgresCache {
         self.store_roles(vec![role], guild_id).await
     }
 
-    async fn store_roles(&self, roles: Vec<&Role>, guild_id: Snowflake) -> Result<(), CacheError> {
+    async fn store_roles(&self, mut roles: Vec<&Role>, guild_id: Snowflake) -> Result<(), CacheError> {
         if !self.opts.roles {
             return Ok(());
         }
@@ -315,6 +377,9 @@ impl Cache for PostgresCache {
         if roles.len() == 0 {
             return Ok(());
         }
+
+        roles.sort_by(|r1, r2| r1.id.cmp(&r2.id));
+        roles.dedup();
 
         let mut query = String::from(r#"INSERT INTO roles("role_id", "guild_id", "data") VALUES"#);
 
@@ -342,7 +407,16 @@ impl Cache for PostgresCache {
         match sqlx::query!(r#"SELECT "data" FROM roles WHERE "role_id" = $1;"#, id.0 as i64).fetch_one(&self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => Ok(Some(serde_json::from_value::<Role>(r.data)?)), // TODO: Insert role_id
+            Ok(r) => {
+                let data: Value = r.data;
+                match data {
+                    Value::Object(mut m) => {
+                        m.insert("id".to_owned(), Value::Number(serde_json::Number::from(id.0)));
+                        Ok(Some(serde_json::from_value::<Role>(Value::Object(m))?))
+                    }
+                    _ => Err(CacheError::WrongType()),
+                }
+            },
         }
     }
 
@@ -361,11 +435,14 @@ impl Cache for PostgresCache {
             return Ok(());
         }
 
-        let emojis = emojis.into_iter().filter(|e| e.id.is_some()).collect::<Vec<&Emoji>>();
+        let mut emojis = emojis.into_iter().filter(|e| e.id.is_some()).collect::<Vec<&Emoji>>();
 
         if emojis.len() == 0 {
             return Ok(());
         }
+
+        emojis.sort_by(|e1, e2| e1.id.cmp(&e2.id));
+        emojis.dedup();
 
         let mut query = String::from(r#"INSERT INTO emojis("emoji_id", "guild_id", "data") VALUES"#);
 
@@ -393,7 +470,16 @@ impl Cache for PostgresCache {
         match sqlx::query!(r#"SELECT "data" FROM emojis WHERE "emoji_id" = $1;"#, emoji_id.0 as i64).fetch_one(&self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => Ok(Some(serde_json::from_value::<Emoji>(r.data)?)), // TODO: Insert emoji_id
+            Ok(r) => {
+                let data: Value = r.data;
+                match data {
+                    Value::Object(mut m) => {
+                        m.insert("id".to_owned(), Value::Number(serde_json::Number::from(emoji_id.0)));
+                        Ok(Some(serde_json::from_value::<Emoji>(Value::Object(m))?))
+                    }
+                    _ => Err(CacheError::WrongType()),
+                }
+            },
         }
     }
 
@@ -412,11 +498,14 @@ impl Cache for PostgresCache {
             return Ok(());
         }
 
-        let voice_states = voice_states.into_iter().filter(|vs| vs.guild_id.is_some()).collect::<Vec<&VoiceState>>();
+        let mut voice_states = voice_states.into_iter().filter(|vs| vs.guild_id.is_some()).collect::<Vec<&VoiceState>>();
 
         if voice_states.len() == 0 {
             return Ok(());
         }
+
+        // TODO: Sort
+        voice_states.dedup();
 
         let mut query = String::from(r#"INSERT INTO voice_states("guild_id", "user_id", "data") VALUES"#);
 
@@ -444,7 +533,17 @@ impl Cache for PostgresCache {
         match sqlx::query!(r#"SELECT "data" FROM voice_states WHERE "guild_id" = $1 AND "user_id" = $2;"#, guild_id.0 as i64, user_id.0 as i64).fetch_one(&self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => Ok(Some(serde_json::from_value::<VoiceState>(r.data)?)), // TODO: Insert guild_id & user_id
+            Ok(r) => {
+                let data: Value = r.data;
+                match data {
+                    Value::Object(mut m) => {
+                        m.insert("user_id".to_owned(), Value::Number(serde_json::Number::from(user_id.0)));
+                        m.insert("guild_id".to_owned(), Value::Number(serde_json::Number::from(guild_id.0)));
+                        Ok(Some(serde_json::from_value::<VoiceState>(Value::Object(m))?))
+                    }
+                    _ => Err(CacheError::WrongType()),
+                }
+            },
         }
     }
 

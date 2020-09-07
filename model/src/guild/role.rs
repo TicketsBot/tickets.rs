@@ -4,6 +4,7 @@ use crate::{Snowflake, PermissionBitSet};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Role {
+    #[serde(skip_serializing)]
     pub id: Snowflake,
     pub name: String,
     pub color: u32,
@@ -13,4 +14,10 @@ pub struct Role {
     pub permissions_new: PermissionBitSet,
     pub managed: bool,
     pub mentionable: bool,
+}
+
+impl PartialEq for Role {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
 }

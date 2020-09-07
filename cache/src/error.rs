@@ -11,3 +11,9 @@ pub enum CacheError {
     #[error("Got wrong type for column")]
     WrongType(),
 }
+
+impl<T> Into<Result<T, Self>> for CacheError {
+    fn into(self) -> Result<T, Self> {
+        Err(self)
+    }
+}

@@ -10,7 +10,7 @@ use sqlx::encode::IsNull;
 use std::str::FromStr;
 use std::num::ParseIntError;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct Snowflake(pub u64);
 
 impl Snowflake {

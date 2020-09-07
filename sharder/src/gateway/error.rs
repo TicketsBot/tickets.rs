@@ -40,13 +40,13 @@ pub enum GatewayError {
 }
 
 impl GatewayError {
-    pub fn custom<T: Display>(msg: T) -> GatewayError {
+    pub fn custom<T: Display>(msg: T) -> Self {
         GatewayError::GenericError(msg.to_string())
     }
 }
 
-impl<T> Into<Result<T, GatewayError>> for GatewayError {
-    fn into(self) -> Result<T, GatewayError> {
+impl<T> Into<Result<T, Self>> for GatewayError {
+    fn into(self) -> Result<T, Self> {
         Err(self)
     }
 }

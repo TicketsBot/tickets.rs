@@ -463,7 +463,7 @@ impl Shard {
             };
 
             if let Err(e) = res {
-                eprintln!("Error while updating cache: {:?}", e);
+                eprintln!("*-Error while updating cache: {:?}", e);
             }
         });
 

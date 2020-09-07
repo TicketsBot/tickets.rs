@@ -5,6 +5,7 @@ use super::PremiumType;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct User {
+    #[serde(skip_serializing)]
     pub id: Snowflake,
     pub username: String,
     pub discriminator: Discriminator,
@@ -27,4 +28,10 @@ pub struct User {
     pub premium_type: Option<PremiumType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_flags: Option<u64>,
+}
+
+impl PartialEq for User {
+    fn eq(&self, other: &Self) -> bool {
+        self.id.0 == other.id.0
+    }
 }

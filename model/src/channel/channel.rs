@@ -7,10 +7,11 @@ use chrono::{DateTime, Utc};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Channel {
+    #[serde(skip_serializing)]
     pub id: Snowflake,
     #[serde(rename = "type")]
     pub channel_type: ChannelType,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub guild_id: Option<Snowflake>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<u16>,
@@ -42,4 +43,10 @@ pub struct Channel {
     pub parent_id: Option<Snowflake>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_pin_timestamp: Option<DateTime<Utc>>
+}
+
+impl PartialEq for Channel {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
 }

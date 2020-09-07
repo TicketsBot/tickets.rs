@@ -9,6 +9,7 @@ use crate::user::PresenceUpdate;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Guild {
+    #[serde(skip_serializing)]
     pub id: Snowflake,
     pub name: String,
     pub icon: Option<ImageHash>,
@@ -73,6 +74,13 @@ pub struct Guild {
     pub approximate_member_count: Option<u32>,
     pub approximate_presence_count: Option<u32>,
 }
+
+impl PartialEq for Guild {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
 
 #[derive(Serialize_repr, Deserialize_repr, Debug)]
 #[repr(u8)]

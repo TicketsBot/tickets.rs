@@ -41,6 +41,32 @@
       ]
     }
   },
+  "353726c82f85a9481ef51b02f49aaf04f6e4dd0f9fbe41dcfdd0384a37b3b002": {
+    "query": "SELECT \"guild_id\", \"data\" FROM channels WHERE \"channel_id\" = $1;",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "guild_id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "data",
+          "type_info": "Jsonb"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false,
+        false
+      ]
+    }
+  },
   "404bc07061bd3189569544e73e12029c018958974cb400310b0f16983dc88554": {
     "query": "SELECT \"data\" FROM users WHERE \"user_id\" = $1;",
     "describe": {

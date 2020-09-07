@@ -9,11 +9,11 @@ use std::env;
 pub async fn build_cache() -> PostgresCache {
     let cache_uri = &var_or_panic("CACHE_URI");
     let cache_opts = Options {
-        users: false,
-        guilds: false,
-        members: false,
-        channels: false,
-        roles: false,
+        users: true,
+        guilds: true,
+        members: true,
+        channels: true,
+        roles: true,
         emojis: false,
         voice_states: false,
     };
@@ -28,7 +28,7 @@ pub async fn build_cache() -> PostgresCache {
 /// panics on err
 pub async fn build_redis() -> ConnectionPool {
     ConnectionPool::create(
-        var_or_panic("REDIS_URI"),
+        var_or_panic("REDIS_ADDR"),
         env::var("REDIS_PASSWORD").ok().as_ref().map(|s| s.as_str()),
         var_or_panic("REDIS_THREADS").parse().unwrap()
     ).await.unwrap()
