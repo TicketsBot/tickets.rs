@@ -53,7 +53,8 @@ pub struct Shard {
     kill_heartbeat: Mutex<Option<oneshot::Sender<()>>>,
     pub kill_shard_tx: mpsc::Sender<()>,
     kill_shard_rx: Mutex<mpsc::Receiver<()>>,
-    last_ack: Arc<RwLock<Instant>>,
+    last_ack: RwLock<Instant>,
+    last_heartbeat: RwLock<Instant>,
 }
 
 // 16 KiB
@@ -90,7 +91,8 @@ impl Shard {
             kill_heartbeat: Mutex::new(None),
             kill_shard_tx,
             kill_shard_rx: Mutex::new(kill_shard_rx),
-            last_ack: Arc::new(RwLock::new(Instant::now())),
+            last_ack: RwLock::new(Instant::now()),
+            last_heartbeat: RwLock::new(Instant::now()),
         });
 
         Arc::clone(&shard).listen_status_updates(status_update_rx);
@@ -196,7 +198,7 @@ impl Shard {
 
             match shard.kill_shard_rx.lock().await.try_recv() {
                 Err(mpsc::error::TryRecvError::Empty) => {}
-                _ => {
+                other => {
                     // kill heartbeat loop
                     if let Some(kill_heartbeat) = shard.kill_heartbeat.lock().await.take() {
                         if let Err(_) = kill_heartbeat.send(()) {
@@ -353,13 +355,7 @@ impl Shard {
                 }
 
                 // we unwrap here because writer should never be None.
-                let kill_tx = Shard::start_heartbeat(
-                    hello.data.heartbeat_interval,
-                    self.writer.read().await.as_ref().unwrap().clone(),
-                    self.kill_shard_tx.clone(),
-                    Arc::clone(&self.seq),
-                    Arc::clone(&self.last_ack),
-                ).await;
+                let kill_tx = Arc::clone(&self).start_heartbeat(hello.data.heartbeat_interval).await;
 
                 *self.kill_heartbeat.lock().await = Some(kill_tx);
 
@@ -463,7 +459,7 @@ impl Shard {
             };
 
             if let Err(e) = res {
-                eprintln!("*-Error while updating cache: {:?}", e);
+                eprintln!("Error while updating cache: {:?}", e);
             }
         });
 
@@ -515,11 +511,8 @@ impl Shard {
 
     // returns cancellation channel
     async fn start_heartbeat(
+        self: Arc<Self>,
         interval: u32,
-        writer_tx: mpsc::Sender<OutboundMessage>,
-        mut kill_shard_tx: mpsc::Sender<()>,
-        seq: Arc<RwLock<Option<usize>>>,
-        last_ack: Arc<RwLock<Instant>>,
     ) -> oneshot::Sender<()> {
         let interval = Duration::from_millis(interval as u64);
 
@@ -532,11 +525,12 @@ impl Shard {
             while let Err(oneshot::error::TryRecvError::Empty) = cancel_rx.try_recv() {
                 // check if we've received an ack
                 {
-                    let last_ack = last_ack.read().await;
-                    if has_sent_heartbeat && last_ack.elapsed() > interval {
+                    let last_ack = *self.last_ack.read().await;
+                    let last_heartbeat = *self.last_heartbeat.read().await;
+                    if has_sent_heartbeat && last_ack.duration_since(last_heartbeat) > interval {
                         // BIG problem
                         // TODO: panic?
-                        if let Err(e) = kill_shard_tx.send(()).await {
+                        if let Err(e) = self.kill_shard_tx.clone().send(()).await {
                             eprintln!("Failed to kill shard! {}", e);
                         }
 
@@ -546,7 +540,7 @@ impl Shard {
 
                 let mut should_kill = false;
 
-                match Shard::do_heartbeat(writer_tx.clone(), Arc::clone(&seq)).await {
+                match Arc::clone(&self).do_heartbeat().await {
                     Ok(()) => has_sent_heartbeat = true,
                     Err(e) => {
                         eprintln!("Error while heartbeating: {:?}", e);
@@ -561,7 +555,7 @@ impl Shard {
                 if should_kill {
                     // BIG problem
                     // TODO: panic?
-                    if let Err(e) = kill_shard_tx.send(()).await {
+                    if let Err(e) = self.kill_shard_tx.clone().send(()).await {
                         eprintln!("Failed to kill shard! {}", e);
                     }
 
@@ -575,20 +569,19 @@ impl Shard {
         cancel_tx
     }
 
-    async fn do_heartbeat(
-        writer_tx: mpsc::Sender<OutboundMessage>,
-        seq: Arc<RwLock<Option<usize>>>,
-    ) -> Result<(), Box<dyn Error>> {
+    async fn do_heartbeat(self: Arc<Self>) -> Result<(), GatewayError> {
         let payload: payloads::Heartbeat;
         {
-            let seq = seq.read().await;
+            let seq = self.seq.read().await;
             payload = payloads::Heartbeat::new(*seq);
         }
 
         let (res_tx, res_rx) = oneshot::channel();
 
-        OutboundMessage::new(payload, res_tx)?.send(writer_tx).await?;
+        self.write(payload, res_tx).await?;
         res_rx.await??;
+
+        *self.last_heartbeat.write().await = Instant::now();
 
         Ok(())
     }

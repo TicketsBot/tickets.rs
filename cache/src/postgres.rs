@@ -94,14 +94,12 @@ impl Cache for PostgresCache {
         for guild in guilds {
             if let Some(channels) = &guild.channels {
                 if let Err(e) = self.store_channels(channels.iter().collect()).await {
-                    println!("chan");
                     res = Err(e);
                 }
             }
 
             if let Some(members) = &guild.members {
                 if let Err(e) = self.store_members(members.iter().collect(), guild.id).await {
-                    println!("mem");
                     res = Err(e);
                 }
 
@@ -113,13 +111,11 @@ impl Cache for PostgresCache {
                     .collect();
 
                 if let Err(e) = self.store_users(users).await {
-                    println!("user");
                     res = Err(e)
                 }
             }
 
             if let Err(e) = self.store_roles(guild.roles.iter().collect(), guild.id).await {
-                println!("rol");
                 res = Err(e);
             }
 
@@ -258,7 +254,6 @@ impl Cache for PostgresCache {
 
         // TODO: Don't prepare statement
         if let Err(e) = sqlx::query(&query).execute(&self.pool).await.map_err(CacheError::DatabaseError) {
-            println!("{}", query);
             return e.into();
         }
 
