@@ -6,6 +6,12 @@ use std::fmt::Formatter;
 #[derive(Debug, Copy, Clone)]
 pub struct Discriminator(pub u16);
 
+impl Discriminator {
+    pub fn serialize_to_int<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u16(self.0)
+    }
+}
+
 impl Serialize for Discriminator {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&format!("{:0>4}", self.0))
