@@ -9,6 +9,7 @@ use sqlx::postgres::{PgValueRef, PgArgumentBuffer};
 use sqlx::encode::IsNull;
 use std::str::FromStr;
 use std::num::ParseIntError;
+use serde::ser::SerializeSeq;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct Snowflake(pub u64);
@@ -16,6 +17,16 @@ pub struct Snowflake(pub u64);
 impl Snowflake {
     pub fn serialize_to_int<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_u64(self.0)
+    }
+
+    pub fn serialize_vec_to_ints<S: Serializer>(vec: &Vec<Snowflake>, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(vec.len()))?;
+
+        for snowflake in vec {
+            seq.serialize_element(&snowflake)?;
+        }
+
+        seq.end()
     }
 
     pub fn serialize_option_to_int<S: Serializer>(op: &Option<Snowflake>, serializer: S) -> Result<S::Ok, S::Error> {
