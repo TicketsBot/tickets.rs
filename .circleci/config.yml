@@ -2,7 +2,7 @@ version: 2
 jobs:
   build:
     docker:
-      - image: rust:alpine
+      - image: rust:buster
 
     steps:
       - checkout
@@ -17,7 +17,7 @@ jobs:
 
       - run:
           name: Install build dependencies
-          command: apk add musl-dev pkgconfig openssl-dev cmake build-base perl
+          command: apt-get install -y pkg-config build-essential cmake libssl-dev
 
       - run:
           name: Build

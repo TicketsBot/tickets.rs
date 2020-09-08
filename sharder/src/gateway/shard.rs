@@ -396,6 +396,10 @@ impl Shard {
             println!("Connected on {}#{} ({}) shard {} / {}", ready.user.username, ready.user.discriminator, ready.user.id, ready.shard.shard_id, ready.shard.num_shards);
         }
 
+        if let Event::Resumed = &event {
+            println!("Resumed on {}#{} ({}) shard {} / {}", ready.user.username, ready.user.discriminator, ready.user.id, ready.shard.shard_id, ready.shard.num_shards);
+        }
+
         match &event {
             Event::GuildCreate(guild) => {
                 let mut is_join = false;

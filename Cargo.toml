@@ -7,3 +7,6 @@ members = [
     "common",
     "database"
 ]
+
+[profile.dev]
+lto = "thin"
