@@ -397,7 +397,7 @@ impl Shard {
         }
 
         if let Event::Resumed = &event {
-            println!("Resumed on {}#{} ({}) shard {} / {}", ready.user.username, ready.user.discriminator, ready.user.id, ready.shard.shard_id, ready.shard.num_shards);
+            println!("Resumed on {} shard {} / {}", self.bot_id.read().await.unwrap_or(Snowflake(0)), self.get_shard_id(), self.identify.data.shard_info.num_shards);
         }
 
         match &event {
