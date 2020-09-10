@@ -34,6 +34,8 @@ use tokio_tls::TlsStream;
 use common::event_forwarding;
 use std::collections::HashMap;
 use model::guild::Member;
+use crate::gateway::payloads::PresenceUpdate;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 type WebSocketTx = SplitSink<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>, Message>;
 type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>>;
@@ -44,8 +46,9 @@ pub struct Shard {
     cache: Arc<PostgresCache>,
     redis: Arc<ConnectionPool>,
     is_whitelabel: bool,
-    error_tx: Mutex<mpsc::Sender<FatalError>>,
+    error_tx: mpsc::Sender<FatalError>,
     pub status_update_tx: mpsc::Sender<StatusUpdate>,
+    status_update_rx: Mutex<mpsc::Receiver<StatusUpdate>>,
     bot_id: Arc<RwLock<Option<Snowflake>>>,
     total_rx: Mutex<u64>,
     seq: Arc<RwLock<Option<usize>>>,
@@ -80,8 +83,9 @@ impl Shard {
             cache,
             redis,
             is_whitelabel,
-            error_tx: Mutex::new(error_tx),
+            error_tx: error_tx,
             status_update_tx,
+            status_update_rx: Mutex::new(status_update_rx),
             bot_id: Arc::new(RwLock::new(None)),
             total_rx: Mutex::new(0),
             seq: Arc::new(RwLock::new(None)),
@@ -94,8 +98,6 @@ impl Shard {
             last_heartbeat: RwLock::new(Instant::now()),
             connect_time: RwLock::new(Instant::now()), // will be overwritten
         });
-
-        Arc::clone(&shard).listen_status_updates(status_update_rx);
 
         shard
     }
@@ -159,20 +161,21 @@ impl Shard {
         }
     }
 
-    fn listen_status_updates(self: Arc<Self>, mut status_update_rx: mpsc::Receiver<StatusUpdate>) {}
-
     async fn listen(self: Arc<Self>, mut ws_rx: WebSocketRx) -> Result<(), GatewayError> {
         let mut decoder = Decompress::new(true);
 
         loop {
-            let chan = &mut *self.kill_shard_rx.lock().await;
+            let kill_rx = &mut *self.kill_shard_rx.lock().await;
+            let status_update_rx = &mut *self.status_update_rx.lock().await;
 
             tokio::select! {
-                _ = chan.recv() => {
+                // handle kill
+                _ = kill_rx.recv() => {
                     self.log("Received kill message");
                     break;
                 }
 
+                // handle incoming payload
                 payload = ws_rx.next() => {
                     match payload {
                         None => {
@@ -190,6 +193,18 @@ impl Shard {
                         Some(Ok(Message::Close(frame))) => {
                             self.log(format!("Got close from gateway: {:?}", frame));
                             self.kill().await;
+
+                            if let Some(frame) = frame {
+                                if let CloseCode::Library(code) = frame.code {
+                                    let fatal_codes: [u16; 2] = [4004, 4014];
+                                    if fatal_codes.contains(&code) {
+                                        if let Err(e) = self.error_tx.clone().send(FatalError::new(self.identify.data.token.clone(), frame.code, frame.reason.to_string())).await {
+                                            self.log_err("Error pushing fatal error", &GatewayError::SendErrorError(e));
+                                        }
+                                    }
+                                }
+                            }
+
                             break;
                         }
 
@@ -205,6 +220,27 @@ impl Shard {
                         }
 
                         _ => {}
+                    }
+                }
+
+                // handle status update
+                presence = status_update_rx.recv() => {
+                    if let Some(presence) = presence {
+                        let (tx, rx) = oneshot::channel();
+
+                        let shard = Arc::clone(&self);
+                        tokio::spawn(async move {
+                            let payload = PresenceUpdate::new(presence);
+                            if let Err(e) = shard.write(payload, tx).await {
+                                shard.log_err("Error sending presence update payload to writer", &e);
+                            }
+
+                            match rx.await {
+                                Ok(Err(e)) => shard.log_err("Error writing presence update payload", &GatewayError::WebsocketError(e)),
+                                Err(e) => shard.log_err("Error writing presence update payload", &GatewayError::RecvError(e)),
+                                _ => {}
+                            }
+                        });
                     }
                 }
             }
