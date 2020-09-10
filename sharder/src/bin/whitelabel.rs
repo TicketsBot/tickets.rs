@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // init redis
     let redis = Arc::new(build_redis().await);
 
-    let sm = WhitelabelShardManager::connect(
+    let sm = WhitelabelShardManager::new(
         sharder_count,
         sharder_id,
         database,
@@ -31,12 +31,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         redis
     ).await;
 
+    Arc::clone(&sm).connect().await;
+
     Arc::clone(&sm).listen_status_updates().await.unwrap();
     Arc::clone(&sm).listen_new_tokens().await.unwrap();
     Arc::clone(&sm).listen_delete().await.unwrap();
     sm.start_error_loop().await;
-
-    //futures::future::join_all(sm.get_join_handles()).await;
 
     Ok(())
 }

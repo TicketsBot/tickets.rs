@@ -8,7 +8,7 @@ use sharder::{var_or_panic, build_cache, build_redis};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // init sharder options
-    let presence = StatusUpdate::new(ActivityType::Listening, "for t!help".to_owned(), StatusType::Online);
+    let presence = StatusUpdate::new(ActivityType::Listening, "t!help".to_owned(), StatusType::Online);
     let options = sharder::Options {
         token: var_or_panic("SHARDER_TOKEN"),
         shard_count: get_shard_count(),

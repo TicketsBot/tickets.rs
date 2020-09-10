@@ -8,7 +8,7 @@ use crate::Table;
 use model::Snowflake;
 use tokio::stream::StreamExt;
 
-#[derive(sqlx::FromRow)]
+#[derive(sqlx::FromRow, Debug)]
 pub struct WhitelabelBot {
     pub user_id: i64,
     pub bot_id: i64,

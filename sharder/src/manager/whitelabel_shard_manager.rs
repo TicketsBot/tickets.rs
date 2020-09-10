@@ -1,5 +1,3 @@
-// TODO Listen for deletions
-
 use async_trait::async_trait;
 
 use super::ShardManager;
@@ -19,11 +17,15 @@ use darkredis::ConnectionPool;
 use std::str;
 use tokio::stream::StreamExt;
 use common::token_change;
+use tokio::time::delay_for;
+use std::time::Duration;
 
 pub struct WhitelabelShardManager {
     sharder_count: u16,
     sharder_id: u16,
     shards: RwLock<HashMap<Snowflake, Arc<Shard>>>,
+    // user_id -> bot_id
+    user_ids: RwLock<HashMap<Snowflake, Snowflake>>,
     error_rx: Mutex<mpsc::Receiver<FatalError>>,
     error_tx: mpsc::Sender<FatalError>,
     db: Arc<Database>,
@@ -32,12 +34,12 @@ pub struct WhitelabelShardManager {
 }
 
 impl WhitelabelShardManager {
-    pub async fn connect(
+    pub async fn new(
         sharder_count: u16,
         sharder_id: u16,
         database: Arc<Database>,
         cache: Arc<PostgresCache>,
-        redis: Arc<ConnectionPool>
+        redis: Arc<ConnectionPool>,
     ) -> Arc<Self> {
         let (error_tx, error_rx) = mpsc::channel(16);
 
@@ -45,6 +47,7 @@ impl WhitelabelShardManager {
             sharder_count,
             sharder_id,
             shards: RwLock::new(HashMap::new()),
+            user_ids: RwLock::new(HashMap::new()),
             error_rx: Mutex::new(error_rx),
             error_tx,
             db: Arc::clone(&database),
@@ -56,6 +59,8 @@ impl WhitelabelShardManager {
     }
 
     async fn connect_bot(self: Arc<Self>, bot: WhitelabelBot) {
+        self.user_ids.write().await.insert(Snowflake(bot.user_id as u64), Snowflake(bot.bot_id as u64));
+
         let bot_id = Snowflake(bot.bot_id as u64);
 
         let error_tx = self.error_tx.clone();
@@ -68,8 +73,8 @@ impl WhitelabelShardManager {
                 Err(e) => {
                     eprintln!("Error occurred while retrieving status for {}: {:?}", bot.bot_id, e);
                     None
-                },
-            }.unwrap_or("for t!help".to_owned());
+                }
+            }.unwrap_or("t!help".to_owned());
 
             let shard_info = ShardInfo::new(0, 1);
             let presence = StatusUpdate::new(ActivityType::Listening, status, StatusType::Online);
@@ -84,7 +89,24 @@ impl WhitelabelShardManager {
                 error_tx,
             );
 
-            self.shards.write().await.insert(bot_id, shard);
+            self.shards.write().await.insert(bot_id, Arc::clone(&shard));
+
+            loop {
+                let shard = Arc::clone(&shard);
+                shard.log("Starting...");
+
+                match Arc::clone(&shard).connect().await {
+                    Ok(()) => shard.log("Exited with Ok"),
+                    Err(e) => shard.log_err("Exited with error", &e),
+                }
+
+                // we've received delete payload
+                if self.shards.read().await.get(&bot_id).is_none() {
+                    break;
+                }
+
+                delay_for(Duration::from_millis(500)).await;
+            }
         });
     }
 
@@ -112,11 +134,11 @@ impl WhitelabelShardManager {
                                     if let Err(e) = shard.status_update_tx.clone().send(StatusUpdate::new(ActivityType::Listening, status, StatusType::Online)).await {
                                         eprintln!("An error occured while updating status for {}: {}", bot_id, e);
                                     }
-                                },
+                                }
                                 Err(e) => eprintln!("Error retrieving status from db: {}", e),
                             }
                         }
-                    },
+                    }
                     Ok(Err(e)) => eprintln!("An error occured while reading status updates: {}", e),
                     Err(e) => eprintln!("An error occured while reading status updates: {}", e),
                 }
@@ -151,7 +173,7 @@ impl WhitelabelShardManager {
                             match self.db.whitelabel.get_bot_by_id(payload.new_id).await {
                                 Ok(Some(bot)) => {
                                     manager.connect_bot(bot).await;
-                                },
+                                }
                                 Ok(None) => eprintln!("Couldn't find row for bot {}", payload.new_id),
                                 Err(e) => eprintln!("Error retrieving bot from DB: {}", e),
                             }
@@ -174,21 +196,19 @@ impl WhitelabelShardManager {
                 match str::from_utf8(&m.message[..]).map(|s| s.parse::<Snowflake>()) {
                     Ok(Ok(user_id)) => {
                         // get bot for user
-                        match self.db.whitelabel.get_user_by_id(user_id).await {
-                            Ok(Some(bot)) => {
-                                let bot_id = Snowflake(bot.bot_id as u64);
+                        let mut user_ids = self.user_ids.write().await;
+                        let mut shards = self.shards.write().await;
 
-                                if let Some(shard) = self.shards.read().await.get(&bot_id) {
-                                    self.shards.write().await.remove(&bot_id);
-                                    if let Err(e) = shard.kill_shard_tx.clone().send(()).await {
-                                        eprintln!("Error killing bot {}: {}", bot_id, e);
-                                    }
-                                }
-                            },
-                            Ok(None) => eprintln!("No bot found for user {}", user_id),
-                            Err(e) => eprintln!("Error retrieving bot for {} from database: {}", user_id, e),
+                        if let Some(bot_id) = user_ids.get(&user_id) {
+                            if let Some(shard) = shards.get(bot_id) {
+                                shard.kill().await;
+                            }
+
+                            shards.remove(&bot_id);
                         }
-                    },
+
+                        user_ids.remove(&user_id);
+                    }
                     Ok(Err(e)) => eprintln!("An error occured while reading delete payload: {}", e),
                     Err(e) => eprintln!("An error occured while reading delete payload: {}", e),
                 }
@@ -205,7 +225,7 @@ impl ShardManager for WhitelabelShardManager {
         // we should panic if we cant read db
         let bots = self.db.whitelabel.get_bots_by_sharder(self.sharder_count, self.sharder_id).await.unwrap();
 
-        for bot in bots { // todo: tokio::spawn
+        for bot in bots {
             Arc::clone(&self).connect_bot(bot).await;
         }
     }
@@ -221,10 +241,10 @@ impl ShardManager for WhitelabelShardManager {
                     if let Err(e) = self.db.whitelabel_errors.append(Snowflake(bot.user_id as u64), msg.error).await {
                         eprintln!("Error while logging error: {}", e);
                     }
-                },
+                }
                 Ok(None) => {
                     eprintln!("Bot had no ID, removing anyway");
-                },
+                }
                 Err(e) => {
                     eprintln!("Error getting bot: {}", e);
                 }

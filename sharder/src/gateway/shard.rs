@@ -153,7 +153,8 @@ impl Shard {
     }
 
     // helper function
-    async fn kill(&self) {
+    pub async fn kill(&self) {
+        self.log("real");
         // BIG problem
         // TODO: panic?
         if let Err(e) = self.kill_shard_tx.clone().send(()).await {
