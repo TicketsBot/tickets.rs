@@ -10,7 +10,7 @@ use model::user::{PresenceUpdate, User};
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Event {
     Ready(super::Ready),
-    Resumed,
+    Resumed(serde_json::Value),
     ChannelCreate(Channel),
     ChannelUpdate(Channel),
     ChannelDelete(Channel),

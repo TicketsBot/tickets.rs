@@ -1,10 +1,8 @@
 use super::payloads;
-use super::payloads::{Opcode, Payload};
 use super::payloads::event::Event;
+use super::payloads::{Opcode, Payload, Dispatch};
 
 use super::OutboundMessage;
-
-use std::error::Error;
 
 use flate2::{Decompress, FlushDecompress, Status};
 
@@ -16,26 +14,29 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, Mutex};
 
 use tokio::sync::{mpsc, oneshot};
-use futures_util::{StreamExt, SinkExt, stream::{SplitSink, SplitStream}};
-use tokio_tungstenite::{WebSocketStream, connect_async, tungstenite::Message};
-use tokio::net::TcpStream;
-use tokio_tls::TlsStream;
+use futures_util::{StreamExt, SinkExt};
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 use serde::Serialize;
-use cache::{Cache, PostgresCache};
-use model::guild::Member;
-use chrono::Utc;
-use std::ops::Sub;
+use cache::{PostgresCache, Cache};
 use model::channel::Channel;
 use model::Snowflake;
-use common::event_forwarding;
-use crate::gateway::payloads::{Dispatch, PresenceUpdate};
 use serde_json::{Value, Map};
 use crate::gateway::GatewayError;
 use crate::manager::FatalError;
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use model::user::StatusUpdate;
 use darkredis::{ConnectionPool, Command};
+use std::fmt::Display;
+
+use tokio_tungstenite::WebSocketStream;
+use futures_util::stream::{SplitStream, SplitSink};
+use tokio::net::TcpStream;
+use tokio_tls::TlsStream;
+use common::event_forwarding;
+use std::collections::HashMap;
+use model::guild::Member;
+
+type WebSocketTx = SplitSink<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>, Message>;
+type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>>;
 
 pub struct Shard {
     identify: payloads::Identify,
@@ -55,13 +56,11 @@ pub struct Shard {
     kill_shard_rx: Mutex<mpsc::Receiver<()>>,
     last_ack: RwLock<Instant>,
     last_heartbeat: RwLock<Instant>,
+    connect_time: RwLock<Instant>,
 }
 
 // 16 KiB
 const CHUNK_SIZE: usize = 16 * 1024;
-
-type WebSocketTx = SplitSink<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>, Message>;
-type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>>;
 
 impl Shard {
     pub fn new(
@@ -93,6 +92,7 @@ impl Shard {
             kill_shard_rx: Mutex::new(kill_shard_rx),
             last_ack: RwLock::new(Instant::now()),
             last_heartbeat: RwLock::new(Instant::now()),
+            connect_time: RwLock::new(Instant::now()), // will be overwritten
         });
 
         Arc::clone(&shard).listen_status_updates(status_update_rx);
@@ -100,13 +100,14 @@ impl Shard {
         shard
     }
 
-    pub async fn connect(self: Arc<Self>) -> Result<(), Box<dyn Error>> {
+    pub async fn connect(self: Arc<Self>) -> Result<(), GatewayError> {
         *self.total_rx.lock().await = 0; // rst
 
         let uri = url::Url::parse("wss://gateway.discord.gg/?v=6&encoding=json&compress=zlib-stream").unwrap();
 
         let (wss, _) = connect_async(uri).await?;
         let (ws_tx, ws_rx) = wss.split();
+        *self.connect_time.write().await = Instant::now();
 
         // start writer
         let (writer_tx, writer_rx) = mpsc::channel(16);
@@ -117,7 +118,7 @@ impl Shard {
 
         // start read loop
         if let Err(e) = self.listen(ws_rx).await {
-            return Err(Box::new(e));
+            return Err(e);
         }
 
         Ok(())
@@ -150,125 +151,80 @@ impl Shard {
     }
 
     // helper function
-    async fn kill(self: Arc<Self>) {
+    async fn kill(&self) {
         // BIG problem
         // TODO: panic?
         if let Err(e) = self.kill_shard_tx.clone().send(()).await {
-            eprintln!("Failed to kill shard! {}", e);
+            self.log_err("Failed to kill", &GatewayError::SendError(e));
         }
     }
 
-    fn listen_status_updates(self: Arc<Self>, mut status_update_rx: mpsc::Receiver<StatusUpdate>) {
-        tokio::spawn(async move {
-            while let Some(msg) = status_update_rx.recv().await {
-                let shard = Arc::clone(&self);
-
-                // create payload
-                let payload = PresenceUpdate::new(msg);
-
-                let (res_tx, res_rx) = oneshot::channel();
-
-                match OutboundMessage::new(payload, res_tx) {
-                    Ok(msg) => {
-                        if let Some(writer) = &*shard.writer.read().await {
-                            match msg.send(writer.clone()).await {
-                                Ok(_) => {
-                                    match res_rx.await {
-                                        Ok(Err(e)) => eprintln!("Error writing status update: {}", e),
-                                        Err(e) => eprintln!("Error writing status update: {}", e),
-                                        _ => {}
-                                    }
-                                }
-                                Err(e) => eprintln!("Error writing status update: {}", e),
-                            }
-                        }
-                    }
-                    Err(e) => eprintln!("Failed to serialize status update: {}", e),
-                }
-            }
-        });
-    }
+    fn listen_status_updates(self: Arc<Self>, mut status_update_rx: mpsc::Receiver<StatusUpdate>) {}
 
     async fn listen(self: Arc<Self>, mut ws_rx: WebSocketRx) -> Result<(), GatewayError> {
         let mut decoder = Decompress::new(true);
 
-        let shard = Arc::clone(&self);
         loop {
-            let shard = Arc::clone(&shard);
+            let chan = &mut *self.kill_shard_rx.lock().await;
 
-            match shard.kill_shard_rx.lock().await.try_recv() {
-                Err(mpsc::error::TryRecvError::Empty) => {}
-                _ => {
-                    // kill heartbeat loop
-                    if let Some(kill_heartbeat) = shard.kill_heartbeat.lock().await.take() {
-                        if let Err(_) = kill_heartbeat.send(()) {
-                            eprintln!("Error killing heartbeat on shard {}", shard.get_shard_id());
-                        }
-                    }
-                    break;
-                }
-            };
-
-            match ws_rx.next().await {
-                None => {
-                    println!("Shard {} closed (next is None)", self.get_shard_id());
+            tokio::select! {
+                _ = chan.recv() => {
+                    self.log("Received kill message");
                     break;
                 }
 
-                Some(Err(e)) => {
-                    return GatewayError::WebsocketError(e).into();
-                }
-
-                Some(Ok(msg)) => {
-                    if let Message::Close(frame) = msg {
-                        let frame = frame.unwrap_or(CloseFrame {
-                            code: CloseCode::Invalid,
-                            reason: Default::default(),
-                        });
-
-                        let wrapped = FatalError::new(self.identify.data.token.clone(), frame.code, frame.reason.to_string());
-
-                        if let Err(e) = self.error_tx.lock().await.send(wrapped).await {
-                            return GatewayError::SendErrorError(e).into();
+                payload = ws_rx.next() => {
+                    match payload {
+                        None => {
+                            self.log("Payload was None, killing");
+                            self.kill().await;
+                            break;
                         }
 
-                        return Ok(());
-                    }
+                        Some(Err(e)) => {
+                            self.log_err("Error reading data from websocket, killing", &GatewayError::WebsocketError(e));
+                            self.kill().await;
+                            break;
+                        }
 
-                    if !msg.is_binary() {
-                        eprintln!("Received non-binary message");
-                        continue;
-                    }
+                        Some(Ok(Message::Close(frame))) => {
+                            self.log(format!("Got close from gateway: {:?}", frame));
+                            self.kill().await;
+                            break;
+                        }
 
-                    let (payload, raw) = match shard.read_payload(msg, &mut decoder).await {
-                        Some(r) => r,
-                        _ => continue,
-                    };
+                        Some(Ok(Message::Binary(data))) => {
+                            let (payload, data) = match Arc::clone(&self).read_payload(data, &mut decoder).await {
+                                Some(r) => r,
+                                _ => continue
+                            };
 
-                    if let Err(e) = Arc::clone(&self).process_payload(payload, raw).await {
-                        eprintln!("Error reading payload: {}", e);
+                            if let Err(e) = Arc::clone(&self).process_payload(payload, data).await {
+                                self.log_err("An error occurred while processing a payload", &e);
+                            }
+                        }
+
+                        _ => {}
                     }
                 }
-            };
+            }
         }
 
         Ok(())
     }
 
     // we return None because it's ok to discard the payload
-    async fn read_payload(self: Arc<Self>, msg: tokio_tungstenite::tungstenite::protocol::Message, decoder: &mut Decompress) -> Option<(Payload, Vec<u8>)> {
-        let compressed = msg.into_data();
-
+    async fn read_payload(self: Arc<Self>, data: Vec<u8>, decoder: &mut Decompress) -> Option<(Payload, Vec<u8>)> {
         let mut total_rx = self.total_rx.lock().await;
 
         let mut output: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
         let before = total_rx.clone();
         let mut offset: usize = 0;
 
-        while ((decoder.total_in() - *total_rx) as usize) < compressed.len() {
+        while ((decoder.total_in() - *total_rx) as usize) < data.len() {
             let mut temp: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
 
-            match decoder.decompress_vec(&compressed[offset..], &mut temp, FlushDecompress::Sync) {
+            match decoder.decompress_vec(&data[offset..], &mut temp, FlushDecompress::Sync).map_err(GatewayError::DecompressError) {
                 Ok(Status::StreamEnd) => break,
                 Ok(Status::Ok) | Ok(Status::BufError) => {
                     output.append(&mut temp);
@@ -277,7 +233,7 @@ impl Shard {
 
                 // TODO: Should we reconnect?
                 Err(e) => {
-                    eprintln!("Error while decompressing: {}", e);
+                    self.log_err("Error while decompressing", &e);
 
                     *total_rx = 0;
                     decoder.reset(true);
@@ -290,162 +246,166 @@ impl Shard {
         *total_rx = decoder.total_in();
 
         // deserialize payload
-        match serde_json::from_slice(&output[..]) {
+        match serde_json::from_slice(&output[..]).map_err(GatewayError::JsonError) {
             Ok(payload) => Some((payload, output)),
             Err(e) => {
-                eprintln!("Error occurred while deserializing payload: {}", e);
+                self.log_err("Error while deserializing payload", &e);
                 None
             }
         }
     }
 
     async fn process_payload(self: Arc<Self>, payload: Payload, raw: Vec<u8>) -> Result<(), GatewayError> {
-        // update sequence number
         if let Some(seq) = payload.seq {
-            let mut stored_seq = self.seq.write().await;
-            *stored_seq = Some(seq);
+            *self.seq.write().await = Some(seq);
         }
 
-        // figure out which payload we need
         match payload.opcode {
             Opcode::Dispatch => {
-                //let payload: payloads::Dispatch = serde_json::from_slice(&raw[..])?;
-                // perform all deserialization in handle_event
-                let payload: Map<String, Value> = serde_json::from_slice(&raw[..]).map_err(GatewayError::JsonError)?;
-                self.handle_event(payload).await?;
-                Ok(())
+                let payload = serde_json::from_slice(&raw[..])?;
+
+                if let Err(e) = Arc::clone(&self).handle_event(payload).await {
+                    self.log_err("Error processing dispatch", &e);
+                }
             }
+
             Opcode::Reconnect => {
+                self.log("Received reconnect payload from Discord");
                 self.kill().await;
-                Ok(())
             }
+
             Opcode::InvalidSession => {
-                let res: Result<payloads::InvalidSession, serde_json::Error> = serde_json::from_slice(&raw[..]);
+                self.log("Received invalid session payload from Discord");
 
-                println!("Shard {} got invalid session", self.get_shard_id());
-
-                match &res {
-                    Ok(payload) => {
-                        if !payload.is_resumable {
-                            *self.session_id.write().await = None;
-                        }
-                    }
-                    Err(_) => {
-                        *self.session_id.write().await = None;
-                    }
-                };
+                *self.session_id.write().await = None;
+                *self.seq.write().await = None;
 
                 self.kill().await;
-                res.map(|_| ()).map_err(GatewayError::JsonError)
             }
+
             Opcode::Hello => {
                 let hello: payloads::Hello = serde_json::from_slice(&raw[..])?;
+                let interval = Duration::from_millis(hello.data.heartbeat_interval as u64);
 
-                let res = if self.session_id.read().await.is_some() && self.seq.read().await.is_some() {
-                    Arc::clone(&self).do_resume().await
-                } else {
-                    Arc::clone(&self).do_identify().await
-                };
+                let mut should_identify = true;
+                if let (Some(session_id), Some(seq)) = (self.session_id.read().await.as_ref().cloned(), *self.seq.read().await) {
+                    if let Err(e) = Arc::clone(&self).do_resume(session_id.clone(), seq).await {
+                        self.log_err("Error RESUMEing, going to IDENTIFY", &e);
 
-                // TODO: Fatal error log, check if we should remove token
-                if let Err(e) = res {
-                    eprintln!("Received error while authenticating: {}", e);
-                    self.kill().await;
-                    return Err(e);
+                        // rst
+                        *self.session_id.write().await = None;
+                        *self.seq.write().await = None;
+
+                        self.wait_for_ratelimit().await?;
+
+                        if self.connect_time.read().await.elapsed() > interval {
+                            self.log("Connected over 45s ago, Discord will kick us off. Reconnecting.");
+                            Arc::clone(&self).kill().await;
+                            return Ok(());
+                        } else {
+                            should_identify = Arc::clone(&self).do_identify().await.is_err();
+                        }
+                    } else {
+                        self.log("Resumed");
+                    }
                 }
 
-                // we unwrap here because writer should never be None.
-                let kill_tx = Arc::clone(&self).start_heartbeat(hello.data.heartbeat_interval).await;
+                if should_identify {
+                    self.wait_for_ratelimit().await?;
 
-                *self.kill_heartbeat.lock().await = Some(kill_tx);
+                    if self.connect_time.read().await.elapsed() > interval {
+                        self.log("Connected over 45s ago, Discord will kick us off. Reconnecting.");
+                        self.kill().await;
+                        return Ok(());
+                    }
 
-                Ok(())
+                    if let Err(e) = Arc::clone(&self).do_identify().await {
+                        self.log_err("Error identifying, killing", &e);
+                        self.kill().await;
+                        return e.into();
+                    }
+
+                    self.log("Identified");
+                }
+
+                let kill_tx = Arc::clone(&self).start_heartbeat(interval).await;
+                *self.kill_heartbeat.lock().await = Some(kill_tx)
             }
+
             Opcode::HeartbeatAck => {
-                let mut last_ack = self.last_ack.write().await;
-                *last_ack = Instant::now();
-
-                Ok(())
+                *self.last_ack.write().await = Instant::now();
             }
-            _ => Ok(()),
+
+            _ => {}
         }
+
+        Ok(())
     }
 
     async fn handle_event(self: Arc<Self>, data: Map<String, Value>) -> Result<(), GatewayError> {
-        let event_type = if let Some(v) = data.get("t") {
-            if let Some(s) = v.as_str() {
-                s
-            } else {
-                return Err(GatewayError::TypeNotString(v.clone().clone()));
-            }
-        } else {
-            return Err(GatewayError::TypeNotString(Value::String("missing!".to_owned())));
-        }.to_owned();
-
-        let payload: Dispatch = serde_json::from_value(serde_json::Value::Object(data)).map_err(GatewayError::custom)?;
-        let event: Event = serde_json::from_value(payload.data.clone()).map_err(GatewayError::custom)?;
-
-        let mut extra = event_forwarding::Extra {
-            is_join: false,
+        let event_type: String = match data.get("t").map(&Value::as_str) {
+            Some(Some(s)) => s.to_owned(),
+            _ => return Err(GatewayError::MissingEventType),
         };
 
-        // Log ready
-        if let Event::Ready(ready) = &event {
-            *self.session_id.write().await = Some(ready.session_id.clone());
-            *self.bot_id.write().await = Some(ready.user.id);
-            println!("Connected on {}#{} ({}) shard {} / {}", ready.user.username, ready.user.discriminator, ready.user.id, ready.shard.shard_id, ready.shard.num_shards);
-        }
+        let payload: Dispatch = serde_json::from_value(serde_json::Value::Object(data)).map_err(GatewayError::JsonError)?;
 
-        if let Event::Resumed = &event {
-            println!("Resumed on {} shard {} / {}", self.bot_id.read().await.unwrap_or(Snowflake(0)), self.get_shard_id(), self.identify.data.shard_info.num_shards);
-        }
+        // Gateway events
+        match &payload.data {
+            Event::Ready(ready) => {
+                *self.session_id.write().await = Some(ready.session_id.clone());
+                *self.bot_id.write().await = Some(ready.user.id);
 
-        match &event {
-            Event::GuildCreate(guild) => {
-                let mut is_join = false;
-
-                match self.cache.get_guild(guild.id).await {
-                    Ok(Some(_)) => (),
-
-                    Ok(None) => {
-                        // don't mass DM everyone on cache purge
-                        // check if the bot joined in the last minute
-                        if let Some(joined_at) = guild.joined_at {
-                            is_join = Utc::now().sub(joined_at).num_seconds() <= 60;
-                        }
-                    }
-
-                    Err(e) => {
-                        eprintln!("Error retrieving cached guild: {:?}", e);
-                    }
-                };
-
-                extra.is_join = is_join;
+                self.log(format!("Ready on {}#{} ({})", ready.user.username, ready.user.discriminator, ready.user.id));
+                return Ok(());
             }
-            _ => (),
+
+            Event::Resumed(_) => {
+                self.log(format!("Resumed on {:?}", self.bot_id.read().await));
+                return Ok(());
+            }
+
+            _ => {}
         }
 
-        // Update cache
-        let cache = Arc::clone(&self.cache);
+        // prepare redis payload
+        let bot_id = match *self.bot_id.read().await {
+            Some(s) => s.0,
+            None => return Err(GatewayError::NoneId),
+        };
+
+        // TODO: Use struct
+        let mut wrapped = HashMap::with_capacity(6);
+        wrapped.insert("bot_token", serde_json::to_value(self.identify.data.token.clone()).map_err(GatewayError::JsonError)?);
+        wrapped.insert("bot_id", serde_json::to_value(bot_id).map_err(GatewayError::JsonError)?);
+        wrapped.insert("is_whitelabel", serde_json::to_value(self.is_whitelabel).map_err(GatewayError::JsonError)?);
+        wrapped.insert("shard_id", serde_json::to_value(self.get_shard_id()).map_err(GatewayError::JsonError)?);
+        wrapped.insert("event_type", serde_json::to_value(event_type).map_err(GatewayError::JsonError)?);
+        wrapped.insert("data", serde_json::to_value(&payload.data).map_err(GatewayError::JsonError)?);
+
+        let json = serde_json::to_string(&wrapped).map_err(GatewayError::JsonError)?;
+
+        // cache + push to redis
         tokio::spawn(async move {
-            let res = match event {
-                Event::ChannelCreate(channel) => cache.store_channel(&channel).await,
-                Event::ChannelUpdate(channel) => cache.store_channel(&channel).await,
-                Event::ChannelDelete(channel) => cache.delete_channel(channel.id).await,
+            // cache
+            let res = match payload.data {
+                Event::ChannelCreate(channel) => self.cache.store_channel(&channel).await,
+                Event::ChannelUpdate(channel) => self.cache.store_channel(&channel).await,
+                Event::ChannelDelete(channel) => self.cache.delete_channel(channel.id).await,
                 Event::GuildCreate(mut guild) => {
                     guild.channels = Shard::apply_guild_id_to_channels(guild.channels, guild.id);
-                    cache.store_guild(&guild).await
+                    self.cache.store_guild(&guild).await
                 }
                 Event::GuildUpdate(mut guild) => {
                     guild.channels = Shard::apply_guild_id_to_channels(guild.channels, guild.id);
-                    cache.store_guild(&guild).await
+                    self.cache.store_guild(&guild).await
                 }
-                Event::GuildDelete(guild) => cache.delete_guild(guild.id).await, // TODO: Check if just available or actual kick
-                Event::GuildBanAdd(ev) => cache.delete_member(ev.user.id, ev.guild_id).await,
-                Event::GuildEmojisUpdate(ev) => cache.store_emojis(ev.emojis.iter().collect(), ev.guild_id).await,
-                Event::GuildMemberAdd(ev) => cache.store_member(&ev.member, ev.guild_id).await,
-                Event::GuildMemberRemove(ev) => cache.delete_member(ev.user.id, ev.guild_id).await,
-                Event::GuildMemberUpdate(ev) => cache.store_member(&Member {
+                Event::GuildDelete(guild) => self.cache.delete_guild(guild.id).await, // TODO: Check if just available or actual kick
+                Event::GuildBanAdd(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await,
+                Event::GuildEmojisUpdate(ev) => self.cache.store_emojis(ev.emojis.iter().collect(), ev.guild_id).await,
+                Event::GuildMemberAdd(ev) => self.cache.store_member(&ev.member, ev.guild_id).await,
+                Event::GuildMemberRemove(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await,
+                Event::GuildMemberUpdate(ev) => self.cache.store_member(&Member {
                     user: Some(ev.user),
                     nick: ev.nick,
                     roles: ev.roles,
@@ -454,54 +414,28 @@ impl Shard {
                     deaf: false, // TODO: Don't update these fields somehow?
                     mute: false, // TODO: Don't update these fields somehow?
                 }, ev.guild_id).await,
-                Event::GuildMembersChunk(ev) => cache.store_members(ev.members.iter().collect(), ev.guild_id).await,
-                Event::GuildRoleCreate(ev) => cache.store_role(&ev.role, ev.guild_id).await,
-                Event::GuildRoleUpdate(ev) => cache.store_role(&ev.role, ev.guild_id).await,
-                Event::GuildRoleDelete(ev) => cache.delete_role(ev.role_id).await,
-                Event::UserUpdate(user) => cache.store_user(&user).await,
+                Event::GuildMembersChunk(ev) => self.cache.store_members(ev.members.iter().collect(), ev.guild_id).await,
+                Event::GuildRoleCreate(ev) => self.cache.store_role(&ev.role, ev.guild_id).await,
+                Event::GuildRoleUpdate(ev) => self.cache.store_role(&ev.role, ev.guild_id).await,
+                Event::GuildRoleDelete(ev) => self.cache.delete_role(ev.role_id).await,
+                Event::UserUpdate(user) => self.cache.store_user(&user).await,
                 _ => Ok(()),
             };
 
             if let Err(e) = res {
-                eprintln!("Error while updating cache: {:?}", e);
+                self.log_err("Error updating cache", &GatewayError::CacheError(e));
+            }
+
+            // push to redis, even if error occurred
+            let res = self.redis.get().await
+                .rpush(event_forwarding::KEY, json)
+                .await
+                .map_err(GatewayError::RedisError);
+
+            if let Err(e) = res {
+                self.log_err("Error pushing event to Redis", &e);
             }
         });
-
-        let bot_id: Snowflake;
-
-        {
-            let guard = self.bot_id.read().await;
-            if guard.is_none() {
-                eprintln!("Bot is whitelabel but has no ID!");
-
-                if self.is_whitelabel {
-                    return Err(GatewayError::NoneId);
-                } else {
-                    // we don't need the ID... I think?
-                    bot_id = Snowflake(0);
-                }
-            } else {
-                bot_id = guard.unwrap();
-            }
-        }
-
-        // push to redis
-        let wrapped = event_forwarding::Event {
-            bot_token: self.identify.data.token.clone(),
-            bot_id: bot_id.0,
-            is_whitelabel: self.is_whitelabel,
-            shard_id: self.get_shard_id(),
-            event_type: event_type.to_owned(),
-            data: payload.data.get("d").unwrap(),
-            extra,
-        };
-
-        let json = &serde_json::to_string(&wrapped).map_err(GatewayError::JsonError)?;
-
-        self.redis.get().await
-            .rpush(event_forwarding::KEY, json)
-            .await
-            .map_err(GatewayError::RedisError)?;
 
         Ok(())
     }
@@ -516,55 +450,31 @@ impl Shard {
     // returns cancellation channel
     async fn start_heartbeat(
         self: Arc<Self>,
-        interval: u32,
+        interval: Duration,
     ) -> oneshot::Sender<()> {
-        let interval = Duration::from_millis(interval as u64);
-
         let (cancel_tx, mut cancel_rx) = oneshot::channel();
 
         tokio::spawn(async move {
             delay_for(interval).await;
 
-            let mut has_sent_heartbeat = false;
+            let mut has_done_heartbeat = false;
             while let Err(oneshot::error::TryRecvError::Empty) = cancel_rx.try_recv() {
-                // check if we've received an ack
-                {
-                    let last_ack = *self.last_ack.read().await;
-                    let last_heartbeat = *self.last_heartbeat.read().await;
-                    if has_sent_heartbeat && (last_heartbeat > last_ack || last_ack.duration_since(last_heartbeat) > interval) {
-                        // BIG problem
-                        // TODO: panic?
-                        if let Err(e) = self.kill_shard_tx.clone().send(()).await {
-                            eprintln!("Failed to kill shard! {}", e);
-                        }
+                let shard = Arc::clone(&self);
+                let elapsed = shard.last_ack.read().await.checked_duration_since(*self.last_heartbeat.read().await);
 
-                        break;
-                    }
-                }
-
-                let mut should_kill = false;
-
-                match Arc::clone(&self).do_heartbeat().await {
-                    Ok(()) => has_sent_heartbeat = true,
-                    Err(e) => {
-                        eprintln!("Error while heartbeating: {:?}", e);
-                        should_kill = true;
-                    }
-                };
-
-                // rust is a terrible language
-                // if you put the kill channel in the above block, you are told e might be used later
-                // even if you explicitly drop(e), it still says e is dropped after the `if let` scope ends.
-                // found a compiler bug on my second day of rust, wahey!
-                if should_kill {
-                    // BIG problem
-                    // TODO: panic?
-                    if let Err(e) = self.kill_shard_tx.clone().send(()).await {
-                        eprintln!("Failed to kill shard! {}", e);
-                    }
-
+                if has_done_heartbeat && (elapsed.is_none() || elapsed.unwrap() > interval) {
+                    shard.log("Hasn't received heartbeat, killing");
+                    shard.kill().await;
                     break;
                 }
+
+                if let Err(e) = Arc::clone(&shard).do_heartbeat().await {
+                    shard.log_err("Error sending heartbeat, killing", &e);
+                    shard.kill().await;
+                    break;
+                }
+
+                has_done_heartbeat = true;
 
                 delay_for(interval).await;
             }
@@ -574,27 +484,21 @@ impl Shard {
     }
 
     async fn do_heartbeat(self: Arc<Self>) -> Result<(), GatewayError> {
-        let payload: payloads::Heartbeat;
-        {
-            let seq = self.seq.read().await;
-            payload = payloads::Heartbeat::new(*seq);
-        }
+        let payload = payloads::Heartbeat::new(*self.seq.read().await);
 
-        let (res_tx, res_rx) = oneshot::channel();
+        let (tx, rx) = oneshot::channel();
+        self.write(payload, tx).await?;
 
-        self.write(payload, res_tx).await?;
-        res_rx.await??;
+        rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketError)?;
 
         *self.last_heartbeat.write().await = Instant::now();
-
         Ok(())
     }
 
     async fn do_identify(self: Arc<Self>) -> Result<(), GatewayError> {
-        self.wait_for_ratelimit().await?;
-
         let (tx, rx) = oneshot::channel();
         self.write(&self.identify, tx).await?;
+
         Ok(rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketError)?)
     }
 
@@ -623,7 +527,7 @@ impl Shard {
                             let ttl = Duration::from_millis(ttl as u64);
                             delay_for(ttl).await
                         }
-                    },
+                    }
                     _ => {}
                 }
             }
@@ -634,11 +538,11 @@ impl Shard {
 
     /// Shard.session_id & Shard.seq should not be None when calling this function
     /// if they are, the function will panic
-    async fn do_resume(self: Arc<Self>) -> Result<(), GatewayError> {
+    async fn do_resume(self: Arc<Self>, session_id: String, seq: usize) -> Result<(), GatewayError> {
         let payload = payloads::Resume::new(
             self.identify.data.token.clone(),
-            self.session_id.read().await.as_ref().unwrap().clone(),
-            self.seq.read().await.unwrap(),
+            session_id,
+            seq,
         );
 
         let (tx, rx) = oneshot::channel();
@@ -650,5 +554,13 @@ impl Shard {
     /// helper
     fn get_shard_id(&self) -> u16 {
         self.identify.data.shard_info.shard_id
+    }
+
+    pub fn log(&self, msg: impl Display) {
+        println!("[{:0>2}] {}", self.get_shard_id(), msg);
+    }
+
+    pub fn log_err(&self, msg: impl Display, err: &GatewayError) {
+        eprintln!("[{:0>2}] {}: {}", self.get_shard_id(), msg, err);
     }
 }

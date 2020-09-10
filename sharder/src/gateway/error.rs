@@ -8,8 +8,11 @@ pub enum GatewayError {
     /*#[error("invalid opcode {0}")]
     InvalidOpcode(u8),*/
 
-    #[error("t value on dispatch was not a string: {0}")]
-    TypeNotString(serde_json::Value),
+    #[error("t value on dispatch was not a string")]
+    MissingEventType,
+
+    #[error("d value on dispatch was not an object")]
+    MissingEventData,
 
     #[error("shard had a None bot_id field")]
     NoneId,
@@ -35,12 +38,21 @@ pub enum GatewayError {
     #[error("error while sending message to error chan: {0}")]
     SendErrorError(#[from] tokio::sync::mpsc::error::SendError<FatalError>),
 
+    #[error("error while sending message to chan: {0}")]
+    SendError(#[from] tokio::sync::mpsc::error::SendError<()>),
+
     #[error("error occurred while compressing payload: {0}")]
     CompressError(#[from] flate2::CompressError),
+
+    #[error("error occurred while decompressing payload: {0}")]
+    DecompressError(#[from] flate2::DecompressError),
+
+    #[error("error occurred while operating on the cache: {0}")]
+    CacheError(#[from] cache::CacheError),
 }
 
 impl GatewayError {
-    pub fn custom<T: Display>(msg: T) -> Self {
+    pub fn custom(msg: impl Display) -> Self {
         GatewayError::GenericError(msg.to_string())
     }
 }

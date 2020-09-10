@@ -9,7 +9,8 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 use model::channel::Channel;
 use model::guild::{Role, Guild, Member, Emoji, VoiceState};
 use serde_json::Value;
-use futures_util::core_reexport::cmp::Ordering::Equal;
+use sqlx::Executor;
+use std::cmp::Ordering::Equal;
 
 pub struct PostgresCache {
     opts: Options,
@@ -28,6 +29,8 @@ impl PostgresCache {
     }
 
     pub async fn create_schema(&self) -> Result<(), CacheError> {
+        sqlx::query(r#"SET synchronous_commit TO OFF"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+
         // create tables
         sqlx::query(r#"CREATE TABLE IF NOT EXISTS guilds("guild_id" int8 NOT NULL UNIQUE, "data" jsonb NOT NULL, PRIMARY KEY("guild_id"));"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
         sqlx::query(r#"CREATE TABLE IF NOT EXISTS channels("channel_id" int8 NOT NULL UNIQUE, "guild_id" int8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("channel_id", "guild_id"));"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
@@ -84,8 +87,7 @@ impl Cache for PostgresCache {
 
         query.push_str(r#" ON CONFLICT("guild_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        // TODO: Don't prepare statement
-        sqlx::query(&query).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         // cache objects on guild
         let mut res: Result<(), CacheError> = Ok(());
@@ -190,8 +192,7 @@ impl Cache for PostgresCache {
 
         query.push_str(r#" ON CONFLICT("channel_id", "guild_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        // TODO: Don't prepare statement
-        sqlx::query(&query).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         Ok(())
     }
@@ -252,10 +253,7 @@ impl Cache for PostgresCache {
 
         query.push_str(r#" ON CONFLICT("user_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        // TODO: Don't prepare statement
-        if let Err(e) = sqlx::query(&query).execute(&self.pool).await.map_err(CacheError::DatabaseError) {
-            return e.into();
-        }
+        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         Ok(())
     }
@@ -330,8 +328,7 @@ impl Cache for PostgresCache {
 
         query.push_str(r#" ON CONFLICT("guild_id", "user_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        // TODO: Don't prepare statement
-        sqlx::query(&query).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         Ok(())
     }
@@ -392,8 +389,7 @@ impl Cache for PostgresCache {
 
         query.push_str(r#" ON CONFLICT("role_id", "guild_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        // TODO: Don't prepare statement
-        sqlx::query(&query).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         Ok(())
     }
@@ -455,8 +451,7 @@ impl Cache for PostgresCache {
 
         query.push_str(r#" ON CONFLICT("emoji_id", "guild_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        // TODO: Don't prepare statement
-        // sqlx::query(&query).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         Ok(())
     }
@@ -518,8 +513,7 @@ impl Cache for PostgresCache {
 
         query.push_str(r#" ON CONFLICT("guild_id", "user_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        // TODO: Don't prepare statement
-        sqlx::query(&query).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         Ok(())
     }

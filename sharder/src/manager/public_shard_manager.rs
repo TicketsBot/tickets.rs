@@ -56,17 +56,17 @@ impl PublicShardManager {
 #[async_trait]
 impl ShardManager for PublicShardManager {
     async fn connect(self: Arc<Self>) {
-        for (i, shard) in self.shards.read().await.iter() {
-            let (i, shard) = (i.clone(), Arc::clone(&shard));
+        for (_, shard) in self.shards.read().await.iter() {
+            let shard = Arc::clone(&shard);
 
             tokio::spawn(async move {
                 loop {
                     let shard = Arc::clone(&shard);
-                    println!("Starting shard {}", i);
+                    shard.log("Starting...");
 
-                    match shard.connect().await {
-                        Ok(()) => println!("Shard {} exited with Ok", i),
-                        Err(e) => eprintln!("Shard {} exited with err: {:?}", i, e)
+                    match Arc::clone(&shard).connect().await {
+                        Ok(()) => shard.log("Exited with Ok"),
+                        Err(e) => shard.log_err("Exited with error", &e),
                     }
 
                     delay_for(Duration::from_millis(500)).await;

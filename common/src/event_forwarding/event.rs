@@ -10,10 +10,4 @@ pub struct Event<'a> {
     pub shard_id: u16,
     pub event_type: String,
     pub data: &'a serde_json::Value,
-    pub extra: Extra,
-}
-
-#[derive(Serialize, Debug)]
-pub struct Extra {
-    pub is_join: bool,
 }

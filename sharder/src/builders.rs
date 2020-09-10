@@ -9,9 +9,9 @@ use std::env;
 pub async fn build_cache() -> PostgresCache {
     let cache_uri = &var_or_panic("CACHE_URI");
     let cache_opts = Options {
-        users: true,
+        users: false,
         guilds: true,
-        members: true,
+        members: false,
         channels: true,
         roles: true,
         emojis: false,
@@ -19,7 +19,7 @@ pub async fn build_cache() -> PostgresCache {
     };
 
     let pg_opts = PgPoolOptions::new()
-        .min_connections(1)
+        .min_connections(var_or_panic("CACHE_THREADS").parse().unwrap())
         .max_connections(var_or_panic("CACHE_THREADS").parse().unwrap());
 
     PostgresCache::connect(cache_uri, cache_opts, pg_opts).await.unwrap()

@@ -1,6 +1,7 @@
 use serde::Deserialize;
 
 use super::Opcode;
+use crate::gateway::payloads::event::Event;
 
 #[derive(Deserialize, Debug)]
 pub struct Dispatch {
@@ -8,5 +9,5 @@ pub struct Dispatch {
     opcode: Opcode,
 
     #[serde(rename = "d", flatten)]
-    pub data: serde_json::Value,
+    pub data: Event,
 }
