@@ -385,6 +385,11 @@ impl Shard {
             _ => return Err(GatewayError::MissingEventType),
         };
 
+        let event_data = match &data.get("d") {
+            Some(data) => data,
+            None => return Err(GatewayError::MissingEventData)
+        }.clone().clone();
+
         let payload: Dispatch = serde_json::from_value(serde_json::Value::Object(data)).map_err(GatewayError::JsonError)?;
 
         // Gateway events
@@ -418,7 +423,7 @@ impl Shard {
         wrapped.insert("is_whitelabel", serde_json::to_value(self.is_whitelabel).map_err(GatewayError::JsonError)?);
         wrapped.insert("shard_id", serde_json::to_value(self.get_shard_id()).map_err(GatewayError::JsonError)?);
         wrapped.insert("event_type", serde_json::to_value(event_type).map_err(GatewayError::JsonError)?);
-        wrapped.insert("data", serde_json::to_value(&payload.data).map_err(GatewayError::JsonError)?);
+        wrapped.insert("data", event_data);
 
         let json = serde_json::to_string(&wrapped).map_err(GatewayError::JsonError)?;
 
