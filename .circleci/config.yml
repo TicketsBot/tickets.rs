@@ -2,7 +2,7 @@ version: 2
 jobs:
   build:
     docker:
-      - image: rust:alpine
+      - image: rust:buster
 
     steps:
       - checkout
@@ -16,8 +16,12 @@ jobs:
           command: cargo --version
 
       - run:
+          name: Update archives
+          command: apt-get update && apt-get upgrade -y
+
+      - run:
           name: Install build dependencies
-          command: apk add musl-dev pkgconfig openssl-dev
+          command: apt-get install -y pkg-config build-essential cmake libssl-dev
 
       - run:
           name: Build
@@ -26,3 +30,11 @@ jobs:
       - store_artifacts:
           path: ./target/release/patreon-proxy
           destination: patreon-proxy
+
+      - store_artifacts:
+          path: ./target/release/public
+          destination: public-sharder
+
+      - store_artifacts:
+          path: ./target/release/whitelabel
+          destination: whitelabel-sharder

@@ -5,6 +5,23 @@ authors = ["rxdn"]
 edition = "2018"
 
 [dependencies]
-tokio = { version = "0.2", features = ["full", "time"] }
-tokio-tungstenite = "0.11.0"
-
+cache = { path = "../cache" }
+model = { path = "../model" }
+common = { path = "../common" }
+database = { path = "../database" }
+tokio = { version = "0.2", features = ["full", "time", "sync"] }
+tokio-tungstenite = { version = "0.10", features = ["tls"] }
+tokio-tls = "0.3"
+url = "2.1"
+futures = "0.3"
+futures-util = "0.3"
+flate2 = { version = "1.0", features = ["tokio", "zlib-ng-compat"], default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+serde_repr = "0.1"
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+sqlx = { version = "0.4.0-beta.1", features = ["macros", "runtime-tokio", "postgres", "chrono", "json"], default-features = false }
+async-trait = "0.1"
+redis = { version = "0.17", features = ["tokio-rt-core", "connection-manager"] }
+darkredis = "0.7"

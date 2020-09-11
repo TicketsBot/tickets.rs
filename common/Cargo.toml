@@ -1,0 +1,11 @@
+[package]
+name = "common"
+version = "0.1.0"
+authors = ["rxdn <29165304+rxdn@users.noreply.github.com>"]
+edition = "2018"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+serde_repr = "0.1"
+model = { path = "../model" }

@@ -1,5 +1,12 @@
 [workspace]
 members = [
     "patreon-proxy",
-    "sharder"
+    "sharder",
+    "cache",
+    "model",
+    "common",
+    "database"
 ]
+
+[profile.dev]
+lto = "thin"

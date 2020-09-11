@@ -1,0 +1,171 @@
+{
+  "db": "PostgreSQL",
+  "0768f3e0548772e213d226c91964e121b85c2943aa9414ad306d4315728675b4": {
+    "query": "SELECT \"data\" FROM roles WHERE \"role_id\" = $1;",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "data",
+          "type_info": "Jsonb"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
+  "2117826ce7730ab7fcad7fe8e59ad9546643c5c1f9c4f615a5f05ca39d6d78b7": {
+    "query": "SELECT \"data\" FROM members WHERE \"guild_id\" = $1 AND \"user_id\" = $2;",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "data",
+          "type_info": "Jsonb"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
+  "353726c82f85a9481ef51b02f49aaf04f6e4dd0f9fbe41dcfdd0384a37b3b002": {
+    "query": "SELECT \"guild_id\", \"data\" FROM channels WHERE \"channel_id\" = $1;",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "guild_id",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 1,
+          "name": "data",
+          "type_info": "Jsonb"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false,
+        false
+      ]
+    }
+  },
+  "404bc07061bd3189569544e73e12029c018958974cb400310b0f16983dc88554": {
+    "query": "SELECT \"data\" FROM users WHERE \"user_id\" = $1;",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "data",
+          "type_info": "Jsonb"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
+  "444c54faa358987523fcf8ba3405e394627b65068a823106967543632c2b2d25": {
+    "query": "SELECT \"data\" FROM voice_states WHERE \"guild_id\" = $1 AND \"user_id\" = $2;",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "data",
+          "type_info": "Jsonb"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
+  "7d5657452f805ebb373fed738a16bb230945332c842275f890b7633df09f2f13": {
+    "query": "SELECT \"data\" FROM emojis WHERE \"emoji_id\" = $1;",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "data",
+          "type_info": "Jsonb"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
+  "964dfc7c084cfc1deb3ea8db9f0b75f5798aee63d2ff828b938ee1c184ed49fd": {
+    "query": "SELECT \"data\" FROM guilds WHERE \"guild_id\" = $1;",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "data",
+          "type_info": "Jsonb"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
+  "a6b8ba108bea01b284f14a56dc094826dc9b4dbd3d7e5a5f48e5bc2818e469da": {
+    "query": "SELECT \"data\" FROM channels WHERE \"channel_id\" = $1;",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "data",
+          "type_info": "Jsonb"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  }
+}
