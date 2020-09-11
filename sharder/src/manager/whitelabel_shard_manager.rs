@@ -201,7 +201,7 @@ impl WhitelabelShardManager {
 
                         if let Some(bot_id) = user_ids.get(&user_id) {
                             if let Some(shard) = shards.get(bot_id) {
-                                shard.kill().await;
+                                Arc::clone(&shard).kill().await;
                             }
 
                             shards.remove(&bot_id);

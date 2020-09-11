@@ -153,20 +153,24 @@ impl Shard {
     }
 
     // helper function
-    pub async fn kill(&self) {
+    pub async fn kill(self: Arc<Self>) {
         // BIG problem
-        // TODO: panic?
-        if let Err(e) = self.kill_shard_tx.clone().send(()).await {
-            self.log_err("Failed to kill", &GatewayError::SendError(e));
-        }
+        // TODO: Make this good
+        tokio::spawn(async move {
+            // TODO: panic?
+            if let Err(e) = self.kill_shard_tx.clone().send(()).await {
+                self.log_err("Failed to kill", &GatewayError::SendError(e));
+            }
+        });
     }
 
     async fn listen(self: Arc<Self>, mut ws_rx: WebSocketRx) -> Result<(), GatewayError> {
         let mut decoder = Decompress::new(true);
 
         loop {
-            let kill_rx = &mut *self.kill_shard_rx.lock().await;
-            let status_update_rx = &mut *self.status_update_rx.lock().await;
+            let shard = Arc::clone(&self);
+            let kill_rx = &mut *shard.kill_shard_rx.lock().await;
+            let status_update_rx = &mut shard.status_update_rx.lock().await;
 
             tokio::select! {
                 // handle kill
@@ -192,7 +196,7 @@ impl Shard {
 
                         Some(Ok(Message::Close(frame))) => {
                             self.log(format!("Got close from gateway: {:?}", frame));
-                            self.kill().await;
+                            Arc::clone(&self).kill().await;
 
                             if let Some(frame) = frame {
                                 if let CloseCode::Library(code) = frame.code {
