@@ -19,6 +19,7 @@ pub struct Guild {
     pub discovery_splash: Option<ImageHash>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<bool>,
+    #[serde(serialize_with = "Snowflake::serialize_to_int")]
     pub owner_id: Snowflake,
     pub permissions: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
