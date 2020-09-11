@@ -150,7 +150,7 @@ impl WhitelabelShardManager {
 
     pub async fn listen_new_tokens(self: Arc<Self>) -> Result<(), GatewayError> {
         let listener = self.redis.spawn(None).await.map_err(GatewayError::RedisError)?;
-        let mut stream = listener.subscribe(&[token_change::KEY]).await.map_err(GatewayError::RedisError)?; // TODO: Move to common
+        let mut stream = listener.subscribe(&[token_change::KEY]).await.map_err(GatewayError::RedisError)?;
 
         tokio::spawn(async move {
             while let Some(m) = stream.next().await {

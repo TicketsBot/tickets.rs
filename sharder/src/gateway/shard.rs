@@ -437,7 +437,13 @@ impl Shard {
                     guild.channels = Shard::apply_guild_id_to_channels(guild.channels, guild.id);
                     self.cache.store_guild(&guild).await
                 }
-                Event::GuildDelete(guild) => self.cache.delete_guild(guild.id).await, // TODO: Check if just available or actual kick
+                Event::GuildDelete(guild) => {
+                    if guild.unavailable.is_none() { // we were kicked
+                        self.cache.delete_guild(guild.id).await
+                    } else {
+                        Ok(())
+                    }
+                }
                 Event::GuildBanAdd(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await,
                 Event::GuildEmojisUpdate(ev) => self.cache.store_emojis(ev.emojis.iter().collect(), ev.guild_id).await,
                 Event::GuildMemberAdd(ev) => self.cache.store_member(&ev.member, ev.guild_id).await,
