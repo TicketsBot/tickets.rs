@@ -27,6 +27,15 @@ jobs:
           name: Build
           command: cargo build --release
 
+      - save_cache:
+          paths:
+            - /usr/local/cargo/registry
+            - target/release/.fingerprint
+            - target/release/build
+            - target/release/deps
+            - target/release/incremental
+          key: v4-cargo-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
+
       - store_artifacts:
           path: ./target/release/patreon-proxy
           destination: patreon-proxy
