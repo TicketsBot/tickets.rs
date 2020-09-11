@@ -9,7 +9,7 @@ jobs:
 
       - restore_cache:
           keys:
-            - v1-pkg-cache
+            - v4-cargo-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
 
       - run:
           name: Print cargo version
