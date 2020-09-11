@@ -22,7 +22,7 @@ impl PostgresCache {
     pub async fn connect(uri: &str, opts: Options, pg_opts: PgPoolOptions, workers: usize) -> Result<PostgresCache, CacheError> {
         let pool = Arc::new(pg_opts.connect(uri).await?);
 
-        let (worker_tx, worker_rx) = mpsc::channel(2048); // TODO: Tweak
+        let (worker_tx, worker_rx) = mpsc::channel(512); // TODO: Tweak
         let worker_rx = Arc::new(Mutex::new(worker_rx));
 
         // start workers
