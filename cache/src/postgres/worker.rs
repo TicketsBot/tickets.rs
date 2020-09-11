@@ -1,69 +1,82 @@
-use super::{Cache, Options};
-use model::user::User;
+use tokio::sync::{Mutex, mpsc};
+use std::sync::Arc;
+use crate::postgres::payload::CachePayload;
+use sqlx::PgPool;
 use model::Snowflake;
 use crate::CacheError;
-
-use async_trait::async_trait;
-
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use model::guild::{VoiceState, Guild, Member, Role, Emoji};
 use model::channel::Channel;
-use model::guild::{Role, Guild, Member, Emoji, VoiceState};
+use model::user::User;
 use serde_json::Value;
-use sqlx::Executor;
 use std::cmp::Ordering::Equal;
+use sqlx::Executor;
 
-pub struct PostgresCache {
-    opts: Options,
-    pool: PgPool,
+pub struct Worker {
+    pool: Arc<PgPool>,
+    rx: PayloadReceiver,
 }
 
-impl PostgresCache {
-    /// panics if URI is invalid
-    pub async fn connect(uri: &str, opts: Options, pg_opts: PgPoolOptions) -> Result<PostgresCache, CacheError> {
-        let pool = pg_opts.connect(uri).await?;
+type PayloadReceiver = Arc<Mutex<mpsc::Receiver<CachePayload>>>;
 
-        Ok(PostgresCache {
-            opts,
-            pool,
-        })
+impl Worker {
+    pub fn new(pool: Arc<PgPool>, rx: PayloadReceiver) -> Worker {
+        Worker { pool, rx }
     }
 
-    pub async fn create_schema(&self) -> Result<(), CacheError> {
-        sqlx::query(r#"SET synchronous_commit TO OFF"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+    pub fn start(self) {
+        tokio::spawn(async move {
+            loop {
+                let mut rx = self.rx.lock().await;
+                let recv = rx.recv().await;
+                drop(rx);
 
-        // create tables
-        sqlx::query(r#"CREATE TABLE IF NOT EXISTS guilds("guild_id" int8 NOT NULL UNIQUE, "data" jsonb NOT NULL, PRIMARY KEY("guild_id"));"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
-        sqlx::query(r#"CREATE TABLE IF NOT EXISTS channels("channel_id" int8 NOT NULL UNIQUE, "guild_id" int8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("channel_id", "guild_id"));"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
-        sqlx::query(r#"CREATE TABLE IF NOT EXISTS users("user_id" int8 NOT NULL UNIQUE, "data" jsonb NOT NULL, PRIMARY KEY("user_id"));"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
-        sqlx::query(r#"CREATE TABLE IF NOT EXISTS members("guild_id" int8 NOT NULL, "user_id" int8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("guild_id", "user_id"));"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
-        sqlx::query(r#"CREATE TABLE IF NOT EXISTS roles("role_id" int8 NOT NULL UNIQUE, "guild_id" int8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("role_id", "guild_id"));"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
-        sqlx::query(r#"CREATE TABLE IF NOT EXISTS emojis("emoji_id" int8 NOT NULL UNIQUE, "guild_id" int8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("emoji_id", "guild_id"));"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
-        sqlx::query(r#"CREATE TABLE IF NOT EXISTS voice_states("guild_id" int8 NOT NULL, "user_id" INT8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("guild_id", "user_id"));"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+                let payload = match recv {
+                    Some(p) => p,
+                    None => { // should never happen
+                        eprintln!("Cache worker got None");
+                        break;
+                    }
+                };
 
-        // create indexes
-        sqlx::query(r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS channels_guild_id ON channels("guild_id");"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
-        sqlx::query(r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS members_guild_id ON members("guild_id");"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
-        sqlx::query(r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS member_user_id ON members("user_id");"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
-        sqlx::query(r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS roles_guild_id ON roles("guild_id");"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
-        sqlx::query(r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS emojis_guild_id ON emojis("guild_id");"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
-        sqlx::query(r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS voice_states_guild_id ON voice_states("guild_id");"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
-        sqlx::query(r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS voice_states_user_id ON voice_states("user_id");"#).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
-
-        Ok(())
+                // TODO: Handle result
+                match payload {
+                    CachePayload::Schema { queries, tx } => {
+                        for query in queries {
+                            if let Err(e) = sqlx::query(&query[..]).execute(&*self.pool).await {
+                                let _ = tx.send(Err(CacheError::DatabaseError(e)));
+                                break;
+                            }
+                        }
+                    }
+                    CachePayload::StoreGuilds { guilds, tx } => { let _ = tx.send(self.store_guilds(guilds).await); }
+                    CachePayload::GetGuild { id, tx } => { let _ = tx.send(self.get_guild(id).await); }
+                    CachePayload::DeleteGuild { id, tx } => { let _ = tx.send(self.delete_guild(id).await); }
+                    CachePayload::StoreChannels { channels, tx } => { let _ = tx.send(self.store_channels(channels).await); }
+                    CachePayload::GetChannel { id, tx } => { let _ = tx.send(self.get_channel(id).await); }
+                    CachePayload::DeleteChannel { id, tx } => { let _ = tx.send(self.delete_channel(id).await); }
+                    CachePayload::StoreUsers { users, tx } => { let _ = tx.send(self.store_users(users).await); }
+                    CachePayload::GetUser { id, tx } => { let _ = tx.send(self.get_user(id).await); }
+                    CachePayload::DeleteUser { id, tx } => { let _ = tx.send(self.delete_user(id).await); }
+                    CachePayload::StoreMembers { members, guild_id, tx } => { let _ = tx.send(self.store_members(members, guild_id).await); }
+                    CachePayload::GetMember { user_id, guild_id, tx } => { let _ = tx.send(self.get_member(user_id, guild_id).await); }
+                    CachePayload::DeleteMember { user_id, guild_id, tx } => { let _ = tx.send(self.delete_member(user_id, guild_id).await); }
+                    CachePayload::StoreRoles { roles, guild_id, tx } => { let _ = tx.send(self.store_roles(roles, guild_id).await); }
+                    CachePayload::GetRole { id, tx } => { let _ = tx.send(self.get_role(id).await); }
+                    CachePayload::DeleteRole { id, tx } => { let _ = tx.send(self.delete_role(id).await); }
+                    CachePayload::StoreEmojis { emojis, guild_id, tx } => { let _ = tx.send(self.store_emojis(emojis, guild_id).await); }
+                    CachePayload::GetEmoji { id, tx } => { let _ = tx.send(self.get_emoji(id).await); }
+                    CachePayload::DeleteEmoji { id, tx } => { let _ = tx.send(self.delete_emoji(id).await); }
+                    CachePayload::StoreVoiceState { voice_states, tx } => { let _ = tx.send(self.store_voice_states(voice_states).await); }
+                    CachePayload::GetVoiceState { user_id, guild_id, tx } => { let _ = tx.send(self.get_voice_state(user_id, guild_id).await); }
+                    CachePayload::DeleteVoiceState { user_id, guild_id, tx } => { let _ = tx.send(self.delete_voice_state(user_id, guild_id).await); }
+                };
+            }
+        });
     }
 }
 
-#[async_trait]
-impl Cache for PostgresCache {
-    async fn store_guild(&self, guild: &Guild) -> Result<(), CacheError> {
-        self.store_guilds(vec![guild]).await
-    }
-
-    async fn store_guilds(&self, mut guilds: Vec<&Guild>) -> Result<(), CacheError> {
-        if !self.opts.guilds {
-            return Ok(());
-        }
-
+impl Worker {
+    async fn store_guilds(&self, mut guilds: Vec<Guild>) -> Result<(), CacheError> {
         if guilds.len() == 0 {
             return Ok(());
         }
@@ -92,51 +105,52 @@ impl Cache for PostgresCache {
         // cache objects on guild
         let mut res: Result<(), CacheError> = Ok(());
 
-        // TODO: check opts before we convert to borrows
+        // TODO: check opts
         for guild in guilds {
-            if let Some(channels) = &guild.channels {
-                if let Err(e) = self.store_channels(channels.iter().collect()).await {
+            if let Some(channels) = guild.channels {
+                if let Err(e) = self.store_channels(channels).await {
                     res = Err(e);
                 }
             }
 
-            if let Some(members) = &guild.members {
-                if let Err(e) = self.store_members(members.iter().collect(), guild.id).await {
-                    res = Err(e);
-                }
-
+            if let Some(members) = guild.members {
                 let users = members
                     .iter()
-                    .map(|m| m.user.as_ref())
+                    .map(|m| m.user.clone())
                     .filter(|m| m.is_some())
                     .map(|m| m.unwrap())
                     .collect();
+
+                if let Err(e) = self.store_members(members, guild.id).await {
+                    res = Err(e);
+                }
 
                 if let Err(e) = self.store_users(users).await {
                     res = Err(e)
                 }
             }
 
-            if let Err(e) = self.store_roles(guild.roles.iter().collect(), guild.id).await {
+            if let Err(e) = self.store_roles(guild.roles, guild.id).await {
                 res = Err(e);
             }
 
-            if let Err(e) = self.store_emojis(guild.emojis.iter().collect(), guild.id).await {
+            // TODO: Check opts
+            /*if let Err(e) = self.store_emojis(guild.emojis, guild.id).await {
                 res = Err(e)
             }
 
-            if let Some(voice_states) = &guild.voice_states {
-                if let Err(e) = self.store_voice_states(voice_states.iter().collect()).await {
+            if let Some(voice_states) = guild.voice_states {
+                if let Err(e) = self.store_voice_states(voice_states).await {
                     res = Err(e)
                 }
-            }
+            }*/
         }
 
         res
     }
 
     async fn get_guild(&self, id: Snowflake) -> Result<Option<Guild>, CacheError> {
-        match sqlx::query!(r#"SELECT "data" FROM guilds WHERE "guild_id" = $1;"#, id.0 as i64).fetch_one(&self.pool).await {
+        match sqlx::query!(r#"SELECT "data" FROM guilds WHERE "guild_id" = $1;"#, id.0 as i64).fetch_one(&*self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
             Ok(r) => {
@@ -148,26 +162,18 @@ impl Cache for PostgresCache {
                     }
                     _ => Err(CacheError::WrongType()),
                 }
-            },
+            }
         }
     }
 
     async fn delete_guild(&self, id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM guilds WHERE "guild_id" = $1;"#;
-        sqlx::query(query).bind(id.0 as i64).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        sqlx::query(query).bind(id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 
-    async fn store_channel(&self, channel: &Channel) -> Result<(), CacheError> {
-        self.store_channels(vec![channel]).await
-    }
-
-    async fn store_channels(&self, channels: Vec<&Channel>) -> Result<(), CacheError> {
-        if !self.opts.channels {
-            return Ok(());
-        }
-
-        let mut channels = channels.into_iter().filter(|c| c.guild_id.is_some()).collect::<Vec<&Channel>>();
+    async fn store_channels(&self, channels: Vec<Channel>) -> Result<(), CacheError> {
+        let mut channels = channels.into_iter().filter(|c| c.guild_id.is_some()).collect::<Vec<Channel>>();
 
         if channels.len() == 0 {
             return Ok(());
@@ -186,7 +192,7 @@ impl Cache for PostgresCache {
                 query.push_str(",");
             }
 
-            let encoded = serde_json::to_string(channel).map_err(CacheError::JsonError)?;
+            let encoded = serde_json::to_string(&channel).map_err(CacheError::JsonError)?;
             query.push_str(&format!(r#"({}, {}, {}::jsonb)"#, channel.id.0, channel.guild_id.unwrap().0, quote_literal(encoded)));
         }
 
@@ -198,7 +204,7 @@ impl Cache for PostgresCache {
     }
 
     async fn get_channel(&self, id: Snowflake) -> Result<Option<Channel>, CacheError> {
-        match sqlx::query!(r#"SELECT "guild_id", "data" FROM channels WHERE "channel_id" = $1;"#, id.0 as i64).fetch_one(&self.pool).await {
+        match sqlx::query!(r#"SELECT "guild_id", "data" FROM channels WHERE "channel_id" = $1;"#, id.0 as i64).fetch_one(&*self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
             Ok(r) => {
@@ -211,25 +217,17 @@ impl Cache for PostgresCache {
                     }
                     _ => Err(CacheError::WrongType()),
                 }
-            },
+            }
         }
     }
 
     async fn delete_channel(&self, id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM channels WHERE "channel_id" = $1;"#;
-        sqlx::query(query).bind(id.0 as i64).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        sqlx::query(query).bind(id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 
-    async fn store_user(&self, user: &User) -> Result<(), CacheError> {
-        self.store_users(vec![user]).await
-    }
-
-    async fn store_users(&self, mut users: Vec<&User>) -> Result<(), CacheError> {
-        if !self.opts.users {
-            return Ok(());
-        }
-
+    async fn store_users(&self, mut users: Vec<User>) -> Result<(), CacheError> {
         if users.len() == 0 {
             return Ok(());
         }
@@ -247,7 +245,7 @@ impl Cache for PostgresCache {
                 query.push_str(",");
             }
 
-            let encoded = serde_json::to_string(user).map_err(CacheError::JsonError)?;
+            let encoded = serde_json::to_string(&user).map_err(CacheError::JsonError)?;
             query.push_str(&format!(r#"({}, {}::jsonb)"#, user.id.0, quote_literal(encoded)));
         }
 
@@ -259,7 +257,7 @@ impl Cache for PostgresCache {
     }
 
     async fn get_user(&self, id: Snowflake) -> Result<Option<User>, CacheError> {
-        match sqlx::query!(r#"SELECT "data" FROM users WHERE "user_id" = $1;"#, id.0 as i64).fetch_one(&self.pool).await {
+        match sqlx::query!(r#"SELECT "data" FROM users WHERE "user_id" = $1;"#, id.0 as i64).fetch_one(&*self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
             Ok(r) => {
@@ -271,26 +269,18 @@ impl Cache for PostgresCache {
                     }
                     _ => Err(CacheError::WrongType()),
                 }
-            },
+            }
         }
     }
 
     async fn delete_user(&self, id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM users WHERE "user_id" = $1;"#;
-        sqlx::query(query).bind(id.0 as i64).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        sqlx::query(query).bind(id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 
-    async fn store_member(&self, member: &Member, guild_id: Snowflake) -> Result<(), CacheError> {
-        self.store_members(vec![member], guild_id).await
-    }
-
-    async fn store_members(&self, members: Vec<&Member>, guild_id: Snowflake) -> Result<(), CacheError> {
-        if !self.opts.members {
-            return Ok(());
-        }
-
-        let mut members = members.into_iter().filter(|m| m.user.is_some()).collect::<Vec<&Member>>();
+    async fn store_members(&self, members: Vec<Member>, guild_id: Snowflake) -> Result<(), CacheError> {
+        let mut members = members.into_iter().filter(|m| m.user.is_some()).collect::<Vec<Member>>();
 
         if members.len() == 0 {
             return Ok(());
@@ -322,7 +312,7 @@ impl Cache for PostgresCache {
                 query.push_str(",");
             }
 
-            let encoded = serde_json::to_string(member).map_err(CacheError::JsonError)?;
+            let encoded = serde_json::to_string(&member).map_err(CacheError::JsonError)?;
             query.push_str(&format!(r#"({}, {}, {}::jsonb)"#, guild_id, member.user.as_ref().unwrap().id, quote_literal(encoded)));
         }
 
@@ -334,7 +324,7 @@ impl Cache for PostgresCache {
     }
 
     async fn get_member(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<Option<Member>, CacheError> {
-        match sqlx::query!(r#"SELECT "data" FROM members WHERE "guild_id" = $1 AND "user_id" = $2;"#, user_id.0 as i64, guild_id.0 as i64).fetch_one(&self.pool).await {
+        match sqlx::query!(r#"SELECT "data" FROM members WHERE "guild_id" = $1 AND "user_id" = $2;"#, user_id.0 as i64, guild_id.0 as i64).fetch_one(&*self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
             Ok(r) => {
@@ -347,25 +337,17 @@ impl Cache for PostgresCache {
                     }
                     _ => Err(CacheError::WrongType()),
                 }
-            },
+            }
         }
     }
 
     async fn delete_member(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM members WHERE "guild_id" = $1 AND "user_id" = $2;"#;
-        sqlx::query(query).bind(guild_id.0 as i64).bind(user_id.0 as i64).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        sqlx::query(query).bind(guild_id.0 as i64).bind(user_id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 
-    async fn store_role(&self, role: &Role, guild_id: Snowflake) -> Result<(), CacheError> {
-        self.store_roles(vec![role], guild_id).await
-    }
-
-    async fn store_roles(&self, mut roles: Vec<&Role>, guild_id: Snowflake) -> Result<(), CacheError> {
-        if !self.opts.roles {
-            return Ok(());
-        }
-
+    async fn store_roles(&self, mut roles: Vec<Role>, guild_id: Snowflake) -> Result<(), CacheError> {
         if roles.len() == 0 {
             return Ok(());
         }
@@ -383,7 +365,7 @@ impl Cache for PostgresCache {
                 query.push_str(",");
             }
 
-            let encoded = serde_json::to_string(role).map_err(CacheError::JsonError)?;
+            let encoded = serde_json::to_string(&role).map_err(CacheError::JsonError)?;
             query.push_str(&format!(r#"({}, {}, {}::jsonb)"#, role.id.0 as i64, guild_id.0 as i64, quote_literal(encoded)));
         }
 
@@ -395,7 +377,7 @@ impl Cache for PostgresCache {
     }
 
     async fn get_role(&self, id: Snowflake) -> Result<Option<Role>, CacheError> {
-        match sqlx::query!(r#"SELECT "data" FROM roles WHERE "role_id" = $1;"#, id.0 as i64).fetch_one(&self.pool).await {
+        match sqlx::query!(r#"SELECT "data" FROM roles WHERE "role_id" = $1;"#, id.0 as i64).fetch_one(&*self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
             Ok(r) => {
@@ -407,26 +389,18 @@ impl Cache for PostgresCache {
                     }
                     _ => Err(CacheError::WrongType()),
                 }
-            },
+            }
         }
     }
 
     async fn delete_role(&self, id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM roles WHERE "role_id" = $1;"#;
-        sqlx::query(query).bind(id.0 as i64).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        sqlx::query(query).bind(id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 
-    async fn store_emoji(&self, emoji: &Emoji, guild_id: Snowflake) -> Result<(), CacheError> {
-        self.store_emojis(vec![emoji], guild_id).await
-    }
-
-    async fn store_emojis(&self, emojis: Vec<&Emoji>, guild_id: Snowflake) -> Result<(), CacheError> {
-        if !self.opts.emojis {
-            return Ok(());
-        }
-
-        let mut emojis = emojis.into_iter().filter(|e| e.id.is_some()).collect::<Vec<&Emoji>>();
+    async fn store_emojis(&self, emojis: Vec<Emoji>, guild_id: Snowflake) -> Result<(), CacheError> {
+        let mut emojis = emojis.into_iter().filter(|e| e.id.is_some()).collect::<Vec<Emoji>>();
 
         if emojis.len() == 0 {
             return Ok(());
@@ -445,7 +419,7 @@ impl Cache for PostgresCache {
                 query.push_str(",");
             }
 
-            let encoded = serde_json::to_string(emoji).map_err(CacheError::JsonError)?;
+            let encoded = serde_json::to_string(&emoji).map_err(CacheError::JsonError)?;
             query.push_str(&format!(r#"({}, {}, {}::jsonb)"#, emoji.id.unwrap(), guild_id, quote_literal(encoded)));
         }
 
@@ -457,7 +431,7 @@ impl Cache for PostgresCache {
     }
 
     async fn get_emoji(&self, emoji_id: Snowflake) -> Result<Option<Emoji>, CacheError> {
-        match sqlx::query!(r#"SELECT "data" FROM emojis WHERE "emoji_id" = $1;"#, emoji_id.0 as i64).fetch_one(&self.pool).await {
+        match sqlx::query!(r#"SELECT "data" FROM emojis WHERE "emoji_id" = $1;"#, emoji_id.0 as i64).fetch_one(&*self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
             Ok(r) => {
@@ -469,26 +443,18 @@ impl Cache for PostgresCache {
                     }
                     _ => Err(CacheError::WrongType()),
                 }
-            },
+            }
         }
     }
 
     async fn delete_emoji(&self, emoji_id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM emojis WHERE "emoji_id" = $1;"#;
-        sqlx::query(query).bind(emoji_id.0 as i64).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        sqlx::query(query).bind(emoji_id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 
-    async fn store_voice_state(&self, voice_state: &VoiceState) -> Result<(), CacheError> {
-        self.store_voice_states(vec![voice_state]).await
-    }
-
-    async fn store_voice_states(&self, voice_states: Vec<&VoiceState>) -> Result<(), CacheError> {
-        if !self.opts.voice_states {
-            return Ok(());
-        }
-
-        let mut voice_states = voice_states.into_iter().filter(|vs| vs.guild_id.is_some()).collect::<Vec<&VoiceState>>();
+    async fn store_voice_states(&self, voice_states: Vec<VoiceState>) -> Result<(), CacheError> {
+        let mut voice_states = voice_states.into_iter().filter(|vs| vs.guild_id.is_some()).collect::<Vec<VoiceState>>();
 
         if voice_states.len() == 0 {
             return Ok(());
@@ -507,7 +473,7 @@ impl Cache for PostgresCache {
                 query.push_str(",");
             }
 
-            let encoded = serde_json::to_string(voice_state).map_err(CacheError::JsonError)?;
+            let encoded = serde_json::to_string(&voice_state).map_err(CacheError::JsonError)?;
             query.push_str(&format!(r#"({}, {}, {}::jsonb)"#, voice_state.guild_id.unwrap(), voice_state.user_id, quote_literal(encoded)));
         }
 
@@ -519,7 +485,7 @@ impl Cache for PostgresCache {
     }
 
     async fn get_voice_state(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<Option<VoiceState>, CacheError> {
-        match sqlx::query!(r#"SELECT "data" FROM voice_states WHERE "guild_id" = $1 AND "user_id" = $2;"#, guild_id.0 as i64, user_id.0 as i64).fetch_one(&self.pool).await {
+        match sqlx::query!(r#"SELECT "data" FROM voice_states WHERE "guild_id" = $1 AND "user_id" = $2;"#, guild_id.0 as i64, user_id.0 as i64).fetch_one(&*self.pool).await {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(CacheError::DatabaseError(e)),
             Ok(r) => {
@@ -532,13 +498,13 @@ impl Cache for PostgresCache {
                     }
                     _ => Err(CacheError::WrongType()),
                 }
-            },
+            }
         }
     }
 
     async fn delete_voice_state(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM voice_states WHERE "guild_id" = $1 AND "user_id" = $2;"#;
-        sqlx::query(query).bind(guild_id.0 as i64).bind(user_id.0 as i64).execute(&self.pool).await.map_err(CacheError::DatabaseError)?;
+        sqlx::query(query).bind(guild_id.0 as i64).bind(user_id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 }

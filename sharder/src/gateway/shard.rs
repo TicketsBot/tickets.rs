@@ -154,7 +154,6 @@ impl Shard {
 
     // helper function
     pub async fn kill(&self) {
-        self.log("real");
         // BIG problem
         // TODO: panic?
         if let Err(e) = self.kill_shard_tx.clone().send(()).await {
@@ -431,16 +430,16 @@ impl Shard {
         tokio::spawn(async move {
             // cache
             let res = match payload.data {
-                Event::ChannelCreate(channel) => self.cache.store_channel(&channel).await,
-                Event::ChannelUpdate(channel) => self.cache.store_channel(&channel).await,
+                Event::ChannelCreate(channel) => self.cache.store_channel(channel).await,
+                Event::ChannelUpdate(channel) => self.cache.store_channel(channel).await,
                 Event::ChannelDelete(channel) => self.cache.delete_channel(channel.id).await,
                 Event::GuildCreate(mut guild) => {
                     guild.channels = Shard::apply_guild_id_to_channels(guild.channels, guild.id);
-                    self.cache.store_guild(&guild).await
+                    self.cache.store_guild(guild).await
                 }
                 Event::GuildUpdate(mut guild) => {
                     guild.channels = Shard::apply_guild_id_to_channels(guild.channels, guild.id);
-                    self.cache.store_guild(&guild).await
+                    self.cache.store_guild(guild).await
                 }
                 Event::GuildDelete(guild) => {
                     if guild.unavailable.is_none() { // we were kicked
@@ -450,10 +449,10 @@ impl Shard {
                     }
                 }
                 Event::GuildBanAdd(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await,
-                Event::GuildEmojisUpdate(ev) => self.cache.store_emojis(ev.emojis.iter().collect(), ev.guild_id).await,
-                Event::GuildMemberAdd(ev) => self.cache.store_member(&ev.member, ev.guild_id).await,
+                Event::GuildEmojisUpdate(ev) => self.cache.store_emojis(ev.emojis, ev.guild_id).await,
+                Event::GuildMemberAdd(ev) => self.cache.store_member(ev.member, ev.guild_id).await,
                 Event::GuildMemberRemove(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await,
-                Event::GuildMemberUpdate(ev) => self.cache.store_member(&Member {
+                Event::GuildMemberUpdate(ev) => self.cache.store_member(Member {
                     user: Some(ev.user),
                     nick: ev.nick,
                     roles: ev.roles,
@@ -462,11 +461,11 @@ impl Shard {
                     deaf: false, // TODO: Don't update these fields somehow?
                     mute: false, // TODO: Don't update these fields somehow?
                 }, ev.guild_id).await,
-                Event::GuildMembersChunk(ev) => self.cache.store_members(ev.members.iter().collect(), ev.guild_id).await,
-                Event::GuildRoleCreate(ev) => self.cache.store_role(&ev.role, ev.guild_id).await,
-                Event::GuildRoleUpdate(ev) => self.cache.store_role(&ev.role, ev.guild_id).await,
+                Event::GuildMembersChunk(ev) => self.cache.store_members(ev.members, ev.guild_id).await,
+                Event::GuildRoleCreate(ev) => self.cache.store_role(ev.role, ev.guild_id).await,
+                Event::GuildRoleUpdate(ev) => self.cache.store_role(ev.role, ev.guild_id).await,
                 Event::GuildRoleDelete(ev) => self.cache.delete_role(ev.role_id).await,
-                Event::UserUpdate(user) => self.cache.store_user(&user).await,
+                Event::UserUpdate(user) => self.cache.store_user(user).await,
                 _ => Ok(()),
             };
 

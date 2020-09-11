@@ -1,4 +1,5 @@
 use thiserror::Error;
+use crate::CachePayload;
 
 #[derive(Error, Debug)]
 pub enum CacheError {
@@ -10,6 +11,12 @@ pub enum CacheError {
 
     #[error("Got wrong type for column")]
     WrongType(),
+
+    #[error("Error sending cache payload to worker: {0}")]
+    SendError(#[from] tokio::sync::mpsc::error::SendError<CachePayload>),
+
+    #[error("Error receiving response from worker: {0}")]
+    RecvError(#[from] tokio::sync::oneshot::error::RecvError),
 }
 
 impl<T> Into<Result<T, Self>> for CacheError {

@@ -18,11 +18,13 @@ pub async fn build_cache() -> PostgresCache {
         voice_states: false,
     };
 
-    let pg_opts = PgPoolOptions::new()
-        .min_connections(var_or_panic("CACHE_THREADS").parse().unwrap())
-        .max_connections(var_or_panic("CACHE_THREADS").parse().unwrap());
+    let cache_threads = var_or_panic("CACHE_THREADS").parse::<usize>().unwrap();
 
-    PostgresCache::connect(cache_uri, cache_opts, pg_opts).await.unwrap()
+    let pg_opts = PgPoolOptions::new()
+        .min_connections(cache_threads as u32)
+        .max_connections(cache_threads as u32);
+
+    PostgresCache::connect(cache_uri, cache_opts, pg_opts, cache_threads).await.unwrap()
 }
 
 /// panics on err
