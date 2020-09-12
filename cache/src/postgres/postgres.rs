@@ -4,7 +4,6 @@ use crate::{CacheError, Options, Cache};
 
 use async_trait::async_trait;
 
-use sqlx::postgres::PgPoolOptions;
 use model::channel::Channel;
 use model::guild::{Role, Guild, Member, Emoji, VoiceState};
 use tokio::sync::{mpsc, oneshot, Mutex};
@@ -20,8 +19,8 @@ pub struct PostgresCache {
 
 impl PostgresCache {
     /// panics if URI is invalid
-    pub async fn connect(uri: &str, opts: Options, pg_opts: PgPoolOptions, workers: usize) -> Result<PostgresCache, CacheError> {
-        let (worker_tx, worker_rx) = mpsc::channel(64); // TODO: Tweak
+    pub async fn connect(uri: &str, opts: Options, workers: usize) -> Result<PostgresCache, CacheError> {
+        let (worker_tx, worker_rx) = mpsc::channel(1); // TODO: Tweak
         let worker_rx = Arc::new(Mutex::new(worker_rx));
 
         // start workers

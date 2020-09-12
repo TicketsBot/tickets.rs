@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache = Arc::new(build_cache().await);
 
     // init redis
-    let redis = Arc::new(build_redis().await);
+    let redis = Arc::new(build_redis());
 
     let sm = PublicShardManager::new(options, cache, redis).await;
     Arc::clone(&sm).connect().await;

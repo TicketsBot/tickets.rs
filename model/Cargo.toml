@@ -9,5 +9,5 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value"] }
 serde_repr = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
-sqlx = { version = "0.4.0-beta.1", features = ["postgres"], default-features = false }
+#sqlx = { version = "0.4.0-beta.1", features = ["postgres"], default-features = false }
 tokio = { version = "0.2" }

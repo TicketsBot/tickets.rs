@@ -12,13 +12,13 @@ use database::{Database, WhitelabelBot};
 use tokio::sync::{Mutex, mpsc, RwLock};
 use model::Snowflake;
 use crate::manager::FatalError;
-use crate::GatewayError;
-use darkredis::ConnectionPool;
+use crate::{GatewayError, get_redis_uri};
 use std::str;
 use tokio::stream::StreamExt;
 use common::token_change;
 use tokio::time::delay_for;
 use std::time::Duration;
+use deadpool_redis::Pool;
 
 pub struct WhitelabelShardManager {
     sharder_count: u16,
@@ -30,7 +30,7 @@ pub struct WhitelabelShardManager {
     error_tx: mpsc::Sender<FatalError>,
     db: Arc<Database>,
     cache: Arc<PostgresCache>,
-    redis: Arc<ConnectionPool>,
+    redis: Arc<Pool>,
 }
 
 impl WhitelabelShardManager {
@@ -39,7 +39,7 @@ impl WhitelabelShardManager {
         sharder_id: u16,
         database: Arc<Database>,
         cache: Arc<PostgresCache>,
-        redis: Arc<ConnectionPool>,
+        redis: Arc<Pool>,
     ) -> Arc<Self> {
         let (error_tx, error_rx) = mpsc::channel(16);
 
@@ -119,12 +119,14 @@ impl WhitelabelShardManager {
     pub async fn listen_status_updates(self: Arc<Self>) -> Result<(), GatewayError> {
         let database = Arc::clone(&self.db);
 
-        let listener = self.redis.spawn(None).await.map_err(GatewayError::RedisError)?;
-        let mut stream = listener.subscribe(&[common::status_updates::KEY]).await.map_err(GatewayError::RedisError)?;
+        let mut conn = redis::Client::open(get_redis_uri()).unwrap().get_async_connection().await?.into_pubsub();
+        conn.subscribe(common::status_updates::KEY).await.map_err(GatewayError::RedisError)?;
 
         tokio::spawn(async move {
+            let mut stream = conn.on_message();
+
             while let Some(m) = stream.next().await {
-                match str::from_utf8(&m.message[..]).map(|s| s.parse::<Snowflake>()) {
+                match m.get_payload::<String>().map(|s| s.parse::<Snowflake>()) {
                     Ok(Ok(bot_id)) => {
                         if let Some(shard) = self.shards.read().await.get(&bot_id) {
                             // retrieve new status
@@ -149,14 +151,16 @@ impl WhitelabelShardManager {
     }
 
     pub async fn listen_new_tokens(self: Arc<Self>) -> Result<(), GatewayError> {
-        let listener = self.redis.spawn(None).await.map_err(GatewayError::RedisError)?;
-        let mut stream = listener.subscribe(&[token_change::KEY]).await.map_err(GatewayError::RedisError)?;
+        let mut conn = redis::Client::open(get_redis_uri()).unwrap().get_async_connection().await?.into_pubsub();
+        conn.subscribe(common::status_updates::KEY).await.map_err(GatewayError::RedisError)?;
 
         tokio::spawn(async move {
+            let mut stream = conn.on_message();
+
             while let Some(m) = stream.next().await {
                 let manager = Arc::clone(&self);
 
-                match serde_json::from_slice::<token_change::Payload>(&m.message[..]) {
+                match serde_json::from_slice::<token_change::Payload>(m.get_payload_bytes()) {
                     Ok(payload) => {
                         // check whether this shard has the old bot
                         if payload.old_id.0 % (manager.sharder_count as u64) == manager.sharder_id as u64 {
@@ -188,12 +192,14 @@ impl WhitelabelShardManager {
     }
 
     pub async fn listen_delete(self: Arc<Self>) -> Result<(), GatewayError> {
-        let listener = self.redis.spawn(None).await.map_err(GatewayError::RedisError)?;
-        let mut stream = listener.subscribe(&["tickets:whitelabeldelete"]).await.map_err(GatewayError::RedisError)?; // TODO: Move to common
+        let mut conn = redis::Client::open(get_redis_uri()).unwrap().get_async_connection().await?.into_pubsub();
+        conn.subscribe(common::status_updates::KEY).await.map_err(GatewayError::RedisError)?;
 
         tokio::spawn(async move {
+            let mut stream = conn.on_message();
+
             while let Some(m) = stream.next().await {
-                match str::from_utf8(&m.message[..]).map(|s| s.parse::<Snowflake>()) {
+                match m.get_payload::<String>().map(|s| s.parse::<Snowflake>()) {
                     Ok(Ok(user_id)) => {
                         // get bot for user
                         let mut user_ids = self.user_ids.write().await;

@@ -5,9 +5,6 @@ use crate::manager::FatalError;
 
 #[derive(Error, Debug)]
 pub enum GatewayError {
-    /*#[error("invalid opcode {0}")]
-    InvalidOpcode(u8),*/
-
     #[error("t value on dispatch was not a string")]
     MissingEventType,
 
@@ -24,7 +21,10 @@ pub enum GatewayError {
     JsonError(#[from] serde_json::Error),
 
     #[error("error while operating on Redis: {0}")]
-    RedisError(#[from] darkredis::Error),
+    RedisError(#[from] redis::RedisError),
+
+    #[error("error while getting redis conn: {0}")]
+    PoolError(#[from] deadpool::managed::PoolError<redis::RedisError>),
 
     #[error("error while operating on websocket: {0}")]
     WebsocketError(#[from] tokio_tungstenite::tungstenite::Error),

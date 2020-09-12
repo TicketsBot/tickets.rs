@@ -18,13 +18,11 @@ use futures_util::{StreamExt, SinkExt};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use serde::Serialize;
 use cache::{PostgresCache, Cache};
-use model::channel::Channel;
 use model::Snowflake;
 use serde_json::{Value, Map};
 use crate::gateway::GatewayError;
 use crate::manager::FatalError;
 use model::user::StatusUpdate;
-use darkredis::{ConnectionPool, Command};
 use std::fmt::Display;
 
 use tokio_tungstenite::WebSocketStream;
@@ -33,9 +31,10 @@ use tokio::net::TcpStream;
 use tokio_tls::TlsStream;
 use common::event_forwarding;
 use std::collections::HashMap;
-use model::guild::Member;
+use model::guild::{Member, Guild};
 use crate::gateway::payloads::PresenceUpdate;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use deadpool_redis::{Pool, cmd};
 
 type WebSocketTx = SplitSink<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>, Message>;
 type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>>;
@@ -44,7 +43,7 @@ pub struct Shard {
     identify: payloads::Identify,
     large_sharding_buckets: u16,
     cache: Arc<PostgresCache>,
-    redis: Arc<ConnectionPool>,
+    redis: Arc<Pool>,
     is_whitelabel: bool,
     error_tx: mpsc::Sender<FatalError>,
     pub status_update_tx: mpsc::Sender<StatusUpdate>,
@@ -70,7 +69,7 @@ impl Shard {
         identify: payloads::Identify,
         large_sharding_buckets: u16,
         cache: Arc<PostgresCache>,
-        redis: Arc<ConnectionPool>,
+        redis: Arc<Pool>,
         is_whitelabel: bool,
         error_tx: mpsc::Sender<FatalError>,
     ) -> Arc<Shard> {
@@ -388,10 +387,31 @@ impl Shard {
             _ => return Err(GatewayError::MissingEventType),
         };
 
-        let event_data = match &data.get("d") {
+        let event_data = match data.get("d") {
             Some(data) => data,
             None => return Err(GatewayError::MissingEventData)
-        }.clone().clone();
+        };
+
+        // prepare redis payload
+        let mut json: Option<String> = None;
+        if let Some(bot_id) = *self.bot_id.read().await {
+            // TODO: Use struct
+            let bot_token = serde_json::to_value(self.identify.data.token.clone()).map_err(GatewayError::JsonError)?;
+            let bot_id = serde_json::to_value(bot_id.0).map_err(GatewayError::JsonError)?;
+            let is_whitelabel = serde_json::to_value(self.is_whitelabel).map_err(GatewayError::JsonError)?;
+            let shard_id = serde_json::to_value(self.get_shard_id()).map_err(GatewayError::JsonError)?;
+            let event_type = serde_json::to_value(event_type).map_err(GatewayError::JsonError)?;
+
+            let mut wrapped = HashMap::with_capacity(6);
+            wrapped.insert("bot_token", &bot_token);
+            wrapped.insert("bot_id", &bot_id);
+            wrapped.insert("is_whitelabel", &is_whitelabel);
+            wrapped.insert("shard_id", &shard_id);
+            wrapped.insert("event_type", &event_type);
+            wrapped.insert("data", event_data);
+
+            json = Some(serde_json::to_string(&wrapped).map_err(GatewayError::JsonError)?);
+        }
 
         let payload: Dispatch = serde_json::from_value(serde_json::Value::Object(data)).map_err(GatewayError::JsonError)?;
 
@@ -413,23 +433,6 @@ impl Shard {
             _ => {}
         }
 
-        // prepare redis payload
-        let bot_id = match *self.bot_id.read().await {
-            Some(s) => s.0,
-            None => return Err(GatewayError::NoneId),
-        };
-
-        // TODO: Use struct
-        let mut wrapped = HashMap::with_capacity(6);
-        wrapped.insert("bot_token", serde_json::to_value(self.identify.data.token.clone()).map_err(GatewayError::JsonError)?);
-        wrapped.insert("bot_id", serde_json::to_value(bot_id).map_err(GatewayError::JsonError)?);
-        wrapped.insert("is_whitelabel", serde_json::to_value(self.is_whitelabel).map_err(GatewayError::JsonError)?);
-        wrapped.insert("shard_id", serde_json::to_value(self.get_shard_id()).map_err(GatewayError::JsonError)?);
-        wrapped.insert("event_type", serde_json::to_value(event_type).map_err(GatewayError::JsonError)?);
-        wrapped.insert("data", event_data);
-
-        let json = serde_json::to_string(&wrapped).map_err(GatewayError::JsonError)?;
-
         // cache + push to redis
         tokio::spawn(async move {
             // cache
@@ -437,12 +440,12 @@ impl Shard {
                 Event::ChannelCreate(channel) => self.cache.store_channel(channel).await,
                 Event::ChannelUpdate(channel) => self.cache.store_channel(channel).await,
                 Event::ChannelDelete(channel) => self.cache.delete_channel(channel.id).await,
-                Event::GuildCreate(mut guild) => {
-                    guild.channels = Shard::apply_guild_id_to_channels(guild.channels, guild.id);
+                Event::GuildCreate(mut guild) => { // TODO: carry over this crazy optimisation
+                    Shard::apply_guild_id_to_channels(&mut guild);
                     self.cache.store_guild(guild).await
                 }
                 Event::GuildUpdate(mut guild) => {
-                    guild.channels = Shard::apply_guild_id_to_channels(guild.channels, guild.id);
+                    Shard::apply_guild_id_to_channels(&mut guild);
                     self.cache.store_guild(guild).await
                 }
                 Event::GuildDelete(guild) => {
@@ -478,24 +481,33 @@ impl Shard {
             }
 
             // push to redis, even if error occurred
-            let res = self.redis.get().await
-                .rpush(event_forwarding::KEY, json)
-                .await
-                .map_err(GatewayError::RedisError);
+            if let Some(json) = json {
+                match self.redis.get().await.map_err(GatewayError::PoolError) {
+                    Ok(mut conn) => {
+                        let res = cmd("RPUSH")
+                            .arg(&[event_forwarding::KEY, &json[..]])
+                            .execute_async(&mut conn)
+                            .await
+                            .map_err(GatewayError::RedisError);
 
-            if let Err(e) = res {
-                self.log_err("Error pushing event to Redis", &e);
+                        if let Err(e) = res {
+                            self.log_err("Error pushing event to Redis", &e);
+                        }
+                    },
+                    Err(e) => self.log_err("Error pushing event to Redis", &e)
+                }
             }
         });
 
         Ok(())
     }
 
-    fn apply_guild_id_to_channels(channels: Option<Vec<Channel>>, guild_id: Snowflake) -> Option<Vec<Channel>> {
-        channels.map(|channels| channels.into_iter().map(|mut c| {
-            c.guild_id = Some(guild_id);
-            c
-        }).collect())
+    fn apply_guild_id_to_channels(guild: &mut Guild) {
+        if let Some(channels) = &mut guild.channels {
+            for channel in channels {
+                channel.guild_id = Some(guild.id)
+            }
+        }
     }
 
     // returns cancellation channel
@@ -556,22 +568,26 @@ impl Shard {
     async fn wait_for_ratelimit(&self) -> Result<(), GatewayError> {
         let key = format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets);
 
-        let mut res = darkredis::Value::Nil;
-        while res == darkredis::Value::Nil {
-            let mut conn = self.redis.get().await;
+        let mut res = redis::Value::Nil;
+        while res == redis::Value::Nil {
+            let mut conn = self.redis.get().await?;
 
-            // some arbitrary value, set if not exist, set expiry, of 6s
-            res = conn.run_command(
-                Command::new("SET")
-                    .args(&[&key[..], "1", "NX", "PX", "6000"])
-            ).await.map_err(GatewayError::RedisError)?;
+            res = cmd("SET")
+                .arg(&[&key[..], "1", "NX", "PX", "6000"]) // some arbitrary value, set if not exist, set expiry, of 6s
+                .query_async(&mut conn)
+                .await
+                .map_err(GatewayError::RedisError)?;
 
-            if res == darkredis::Value::Nil {
+            if res == redis::Value::Nil {
                 // get time to delay
-                let cmd = Command::new("PTTL").arg(&key);
+                let ttl = cmd("PTTL")
+                    .arg(&key)
+                    .query_async(&mut conn)
+                    .await
+                    .map_err(GatewayError::RedisError)?;
 
-                match conn.run_command(cmd).await.map_err(GatewayError::RedisError)? {
-                    darkredis::Value::Integer(ttl) => {
+                match ttl {
+                    redis::Value::Int(ttl) => {
                         // if number is negative, we can go ahead and identify
                         // -1 = no expire, -2 = doesn't exist
                         if ttl > 0 {
