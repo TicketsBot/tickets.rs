@@ -1,26 +1,24 @@
 use tokio::sync::{Mutex, mpsc};
 use std::sync::Arc;
 use crate::postgres::payload::CachePayload;
-use sqlx::PgPool;
 use model::Snowflake;
 use crate::CacheError;
 use model::guild::{VoiceState, Guild, Member, Role, Emoji};
 use model::channel::Channel;
 use model::user::User;
-use serde_json::Value;
 use std::cmp::Ordering::Equal;
-use sqlx::Executor;
+use tokio_postgres::Client;
 
 pub struct Worker {
-    pool: Arc<PgPool>,
+    client: Client,
     rx: PayloadReceiver,
 }
 
 type PayloadReceiver = Arc<Mutex<mpsc::Receiver<CachePayload>>>;
 
 impl Worker {
-    pub fn new(pool: Arc<PgPool>, rx: PayloadReceiver) -> Worker {
-        Worker { pool, rx }
+    pub fn new(client: Client, rx: PayloadReceiver) -> Worker {
+        Worker { client, rx }
     }
 
     pub fn start(self) {
@@ -41,11 +39,14 @@ impl Worker {
                 // TODO: Handle result
                 match payload {
                     CachePayload::Schema { queries, tx } => {
+                        let mut batch = String::new();
                         for query in queries {
-                            if let Err(e) = sqlx::query(&query[..]).execute(&*self.pool).await {
-                                let _ = tx.send(Err(CacheError::DatabaseError(e)));
-                                break;
-                            }
+                            batch.push_str(&query[..]);
+                        }
+
+                        if let Err(e) = self.client.batch_execute(&batch[..]).await {
+                            let _ = tx.send(Err(CacheError::DatabaseError(e)));
+                            break;
                         }
                     }
                     CachePayload::StoreGuilds { guilds, tx } => { let _ = tx.send(self.store_guilds(guilds).await); }
@@ -100,7 +101,7 @@ impl Worker {
 
         query.push_str(r#" ON CONFLICT("guild_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
+        self.client.simple_query(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         // cache objects on guild
         let mut res: Result<(), CacheError> = Ok(());
@@ -150,25 +151,12 @@ impl Worker {
     }
 
     async fn get_guild(&self, id: Snowflake) -> Result<Option<Guild>, CacheError> {
-        match sqlx::query!(r#"SELECT "data" FROM guilds WHERE "guild_id" = $1;"#, id.0 as i64).fetch_one(&*self.pool).await {
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => {
-                let r: Value = r.data;
-                match r {
-                    Value::Object(mut m) => {
-                        m.insert("id".to_owned(), Value::Number(serde_json::Number::from(id.0)));
-                        Ok(Some(serde_json::from_value::<Guild>(Value::Object(m))?))
-                    }
-                    _ => Err(CacheError::WrongType()),
-                }
-            }
-        }
+        Ok(None)
     }
 
     async fn delete_guild(&self, id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM guilds WHERE "guild_id" = $1;"#;
-        sqlx::query(query).bind(id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
+        self.client.execute(query, &[&(id.0 as i64)]).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 
@@ -198,32 +186,18 @@ impl Worker {
 
         query.push_str(r#" ON CONFLICT("channel_id", "guild_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
+        self.client.simple_query(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         Ok(())
     }
 
     async fn get_channel(&self, id: Snowflake) -> Result<Option<Channel>, CacheError> {
-        match sqlx::query!(r#"SELECT "guild_id", "data" FROM channels WHERE "channel_id" = $1;"#, id.0 as i64).fetch_one(&*self.pool).await {
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => {
-                let data: Value = r.data;
-                match data {
-                    Value::Object(mut m) => {
-                        m.insert("channel_id".to_owned(), Value::Number(serde_json::Number::from(id.0)));
-                        m.insert("guild_id".to_owned(), Value::Number(serde_json::Number::from(r.guild_id)));
-                        Ok(Some(serde_json::from_value::<Channel>(Value::Object(m))?))
-                    }
-                    _ => Err(CacheError::WrongType()),
-                }
-            }
-        }
+        Ok(None)
     }
 
     async fn delete_channel(&self, id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM channels WHERE "channel_id" = $1;"#;
-        sqlx::query(query).bind(id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
+        self.client.execute(query, &[&(id.0 as i64)]).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 
@@ -251,31 +225,18 @@ impl Worker {
 
         query.push_str(r#" ON CONFLICT("user_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
+        self.client.simple_query(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         Ok(())
     }
 
     async fn get_user(&self, id: Snowflake) -> Result<Option<User>, CacheError> {
-        match sqlx::query!(r#"SELECT "data" FROM users WHERE "user_id" = $1;"#, id.0 as i64).fetch_one(&*self.pool).await {
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => {
-                let data: Value = r.data;
-                match data {
-                    Value::Object(mut m) => {
-                        m.insert("user_id".to_owned(), Value::Number(serde_json::Number::from(id.0)));
-                        Ok(Some(serde_json::from_value::<User>(Value::Object(m))?))
-                    }
-                    _ => Err(CacheError::WrongType()),
-                }
-            }
-        }
+        Ok(None)
     }
 
     async fn delete_user(&self, id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM users WHERE "user_id" = $1;"#;
-        sqlx::query(query).bind(id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
+        self.client.execute(query, &[&(id.0 as i64)]).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 
@@ -318,32 +279,18 @@ impl Worker {
 
         query.push_str(r#" ON CONFLICT("guild_id", "user_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
+        self.client.simple_query(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         Ok(())
     }
 
     async fn get_member(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<Option<Member>, CacheError> {
-        match sqlx::query!(r#"SELECT "data" FROM members WHERE "guild_id" = $1 AND "user_id" = $2;"#, user_id.0 as i64, guild_id.0 as i64).fetch_one(&*self.pool).await {
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => {
-                let data: Value = r.data;
-                match data {
-                    Value::Object(mut m) => {
-                        m.insert("user_id".to_owned(), Value::Number(serde_json::Number::from(user_id.0)));
-                        m.insert("guild_id".to_owned(), Value::Number(serde_json::Number::from(guild_id.0)));
-                        Ok(Some(serde_json::from_value::<Member>(Value::Object(m))?))
-                    }
-                    _ => Err(CacheError::WrongType()),
-                }
-            }
-        }
+        Ok(None)
     }
 
     async fn delete_member(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM members WHERE "guild_id" = $1 AND "user_id" = $2;"#;
-        sqlx::query(query).bind(guild_id.0 as i64).bind(user_id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
+        self.client.execute(query, &[&(guild_id.0 as i64), &(user_id.0 as i64)]).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 
@@ -366,36 +313,23 @@ impl Worker {
             }
 
             let encoded = serde_json::to_string(&role).map_err(CacheError::JsonError)?;
-            query.push_str(&format!(r#"({}, {}, {}::jsonb)"#, role.id.0 as i64, guild_id.0 as i64, quote_literal(encoded)));
+            query.push_str(&format!(r#"({}, {}, {}::jsonb)"#, role.id.0, guild_id.0, quote_literal(encoded)));
         }
 
         query.push_str(r#" ON CONFLICT("role_id", "guild_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
+        self.client.simple_query(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         Ok(())
     }
 
     async fn get_role(&self, id: Snowflake) -> Result<Option<Role>, CacheError> {
-        match sqlx::query!(r#"SELECT "data" FROM roles WHERE "role_id" = $1;"#, id.0 as i64).fetch_one(&*self.pool).await {
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => {
-                let data: Value = r.data;
-                match data {
-                    Value::Object(mut m) => {
-                        m.insert("id".to_owned(), Value::Number(serde_json::Number::from(id.0)));
-                        Ok(Some(serde_json::from_value::<Role>(Value::Object(m))?))
-                    }
-                    _ => Err(CacheError::WrongType()),
-                }
-            }
-        }
+        Ok(None)
     }
 
     async fn delete_role(&self, id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM roles WHERE "role_id" = $1;"#;
-        sqlx::query(query).bind(id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
+        self.client.execute(query, &[&(id.0 as i64)]).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 
@@ -425,31 +359,18 @@ impl Worker {
 
         query.push_str(r#" ON CONFLICT("emoji_id", "guild_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
+        self.client.simple_query(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         Ok(())
     }
 
     async fn get_emoji(&self, emoji_id: Snowflake) -> Result<Option<Emoji>, CacheError> {
-        match sqlx::query!(r#"SELECT "data" FROM emojis WHERE "emoji_id" = $1;"#, emoji_id.0 as i64).fetch_one(&*self.pool).await {
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => {
-                let data: Value = r.data;
-                match data {
-                    Value::Object(mut m) => {
-                        m.insert("id".to_owned(), Value::Number(serde_json::Number::from(emoji_id.0)));
-                        Ok(Some(serde_json::from_value::<Emoji>(Value::Object(m))?))
-                    }
-                    _ => Err(CacheError::WrongType()),
-                }
-            }
-        }
+        Ok(None)
     }
 
-    async fn delete_emoji(&self, emoji_id: Snowflake) -> Result<(), CacheError> {
+    async fn delete_emoji(&self, id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM emojis WHERE "emoji_id" = $1;"#;
-        sqlx::query(query).bind(emoji_id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
+        self.client.execute(query, &[&(id.0 as i64)]).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 
@@ -479,32 +400,18 @@ impl Worker {
 
         query.push_str(r#" ON CONFLICT("guild_id", "user_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        self.pool.execute(&query[..]).await.map_err(CacheError::DatabaseError)?;
+        self.client.simple_query(&query[..]).await.map_err(CacheError::DatabaseError)?;
 
         Ok(())
     }
 
     async fn get_voice_state(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<Option<VoiceState>, CacheError> {
-        match sqlx::query!(r#"SELECT "data" FROM voice_states WHERE "guild_id" = $1 AND "user_id" = $2;"#, guild_id.0 as i64, user_id.0 as i64).fetch_one(&*self.pool).await {
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(CacheError::DatabaseError(e)),
-            Ok(r) => {
-                let data: Value = r.data;
-                match data {
-                    Value::Object(mut m) => {
-                        m.insert("user_id".to_owned(), Value::Number(serde_json::Number::from(user_id.0)));
-                        m.insert("guild_id".to_owned(), Value::Number(serde_json::Number::from(guild_id.0)));
-                        Ok(Some(serde_json::from_value::<VoiceState>(Value::Object(m))?))
-                    }
-                    _ => Err(CacheError::WrongType()),
-                }
-            }
-        }
+        Ok(None)
     }
 
     async fn delete_voice_state(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<(), CacheError> {
         let query = r#"DELETE FROM voice_states WHERE "guild_id" = $1 AND "user_id" = $2;"#;
-        sqlx::query(query).bind(guild_id.0 as i64).bind(user_id.0 as i64).execute(&*self.pool).await.map_err(CacheError::DatabaseError)?;
+        self.client.execute(query, &[&(guild_id.0 as i64), &(user_id.0 as i64)]).await.map_err(CacheError::DatabaseError)?;
         Ok(())
     }
 }

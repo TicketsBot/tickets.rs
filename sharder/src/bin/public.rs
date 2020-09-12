@@ -26,9 +26,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Arc::clone(&sm).connect().await;
 
     sm.start_error_loop().await;
-
-    //futures::future::join_all(sm.get_join_handles()).await;
-
     Ok(())
 }
 
