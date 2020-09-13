@@ -5,6 +5,14 @@ use model::user::{StatusUpdate, ActivityType, StatusType};
 
 use sharder::{var_or_panic, build_cache, build_redis};
 
+use jemallocator::Jemalloc;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
+/*#[global_allocator]
+static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;*/
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // init sharder options

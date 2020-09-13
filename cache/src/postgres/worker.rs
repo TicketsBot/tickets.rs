@@ -152,6 +152,7 @@ impl Worker {
     }
 
     async fn get_guild(&self, id: Snowflake) -> Result<Option<Guild>, CacheError> {
+        self.client.query(r#"SELECT "data" FROM guilds WHERE "guild_id" = $1;"#, &[&(id.0 as i64)]).await;
         Ok(None)
     }
 

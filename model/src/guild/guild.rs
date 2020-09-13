@@ -37,7 +37,8 @@ pub struct Guild {
     pub explicit_content_filter: ExplicitContentFilterLevel,
     #[serde(skip_serializing, default)]
     pub roles: Vec<Role>,
-    #[serde(skip_serializing, default)]
+    //#[serde(skip_serializing, default)]
+    #[serde(skip)]
     pub emojis: Vec<Emoji>,
     pub features: Vec<Features>,
     pub mfa_level: MFALevel,
@@ -53,7 +54,8 @@ pub struct Guild {
     pub large: Option<bool>,
     pub unavailable: Option<bool>,
     pub member_count: Option<u32>,
-    #[serde(skip_serializing)]
+    //#[serde(skip_serializing)]
+    #[serde(skip)]
     pub voice_states: Option<Vec<VoiceState>>,
     #[serde(skip_serializing)]
     pub members: Option<Vec<Member>>,

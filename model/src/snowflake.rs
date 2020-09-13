@@ -69,6 +69,12 @@ impl FromStr for Snowflake {
     }
 }
 
+impl From<u64> for Snowflake {
+    fn from(x: u64) -> Self {
+        Snowflake(x)
+    }
+}
+
 /*impl<'r> sqlx::Decode<'r, Postgres> for Snowflake {
     fn decode(value: PgValueRef<'_>) -> Result<Self, BoxDynError> {
         let i = i64::decode(value)?;

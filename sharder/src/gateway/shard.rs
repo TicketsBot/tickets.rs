@@ -19,7 +19,6 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use serde::Serialize;
 use cache::{PostgresCache, Cache};
 use model::Snowflake;
-use serde_json::{Value, Map};
 use crate::gateway::GatewayError;
 use crate::manager::FatalError;
 use model::user::StatusUpdate;
@@ -30,11 +29,11 @@ use futures_util::stream::{SplitStream, SplitSink};
 use tokio::net::TcpStream;
 use tokio_tls::TlsStream;
 use common::event_forwarding;
-use std::collections::HashMap;
 use model::guild::{Member, Guild};
 use crate::gateway::payloads::PresenceUpdate;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use deadpool_redis::{Pool, cmd};
+use serde_json::value::RawValue;
 
 type WebSocketTx = SplitSink<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>, Message>;
 type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>>;
@@ -381,39 +380,9 @@ impl Shard {
         Ok(())
     }
 
-    async fn handle_event(self: Arc<Self>, data: Map<String, Value>) -> Result<(), GatewayError> {
-        let event_type: String = match data.get("t").map(&Value::as_str) {
-            Some(Some(s)) => s.to_owned(),
-            _ => return Err(GatewayError::MissingEventType),
-        };
-
-        let event_data = match data.get("d") {
-            Some(data) => data,
-            None => return Err(GatewayError::MissingEventData)
-        };
-
-        // prepare redis payload
-        let mut json: Option<String> = None;
-        if let Some(bot_id) = *self.bot_id.read().await {
-            // TODO: Use struct
-            let bot_token = serde_json::to_value(self.identify.data.token.clone()).map_err(GatewayError::JsonError)?;
-            let bot_id = serde_json::to_value(bot_id.0).map_err(GatewayError::JsonError)?;
-            let is_whitelabel = serde_json::to_value(self.is_whitelabel).map_err(GatewayError::JsonError)?;
-            let shard_id = serde_json::to_value(self.get_shard_id()).map_err(GatewayError::JsonError)?;
-            let event_type = serde_json::to_value(event_type).map_err(GatewayError::JsonError)?;
-
-            let mut wrapped = HashMap::with_capacity(6);
-            wrapped.insert("bot_token", &bot_token);
-            wrapped.insert("bot_id", &bot_id);
-            wrapped.insert("is_whitelabel", &is_whitelabel);
-            wrapped.insert("shard_id", &shard_id);
-            wrapped.insert("event_type", &event_type);
-            wrapped.insert("data", event_data);
-
-            json = Some(serde_json::to_string(&wrapped).map_err(GatewayError::JsonError)?);
-        }
-
-        let payload: Dispatch = serde_json::from_value(serde_json::Value::Object(data)).map_err(GatewayError::JsonError)?;
+    async fn handle_event(self: Arc<Self>, data: Box<RawValue>) -> Result<(), GatewayError> {
+        //let payload: Dispatch = simd_json::from_str(&mut data.get()).map_err(GatewayError::SimdJsonError)?;
+        let payload: Dispatch = serde_json::from_str( data.get()).map_err(GatewayError::JsonError)?;
 
         // Gateway events
         match &payload.data {
@@ -481,20 +450,34 @@ impl Shard {
             }
 
             // push to redis, even if error occurred
-            if let Some(json) = json {
-                match self.redis.get().await.map_err(GatewayError::PoolError) {
-                    Ok(mut conn) => {
-                        let res = cmd("RPUSH")
-                            .arg(&[event_forwarding::KEY, &json[..]])
-                            .execute_async(&mut conn)
-                            .await
-                            .map_err(GatewayError::RedisError);
+            // prepare redis payload
+            if let Some(bot_id) = *self.bot_id.read().await {
+                let wrapped = event_forwarding::Event {
+                    bot_token: &self.identify.data.token[..],
+                    bot_id: bot_id.0,
+                    is_whitelabel: self.is_whitelabel,
+                    shard_id: self.get_shard_id(),
+                    event: &data
+                };
 
-                        if let Err(e) = res {
-                            self.log_err("Error pushing event to Redis", &e);
+                match serde_json::to_string(&wrapped).map_err(GatewayError::JsonError) {
+                    Ok(json) => {
+                        match self.redis.get().await.map_err(GatewayError::PoolError) {
+                            Ok(mut conn) => {
+                                let res = cmd("RPUSH")
+                                    .arg(&[event_forwarding::KEY, &json[..]])
+                                    .execute_async(&mut conn)
+                                    .await
+                                    .map_err(GatewayError::RedisError);
+
+                                if let Err(e) = res {
+                                    self.log_err("Error pushing event to Redis", &e);
+                                }
+                            },
+                            Err(e) => self.log_err("Error pushing event to Redis", &e)
                         }
-                    },
-                    Err(e) => self.log_err("Error pushing event to Redis", &e)
+                    }
+                    Err(e) => self.log_err("Error serializing redis payload", &e),
                 }
             }
         });
