@@ -3,10 +3,6 @@ use serde::de::Error;
 use std::fmt;
 use serde_json::Value;
 use super::util;
-use sqlx::error::BoxDynError;
-use sqlx::Postgres;
-use sqlx::postgres::{PgValueRef, PgArgumentBuffer};
-use sqlx::encode::IsNull;
 use std::str::FromStr;
 use std::num::ParseIntError;
 use serde::ser::SerializeSeq;
@@ -73,7 +69,13 @@ impl FromStr for Snowflake {
     }
 }
 
-impl<'r> sqlx::Decode<'r, Postgres> for Snowflake {
+impl From<u64> for Snowflake {
+    fn from(x: u64) -> Self {
+        Snowflake(x)
+    }
+}
+
+/*impl<'r> sqlx::Decode<'r, Postgres> for Snowflake {
     fn decode(value: PgValueRef<'_>) -> Result<Self, BoxDynError> {
         let i = i64::decode(value)?;
         Ok(Snowflake(i as u64))
@@ -85,4 +87,4 @@ impl<'q> sqlx::Encode<'q, Postgres> for Snowflake {
         buf.extend(&(self.0 as i64).to_le_bytes());
         IsNull::No
     }
-}
+}*/

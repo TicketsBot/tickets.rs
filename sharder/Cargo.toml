@@ -24,4 +24,7 @@ chrono = { version = "0.4", features = ["serde"] }
 sqlx = { version = "0.4.0-beta.1", features = ["macros", "runtime-tokio", "postgres", "chrono", "json"], default-features = false }
 async-trait = "0.1"
 redis = { version = "0.17", features = ["tokio-rt-core", "connection-manager"] }
-darkredis = "0.7"
+deadpool = { version = "0.5", features = ["managed"] }
+deadpool-redis = "0.6"
+jemallocator = "0.3"
+simd-json = "0.3"

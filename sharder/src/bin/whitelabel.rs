@@ -6,6 +6,11 @@ use sharder::{var_or_panic, build_cache};
 use database::Database;
 use sqlx::postgres::PgPoolOptions;
 
+use jemallocator::Jemalloc;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sharder_id: u16 = var_or_panic("SHARDER_ID").parse().unwrap();
@@ -19,9 +24,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // init cache
     let cache = Arc::new(build_cache().await);
+    //cache.create_schema().await.unwrap();
 
     // init redis
-    let redis = Arc::new(build_redis().await);
+    let redis = Arc::new(build_redis());
 
     let sm = WhitelabelShardManager::new(
         sharder_count,

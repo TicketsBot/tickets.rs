@@ -1,9 +1,8 @@
 use super::var_or_panic;
 
 use cache::{PostgresCache, Options};
-use sqlx::postgres::PgPoolOptions;
-use darkredis::ConnectionPool;
-use std::env;
+use deadpool_redis::{Config, Pool};
+use deadpool::managed::PoolConfig;
 
 /// panics on err
 pub async fn build_cache() -> PostgresCache {
@@ -20,18 +19,23 @@ pub async fn build_cache() -> PostgresCache {
 
     let cache_threads = var_or_panic("CACHE_THREADS").parse::<usize>().unwrap();
 
-    let pg_opts = PgPoolOptions::new()
+    /*let pg_opts = PgPoolOptions::new()
         .min_connections(cache_threads as u32)
-        .max_connections(cache_threads as u32);
+        .max_connections(cache_threads as u32);*/
 
-    PostgresCache::connect(cache_uri, cache_opts, pg_opts, cache_threads).await.unwrap()
+    PostgresCache::connect(cache_uri, cache_opts, cache_threads).await.unwrap()
 }
 
 /// panics on err
-pub async fn build_redis() -> ConnectionPool {
-    ConnectionPool::create(
-        var_or_panic("REDIS_ADDR"),
-        env::var("REDIS_PASSWORD").ok().as_ref().map(|s| s.as_str()),
-        var_or_panic("REDIS_THREADS").parse().unwrap()
-    ).await.unwrap()
+// TODO: Use REDIS_PASSWORD
+pub fn build_redis() -> Pool {
+    let mut cfg = Config::default();
+    cfg.url = Some(get_redis_uri());
+    cfg.pool = Some(PoolConfig::new(var_or_panic("REDIS_THREADS").parse().unwrap()));
+
+    cfg.create_pool().unwrap()
+}
+
+pub fn get_redis_uri() -> String {
+    format!("redis://{}/", var_or_panic("REDIS_ADDR"))
 }

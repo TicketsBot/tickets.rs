@@ -4,13 +4,13 @@ use crate::{CacheError, Options, Cache};
 
 use async_trait::async_trait;
 
-use sqlx::postgres::PgPoolOptions;
 use model::channel::Channel;
 use model::guild::{Role, Guild, Member, Emoji, VoiceState};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use std::sync::Arc;
 use crate::postgres::payload::CachePayload;
 use crate::postgres::worker::Worker;
+use tokio_postgres::NoTls;
 
 pub struct PostgresCache {
     opts: Options,
@@ -19,15 +19,22 @@ pub struct PostgresCache {
 
 impl PostgresCache {
     /// panics if URI is invalid
-    pub async fn connect(uri: &str, opts: Options, pg_opts: PgPoolOptions, workers: usize) -> Result<PostgresCache, CacheError> {
-        let pool = Arc::new(pg_opts.connect(uri).await?);
-
-        let (worker_tx, worker_rx) = mpsc::channel(512); // TODO: Tweak
+    pub async fn connect(uri: &str, opts: Options, workers: usize) -> Result<PostgresCache, CacheError> {
+        let (worker_tx, worker_rx) = mpsc::channel(1); // TODO: Tweak
         let worker_rx = Arc::new(Mutex::new(worker_rx));
 
         // start workers
         for _ in 0..workers {
-            let worker = Worker::new(Arc::clone(&pool), Arc::clone(&worker_rx));
+            let (client, conn) = tokio_postgres::connect(uri, NoTls).await.map_err(CacheError::DatabaseError)?;
+
+            // run executor in background
+            tokio::spawn(async move {
+               if let Err(e) = conn.await {
+                   panic!(e); // TODO: should we panic or not?
+               }
+            });
+
+            let worker = Worker::new(client, Arc::clone(&worker_rx));
             worker.start();
         }
 
@@ -40,7 +47,7 @@ impl PostgresCache {
     pub async fn create_schema(&self) -> Result<(), CacheError> {
         let queries = vec![
             // create tables
-            r#"SET synchronous_commit TO OFF"#,
+            r#"SET synchronous_commit TO OFF;"#,
             r#"CREATE TABLE IF NOT EXISTS guilds("guild_id" int8 NOT NULL UNIQUE, "data" jsonb NOT NULL, PRIMARY KEY("guild_id"));"#,
             r#"CREATE TABLE IF NOT EXISTS channels("channel_id" int8 NOT NULL UNIQUE, "guild_id" int8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("channel_id", "guild_id"));"#,
             r#"CREATE TABLE IF NOT EXISTS users("user_id" int8 NOT NULL UNIQUE, "data" jsonb NOT NULL, PRIMARY KEY("user_id"));"#,

@@ -25,25 +25,28 @@ pub struct Guild {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permissions_new: Option<PermissionBitSet>,
     pub region: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
     pub afk_channel_id: Option<Snowflake>,
     pub afk_timeout: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embed_enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
     pub embed_channel_id: Option<Snowflake>,
     pub verification_level: VerificationLevel,
     pub default_message_notifications: DefaultMessageNotifications,
     pub explicit_content_filter: ExplicitContentFilterLevel,
     #[serde(skip_serializing, default)]
     pub roles: Vec<Role>,
-    #[serde(skip_serializing, default)]
+    //#[serde(skip_serializing, default)]
+    #[serde(skip)]
     pub emojis: Vec<Emoji>,
     pub features: Vec<Features>,
     pub mfa_level: MFALevel,
     pub application_id: Option<Snowflake>,
     pub widget_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
     pub widget_channel_id: Option<Snowflake>,
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
     pub system_channel_id: Option<Snowflake>,
     pub system_channels_flags: Option<u8>,
     pub rules_channel_id: Option<Snowflake>,
@@ -51,7 +54,8 @@ pub struct Guild {
     pub large: Option<bool>,
     pub unavailable: Option<bool>,
     pub member_count: Option<u32>,
-    #[serde(skip_serializing)]
+    //#[serde(skip_serializing)]
+    #[serde(skip)]
     pub voice_states: Option<Vec<VoiceState>>,
     #[serde(skip_serializing)]
     pub members: Option<Vec<Member>>,
@@ -70,6 +74,7 @@ pub struct Guild {
     pub premium_tier: PremiumTier,
     pub premium_subscription_count: Option<u16>,
     pub preferred_locale: String,
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
     pub public_updates_channel_id: Option<Snowflake>,
     pub max_video_channel_users: Option<u8>,
     pub approximate_member_count: Option<u32>,

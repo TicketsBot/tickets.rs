@@ -5,9 +5,6 @@ use crate::manager::FatalError;
 
 #[derive(Error, Debug)]
 pub enum GatewayError {
-    /*#[error("invalid opcode {0}")]
-    InvalidOpcode(u8),*/
-
     #[error("t value on dispatch was not a string")]
     MissingEventType,
 
@@ -20,11 +17,17 @@ pub enum GatewayError {
     #[error("{0}")]
     GenericError(String),
 
-    #[error("error while encoding redis payload: {0}")]
+    #[error("error while operating on json (serde): {0}")]
     JsonError(#[from] serde_json::Error),
 
+    #[error("error while operating on json (simd): {0}")]
+    SimdJsonError(#[from] simd_json::Error),
+
     #[error("error while operating on Redis: {0}")]
-    RedisError(#[from] darkredis::Error),
+    RedisError(#[from] redis::RedisError),
+
+    #[error("error while getting redis conn: {0}")]
+    PoolError(#[from] deadpool::managed::PoolError<redis::RedisError>),
 
     #[error("error while operating on websocket: {0}")]
     WebsocketError(#[from] tokio_tungstenite::tungstenite::Error),
@@ -41,6 +44,9 @@ pub enum GatewayError {
     #[error("error while sending message to chan: {0}")]
     SendError(#[from] tokio::sync::mpsc::error::SendError<()>),
 
+    #[error("error while sending message to chan: {0}")]
+    SendU16Error(#[from] tokio::sync::mpsc::error::SendError<u16>),
+
     #[error("error occurred while compressing payload: {0}")]
     CompressError(#[from] flate2::CompressError),
 
@@ -49,6 +55,9 @@ pub enum GatewayError {
 
     #[error("error occurred while operating on the cache: {0}")]
     CacheError(#[from] cache::CacheError),
+
+    #[error("bot ID was missing on whitelabel identify")]
+    MissingBotID(),
 }
 
 impl GatewayError {

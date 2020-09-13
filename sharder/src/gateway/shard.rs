@@ -12,19 +12,17 @@ use std::time::Instant;
 
 use std::sync::Arc;
 use tokio::sync::{RwLock, Mutex};
+use std::sync::atomic::{AtomicU16, Ordering};
 
 use tokio::sync::{mpsc, oneshot};
 use futures_util::{StreamExt, SinkExt};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use serde::Serialize;
 use cache::{PostgresCache, Cache};
-use model::channel::Channel;
 use model::Snowflake;
-use serde_json::{Value, Map};
 use crate::gateway::GatewayError;
 use crate::manager::FatalError;
 use model::user::StatusUpdate;
-use darkredis::{ConnectionPool, Command};
 use std::fmt::Display;
 
 use tokio_tungstenite::WebSocketStream;
@@ -32,10 +30,11 @@ use futures_util::stream::{SplitStream, SplitSink};
 use tokio::net::TcpStream;
 use tokio_tls::TlsStream;
 use common::event_forwarding;
-use std::collections::HashMap;
-use model::guild::Member;
+use model::guild::{Member, Guild};
 use crate::gateway::payloads::PresenceUpdate;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use deadpool_redis::{Pool, cmd};
+use serde_json::value::RawValue;
 
 type WebSocketTx = SplitSink<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>, Message>;
 type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>>;
@@ -44,12 +43,12 @@ pub struct Shard {
     identify: payloads::Identify,
     large_sharding_buckets: u16,
     cache: Arc<PostgresCache>,
-    redis: Arc<ConnectionPool>,
+    redis: Arc<Pool>,
     is_whitelabel: bool,
     error_tx: mpsc::Sender<FatalError>,
     pub status_update_tx: mpsc::Sender<StatusUpdate>,
     status_update_rx: Mutex<mpsc::Receiver<StatusUpdate>>,
-    bot_id: Arc<RwLock<Option<Snowflake>>>,
+    pub bot_id: RwLock<Option<Snowflake>>,
     total_rx: Mutex<u64>,
     seq: Arc<RwLock<Option<usize>>>,
     session_id: Arc<RwLock<Option<String>>>,
@@ -60,6 +59,9 @@ pub struct Shard {
     last_ack: RwLock<Instant>,
     last_heartbeat: RwLock<Instant>,
     connect_time: RwLock<Instant>,
+    ready_tx: Mutex<Option<mpsc::Sender<u16>>>,
+    ready_guild_count: AtomicU16,
+    received_count: AtomicU16,
 }
 
 // 16 KiB
@@ -70,9 +72,10 @@ impl Shard {
         identify: payloads::Identify,
         large_sharding_buckets: u16,
         cache: Arc<PostgresCache>,
-        redis: Arc<ConnectionPool>,
+        redis: Arc<Pool>,
         is_whitelabel: bool,
         error_tx: mpsc::Sender<FatalError>,
+        ready_tx: Option<mpsc::Sender<u16>>,
     ) -> Arc<Shard> {
         let (kill_shard_tx, kill_shard_rx) = mpsc::channel(1);
         let (status_update_tx, status_update_rx) = mpsc::channel(1);
@@ -83,10 +86,10 @@ impl Shard {
             cache,
             redis,
             is_whitelabel,
-            error_tx: error_tx,
+            error_tx,
             status_update_tx,
             status_update_rx: Mutex::new(status_update_rx),
-            bot_id: Arc::new(RwLock::new(None)),
+            bot_id: RwLock::new(None),
             total_rx: Mutex::new(0),
             seq: Arc::new(RwLock::new(None)),
             session_id: Arc::new(RwLock::new(None)),
@@ -97,13 +100,20 @@ impl Shard {
             last_ack: RwLock::new(Instant::now()),
             last_heartbeat: RwLock::new(Instant::now()),
             connect_time: RwLock::new(Instant::now()), // will be overwritten
+            ready_tx: Mutex::new(ready_tx),
+            ready_guild_count: AtomicU16::new(0),
+            received_count: AtomicU16::new(0),
         });
 
         shard
     }
 
     pub async fn connect(self: Arc<Self>) -> Result<(), GatewayError> {
-        *self.total_rx.lock().await = 0; // rst
+        //rst
+        *self.total_rx.lock().await = 0;
+        self.ready_guild_count.store(0, Ordering::Relaxed);
+        self.received_count.store(0, Ordering::Relaxed);
+        // rst
 
         let uri = url::Url::parse("wss://gateway.discord.gg/?v=6&encoding=json&compress=zlib-stream").unwrap();
 
@@ -382,24 +392,16 @@ impl Shard {
         Ok(())
     }
 
-    async fn handle_event(self: Arc<Self>, data: Map<String, Value>) -> Result<(), GatewayError> {
-        let event_type: String = match data.get("t").map(&Value::as_str) {
-            Some(Some(s)) => s.to_owned(),
-            _ => return Err(GatewayError::MissingEventType),
-        };
-
-        let event_data = match &data.get("d") {
-            Some(data) => data,
-            None => return Err(GatewayError::MissingEventData)
-        }.clone().clone();
-
-        let payload: Dispatch = serde_json::from_value(serde_json::Value::Object(data)).map_err(GatewayError::JsonError)?;
+    async fn handle_event(self: Arc<Self>, data: Box<RawValue>) -> Result<(), GatewayError> {
+        //let payload: Dispatch = simd_json::from_str(&mut data.get()).map_err(GatewayError::SimdJsonError)?;
+        let payload: Dispatch = serde_json::from_str( data.get()).map_err(GatewayError::JsonError)?;
 
         // Gateway events
         match &payload.data {
             Event::Ready(ready) => {
                 *self.session_id.write().await = Some(ready.session_id.clone());
                 *self.bot_id.write().await = Some(ready.user.id);
+                self.ready_guild_count.store(ready.guilds.len() as u16, Ordering::Relaxed);
 
                 self.log(format!("Ready on {}#{} ({})", ready.user.username, ready.user.discriminator, ready.user.id));
                 return Ok(());
@@ -410,25 +412,19 @@ impl Shard {
                 return Ok(());
             }
 
+            Event::GuildCreate(_) => {
+                let received = self.received_count.fetch_add(1, Ordering::Relaxed);
+                if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 { // Once we have 90% of the guilds, we're ok to load more shards
+                    if let Some(mut tx) = self.ready_tx.lock().await.take() {
+                        if let Err(e) = tx.send(self.get_shard_id()).await.map_err(GatewayError::SendU16Error) {
+                            self.log_err("Error sending ready notification to probe", &e);
+                        }
+                    }
+                }
+            }
+
             _ => {}
         }
-
-        // prepare redis payload
-        let bot_id = match *self.bot_id.read().await {
-            Some(s) => s.0,
-            None => return Err(GatewayError::NoneId),
-        };
-
-        // TODO: Use struct
-        let mut wrapped = HashMap::with_capacity(6);
-        wrapped.insert("bot_token", serde_json::to_value(self.identify.data.token.clone()).map_err(GatewayError::JsonError)?);
-        wrapped.insert("bot_id", serde_json::to_value(bot_id).map_err(GatewayError::JsonError)?);
-        wrapped.insert("is_whitelabel", serde_json::to_value(self.is_whitelabel).map_err(GatewayError::JsonError)?);
-        wrapped.insert("shard_id", serde_json::to_value(self.get_shard_id()).map_err(GatewayError::JsonError)?);
-        wrapped.insert("event_type", serde_json::to_value(event_type).map_err(GatewayError::JsonError)?);
-        wrapped.insert("data", event_data);
-
-        let json = serde_json::to_string(&wrapped).map_err(GatewayError::JsonError)?;
 
         // cache + push to redis
         tokio::spawn(async move {
@@ -438,11 +434,11 @@ impl Shard {
                 Event::ChannelUpdate(channel) => self.cache.store_channel(channel).await,
                 Event::ChannelDelete(channel) => self.cache.delete_channel(channel.id).await,
                 Event::GuildCreate(mut guild) => {
-                    guild.channels = Shard::apply_guild_id_to_channels(guild.channels, guild.id);
+                    Shard::apply_guild_id_to_channels(&mut guild);
                     self.cache.store_guild(guild).await
                 }
                 Event::GuildUpdate(mut guild) => {
-                    guild.channels = Shard::apply_guild_id_to_channels(guild.channels, guild.id);
+                    Shard::apply_guild_id_to_channels(&mut guild);
                     self.cache.store_guild(guild).await
                 }
                 Event::GuildDelete(guild) => {
@@ -478,24 +474,47 @@ impl Shard {
             }
 
             // push to redis, even if error occurred
-            let res = self.redis.get().await
-                .rpush(event_forwarding::KEY, json)
-                .await
-                .map_err(GatewayError::RedisError);
+            // prepare redis payload
+            if let Some(bot_id) = *self.bot_id.read().await {
+                let wrapped = event_forwarding::Event {
+                    bot_token: &self.identify.data.token[..],
+                    bot_id: bot_id.0,
+                    is_whitelabel: self.is_whitelabel,
+                    shard_id: self.get_shard_id(),
+                    event: &data
+                };
 
-            if let Err(e) = res {
-                self.log_err("Error pushing event to Redis", &e);
+                match serde_json::to_string(&wrapped).map_err(GatewayError::JsonError) {
+                    Ok(json) => {
+                        match self.redis.get().await.map_err(GatewayError::PoolError) {
+                            Ok(mut conn) => {
+                                let res = cmd("RPUSH")
+                                    .arg(&[event_forwarding::KEY, &json[..]])
+                                    .execute_async(&mut conn)
+                                    .await
+                                    .map_err(GatewayError::RedisError);
+
+                                if let Err(e) = res {
+                                    self.log_err("Error pushing event to Redis", &e);
+                                }
+                            },
+                            Err(e) => self.log_err("Error pushing event to Redis", &e)
+                        }
+                    }
+                    Err(e) => self.log_err("Error serializing redis payload", &e),
+                }
             }
         });
 
         Ok(())
     }
 
-    fn apply_guild_id_to_channels(channels: Option<Vec<Channel>>, guild_id: Snowflake) -> Option<Vec<Channel>> {
-        channels.map(|channels| channels.into_iter().map(|mut c| {
-            c.guild_id = Some(guild_id);
-            c
-        }).collect())
+    fn apply_guild_id_to_channels(guild: &mut Guild) {
+        if let Some(channels) = &mut guild.channels {
+            for channel in channels {
+                channel.guild_id = Some(guild.id)
+            }
+        }
     }
 
     // returns cancellation channel
@@ -554,24 +573,38 @@ impl Shard {
     }
 
     async fn wait_for_ratelimit(&self) -> Result<(), GatewayError> {
-        let key = format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets);
+        let key = match self.is_whitelabel {
+            true => {
+                let bot_id = match *self.bot_id.read().await {
+                    Some(bot_id) => bot_id,
+                    None => return GatewayError::MissingEventData.into(),
+                };
 
-        let mut res = darkredis::Value::Nil;
-        while res == darkredis::Value::Nil {
-            let mut conn = self.redis.get().await;
+                format!("ratelimiter:whitelabel:identify:{}", bot_id)
+            }
+            false => format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets),
+        };
 
-            // some arbitrary value, set if not exist, set expiry, of 6s
-            res = conn.run_command(
-                Command::new("SET")
-                    .args(&[&key[..], "1", "NX", "PX", "6000"])
-            ).await.map_err(GatewayError::RedisError)?;
+        let mut res = redis::Value::Nil;
+        while res == redis::Value::Nil {
+            let mut conn = self.redis.get().await?;
 
-            if res == darkredis::Value::Nil {
+            res = cmd("SET")
+                .arg(&[&key[..], "1", "NX", "PX", "6000"]) // some arbitrary value, set if not exist, set expiry, of 6s
+                .query_async(&mut conn)
+                .await
+                .map_err(GatewayError::RedisError)?;
+
+            if res == redis::Value::Nil {
                 // get time to delay
-                let cmd = Command::new("PTTL").arg(&key);
+                let ttl = cmd("PTTL")
+                    .arg(&key)
+                    .query_async(&mut conn)
+                    .await
+                    .map_err(GatewayError::RedisError)?;
 
-                match conn.run_command(cmd).await.map_err(GatewayError::RedisError)? {
-                    darkredis::Value::Integer(ttl) => {
+                match ttl {
+                    redis::Value::Int(ttl) => {
                         // if number is negative, we can go ahead and identify
                         // -1 = no expire, -2 = doesn't exist
                         if ttl > 0 {
