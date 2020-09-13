@@ -47,7 +47,7 @@ impl PostgresCache {
     pub async fn create_schema(&self) -> Result<(), CacheError> {
         let queries = vec![
             // create tables
-            r#"SET synchronous_commit TO OFF"#,
+            r#"SET synchronous_commit TO OFF;"#,
             r#"CREATE TABLE IF NOT EXISTS guilds("guild_id" int8 NOT NULL UNIQUE, "data" jsonb NOT NULL, PRIMARY KEY("guild_id"));"#,
             r#"CREATE TABLE IF NOT EXISTS channels("channel_id" int8 NOT NULL UNIQUE, "guild_id" int8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("channel_id", "guild_id"));"#,
             r#"CREATE TABLE IF NOT EXISTS users("user_id" int8 NOT NULL UNIQUE, "data" jsonb NOT NULL, PRIMARY KEY("user_id"));"#,

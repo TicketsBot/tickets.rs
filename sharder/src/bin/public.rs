@@ -8,6 +8,8 @@ use model::user::{StatusUpdate, ActivityType, StatusType};
 use sharder::{var_or_panic, build_cache, build_redis};
 
 use jemallocator::Jemalloc;
+use tokio::time::delay_for;
+use futures_util::core_reexport::time::Duration;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
@@ -29,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // init cache
     let cache = Arc::new(build_cache().await);
+    //cache.create_schema().await.unwrap();
 
     // init redis
     let redis = Arc::new(build_redis());

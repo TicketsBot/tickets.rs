@@ -574,8 +574,15 @@ impl Shard {
 
     async fn wait_for_ratelimit(&self) -> Result<(), GatewayError> {
         let key = match self.is_whitelabel {
-            true => format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets),
-            false => format!("ratelimiter:whitelabel:identify:{}", self.get_shard_id() % self.large_sharding_buckets),
+            true => {
+                let bot_id = match *self.bot_id.read().await {
+                    Some(bot_id) => bot_id,
+                    None => return GatewayError::MissingEventData.into(),
+                };
+
+                format!("ratelimiter:whitelabel:identify:{}", bot_id)
+            }
+            false => format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets),
         };
 
         let mut res = redis::Value::Nil;

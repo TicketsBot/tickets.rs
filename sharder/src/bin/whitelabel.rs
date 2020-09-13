@@ -24,6 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // init cache
     let cache = Arc::new(build_cache().await);
+    //cache.create_schema().await.unwrap();
 
     // init redis
     let redis = Arc::new(build_redis());
