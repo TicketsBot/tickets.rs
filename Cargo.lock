@@ -1949,7 +1949,6 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "simd-json",
- "snmalloc-rs",
  "sqlx",
  "thiserror",
  "tokio",
@@ -1997,25 +1996,6 @@ name = "smallvec"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fbee7696b84bbf3d89a1c2eccff0850e3047ed46bfcd2e92c29a2d074d57e252"
-
-[[package]]
-name = "snmalloc-rs"
-version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a651e887d1394fb3924f2837f1925d3b8325fea4942dbe120708e82473597407"
-dependencies = [
- "snmalloc-sys",
-]
-
-[[package]]
-name = "snmalloc-sys"
-version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a7f8fe8c7394be405668284b05fddefaec59a90707ac30375fc0bfa65c51f59"
-dependencies = [
- "cmake",
- "libc",
-]
 
 [[package]]
 name = "socket2"

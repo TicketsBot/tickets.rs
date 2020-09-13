@@ -6,6 +6,11 @@ use sharder::{var_or_panic, build_cache};
 use database::Database;
 use sqlx::postgres::PgPoolOptions;
 
+use jemallocator::Jemalloc;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sharder_id: u16 = var_or_panic("SHARDER_ID").parse().unwrap();

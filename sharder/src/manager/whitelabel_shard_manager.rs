@@ -87,7 +87,10 @@ impl WhitelabelShardManager {
                 Arc::clone(&self.redis),
                 true,
                 error_tx,
+                None,
             );
+
+            *shard.bot_id.write().await = Some(bot_id);
 
             self.shards.write().await.insert(bot_id, Arc::clone(&shard));
 

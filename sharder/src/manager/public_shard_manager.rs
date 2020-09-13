@@ -25,7 +25,7 @@ pub struct PublicShardManager {
 }
 
 impl PublicShardManager {
-    pub async fn new(options: Options, cache: Arc<PostgresCache>, redis: Arc<Pool>) -> Arc<PublicShardManager> {
+    pub async fn new(options: Options, cache: Arc<PostgresCache>, redis: Arc<Pool>, ready_tx: mpsc::Sender<u16>) -> Arc<PublicShardManager> {
         let (error_tx, error_rx) = mpsc::channel(16);
 
         let sm = Arc::new(PublicShardManager {
@@ -44,6 +44,7 @@ impl PublicShardManager {
                 Arc::clone(&redis),
                 false,
                 error_tx.clone(),
+                Some(ready_tx.clone()),
             );
 
             sm.shards.write().await.insert(i, shard);

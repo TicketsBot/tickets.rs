@@ -12,6 +12,7 @@ use std::time::Instant;
 
 use std::sync::Arc;
 use tokio::sync::{RwLock, Mutex};
+use std::sync::atomic::{AtomicU16, Ordering};
 
 use tokio::sync::{mpsc, oneshot};
 use futures_util::{StreamExt, SinkExt};
@@ -47,7 +48,7 @@ pub struct Shard {
     error_tx: mpsc::Sender<FatalError>,
     pub status_update_tx: mpsc::Sender<StatusUpdate>,
     status_update_rx: Mutex<mpsc::Receiver<StatusUpdate>>,
-    bot_id: Arc<RwLock<Option<Snowflake>>>,
+    pub bot_id: RwLock<Option<Snowflake>>,
     total_rx: Mutex<u64>,
     seq: Arc<RwLock<Option<usize>>>,
     session_id: Arc<RwLock<Option<String>>>,
@@ -58,6 +59,9 @@ pub struct Shard {
     last_ack: RwLock<Instant>,
     last_heartbeat: RwLock<Instant>,
     connect_time: RwLock<Instant>,
+    ready_tx: Mutex<Option<mpsc::Sender<u16>>>,
+    ready_guild_count: AtomicU16,
+    received_count: AtomicU16,
 }
 
 // 16 KiB
@@ -71,6 +75,7 @@ impl Shard {
         redis: Arc<Pool>,
         is_whitelabel: bool,
         error_tx: mpsc::Sender<FatalError>,
+        ready_tx: Option<mpsc::Sender<u16>>,
     ) -> Arc<Shard> {
         let (kill_shard_tx, kill_shard_rx) = mpsc::channel(1);
         let (status_update_tx, status_update_rx) = mpsc::channel(1);
@@ -81,10 +86,10 @@ impl Shard {
             cache,
             redis,
             is_whitelabel,
-            error_tx: error_tx,
+            error_tx,
             status_update_tx,
             status_update_rx: Mutex::new(status_update_rx),
-            bot_id: Arc::new(RwLock::new(None)),
+            bot_id: RwLock::new(None),
             total_rx: Mutex::new(0),
             seq: Arc::new(RwLock::new(None)),
             session_id: Arc::new(RwLock::new(None)),
@@ -95,13 +100,20 @@ impl Shard {
             last_ack: RwLock::new(Instant::now()),
             last_heartbeat: RwLock::new(Instant::now()),
             connect_time: RwLock::new(Instant::now()), // will be overwritten
+            ready_tx: Mutex::new(ready_tx),
+            ready_guild_count: AtomicU16::new(0),
+            received_count: AtomicU16::new(0),
         });
 
         shard
     }
 
     pub async fn connect(self: Arc<Self>) -> Result<(), GatewayError> {
-        *self.total_rx.lock().await = 0; // rst
+        //rst
+        *self.total_rx.lock().await = 0;
+        self.ready_guild_count.store(0, Ordering::Relaxed);
+        self.received_count.store(0, Ordering::Relaxed);
+        // rst
 
         let uri = url::Url::parse("wss://gateway.discord.gg/?v=6&encoding=json&compress=zlib-stream").unwrap();
 
@@ -389,6 +401,7 @@ impl Shard {
             Event::Ready(ready) => {
                 *self.session_id.write().await = Some(ready.session_id.clone());
                 *self.bot_id.write().await = Some(ready.user.id);
+                self.ready_guild_count.store(ready.guilds.len() as u16, Ordering::Relaxed);
 
                 self.log(format!("Ready on {}#{} ({})", ready.user.username, ready.user.discriminator, ready.user.id));
                 return Ok(());
@@ -397,6 +410,17 @@ impl Shard {
             Event::Resumed(_) => {
                 self.log(format!("Resumed on {:?}", self.bot_id.read().await));
                 return Ok(());
+            }
+
+            Event::GuildCreate(_) => {
+                let received = self.received_count.fetch_add(1, Ordering::Relaxed);
+                if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 { // Once we have 90% of the guilds, we're ok to load more shards
+                    if let Some(mut tx) = self.ready_tx.lock().await.take() {
+                        if let Err(e) = tx.send(self.get_shard_id()).await.map_err(GatewayError::SendU16Error) {
+                            self.log_err("Error sending ready notification to probe", &e);
+                        }
+                    }
+                }
             }
 
             _ => {}
@@ -409,7 +433,7 @@ impl Shard {
                 Event::ChannelCreate(channel) => self.cache.store_channel(channel).await,
                 Event::ChannelUpdate(channel) => self.cache.store_channel(channel).await,
                 Event::ChannelDelete(channel) => self.cache.delete_channel(channel.id).await,
-                Event::GuildCreate(mut guild) => { // TODO: carry over this crazy optimisation
+                Event::GuildCreate(mut guild) => {
                     Shard::apply_guild_id_to_channels(&mut guild);
                     self.cache.store_guild(guild).await
                 }
@@ -549,7 +573,10 @@ impl Shard {
     }
 
     async fn wait_for_ratelimit(&self) -> Result<(), GatewayError> {
-        let key = format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets);
+        let key = match self.is_whitelabel {
+            true => format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets),
+            false => format!("ratelimiter:whitelabel:identify:{}", self.get_shard_id() % self.large_sharding_buckets),
+        };
 
         let mut res = redis::Value::Nil;
         while res == redis::Value::Nil {

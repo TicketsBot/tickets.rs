@@ -1,4 +1,6 @@
 use std::sync::Arc;
+use tokio::sync::mpsc;
+use tokio::fs::File;
 
 use sharder::{PublicShardManager, ShardCount, ShardManager};
 use model::user::{StatusUpdate, ActivityType, StatusType};
@@ -10,16 +12,17 @@ use jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-/*#[global_allocator]
-static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;*/
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // init sharder options
+    let shard_count = get_shard_count();
+
+    let ready_tx = handle_ready_probe((shard_count.highest - shard_count.lowest) as usize);
+
     let presence = StatusUpdate::new(ActivityType::Listening, "t!help".to_owned(), StatusType::Online);
     let options = sharder::Options {
         token: var_or_panic("SHARDER_TOKEN"),
-        shard_count: get_shard_count(),
+        shard_count: shard_count,
         presence,
         large_sharding_buckets: 1,
     };
@@ -30,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // init redis
     let redis = Arc::new(build_redis());
 
-    let sm = PublicShardManager::new(options, cache, redis).await;
+    let sm = PublicShardManager::new(options, cache, redis, ready_tx).await;
     Arc::clone(&sm).connect().await;
 
     sm.start_error_loop().await;
@@ -47,5 +50,26 @@ fn get_shard_count() -> ShardCount {
         lowest: cluster_size * sharder_id,
         highest: cluster_size * (sharder_id + 1),
     }
+}
+
+fn handle_ready_probe(shard_count: usize) -> mpsc::Sender<u16> {
+    let (tx, mut rx) = mpsc::channel(shard_count);
+
+    tokio::spawn(async move {
+        let mut ready = 0;
+
+        while let Some(shard_id) = rx.recv().await {
+            println!("[{:0>2}] Loaded guilds", shard_id);
+            ready += 1;
+
+            if ready == shard_count {
+                File::create("/tmp/ready").await.unwrap(); // panic if can't create
+                println!("Reported readiness to probe");
+                break
+            }
+        }
+    });
+
+    tx
 }
 

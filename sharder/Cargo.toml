@@ -27,5 +27,4 @@ redis = { version = "0.17", features = ["tokio-rt-core", "connection-manager"] }
 deadpool = { version = "0.5", features = ["managed"] }
 deadpool-redis = "0.6"
 jemallocator = "0.3"
-snmalloc-rs = "0.2"
 simd-json = "0.3"
