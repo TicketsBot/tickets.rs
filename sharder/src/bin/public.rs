@@ -8,8 +8,6 @@ use model::user::{StatusUpdate, ActivityType, StatusType};
 use sharder::{var_or_panic, build_cache, build_redis};
 
 use jemallocator::Jemalloc;
-use tokio::time::delay_for;
-use futures_util::core_reexport::time::Duration;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
