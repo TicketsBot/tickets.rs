@@ -356,6 +356,7 @@ impl Shard {
                             should_identify = Arc::clone(&self).do_identify().await.is_err();
                         }
                     } else {
+                        should_identify = false;
                         self.log("Resumed");
                     }
                 }
@@ -408,7 +409,7 @@ impl Shard {
             }
 
             Event::Resumed(_) => {
-                self.log(format!("Resumed on {:?}", self.bot_id.read().await));
+                self.log(format!("Resumed on {:?}", *self.bot_id.read().await.unwrap_or(0)));
                 return Ok(());
             }
 
