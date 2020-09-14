@@ -409,7 +409,7 @@ impl Shard {
             }
 
             Event::Resumed(_) => {
-                self.log(format!("Resumed on {:?}", *self.bot_id.read().await.unwrap_or(0)));
+                self.log(format!("Resumed on {:?}", *self.bot_id.read().await.unwrap_or(Snowflake(0))));
                 return Ok(());
             }
 
