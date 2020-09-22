@@ -642,10 +642,20 @@ impl Shard {
     }
 
     pub fn log(&self, msg: impl Display) {
-        println!("[{:0>2}] {}", self.get_shard_id(), msg);
+        if self.is_whitelabel {
+            let bot_id = self.bot_id.read().await.map(|s| s.0.to_string()).unwrap_or("Unknown".to_owned());
+            println!("[{}] {}", bot_id, msg);
+        } else {
+            println!("[{:0>2}] {}", self.get_shard_id(), msg);
+        }
     }
 
     pub fn log_err(&self, msg: impl Display, err: &GatewayError) {
-        eprintln!("[{:0>2}] {}: {}", self.get_shard_id(), msg, err);
+        if self.is_whitelabel {
+            let bot_id = self.bot_id.read().await.map(|s| s.0.to_string()).unwrap_or("Unknown".to_owned());
+            eprintln!("[{}] {}: {}", bot_id, msg, err);
+        } else {
+            eprintln!("[{:0>2}] {}: {}", self.get_shard_id(), msg, err);
+        }
     }
 }
