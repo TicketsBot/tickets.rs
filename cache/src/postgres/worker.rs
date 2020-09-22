@@ -70,7 +70,6 @@ impl Worker {
                     CachePayload::StoreVoiceState { voice_states, tx } => { let _ = tx.send(self.store_voice_states(voice_states).await); }
                     CachePayload::GetVoiceState { user_id, guild_id, tx } => { let _ = tx.send(self.get_voice_state(user_id, guild_id).await); }
                     CachePayload::DeleteVoiceState { user_id, guild_id, tx } => { let _ = tx.send(self.delete_voice_state(user_id, guild_id).await); }
-                    _ => {}
                 };
             }
         });

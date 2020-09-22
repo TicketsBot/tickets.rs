@@ -5,7 +5,7 @@ use super::ShardManager;
 use crate::gateway::{Shard, Identify, ShardInfo};
 
 use std::collections::HashMap;
-use model::user::{StatusUpdate, ActivityType, StatusType};
+use model::user::{StatusUpdate, ActivityType, StatusType, User};
 use cache::PostgresCache;
 use std::sync::Arc;
 use database::{Database, WhitelabelBot};
@@ -90,17 +90,17 @@ impl WhitelabelShardManager {
                 None,
             );
 
-            *shard.bot_id.write().await = Some(bot_id);
+            *shard.user.write().await = Some(User::blank(bot_id));
 
             self.shards.write().await.insert(bot_id, Arc::clone(&shard));
 
             loop {
                 let shard = Arc::clone(&shard);
-                shard.log("Starting...");
+                shard.log("Starting...").await;
 
                 match Arc::clone(&shard).connect().await {
-                    Ok(()) => shard.log("Exited with Ok"),
-                    Err(e) => shard.log_err("Exited with error", &e),
+                    Ok(()) => shard.log("Exited with Ok").await,
+                    Err(e) => shard.log_err("Exited with error", &e).await,
                 }
 
                 // we've received delete payload

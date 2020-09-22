@@ -63,11 +63,11 @@ impl ShardManager for PublicShardManager {
             tokio::spawn(async move {
                 loop {
                     let shard = Arc::clone(&shard);
-                    shard.log("Starting...");
+                    shard.log("Starting...").await;
 
                     match Arc::clone(&shard).connect().await {
-                        Ok(()) => shard.log("Exited with Ok"),
-                        Err(e) => shard.log_err("Exited with error", &e),
+                        Ok(()) => shard.log("Exited with Ok").await,
+                        Err(e) => shard.log_err("Exited with error", &e).await,
                     }
 
                     delay_for(Duration::from_millis(500)).await;

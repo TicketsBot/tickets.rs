@@ -36,3 +36,23 @@ impl PartialEq for User {
         self.id.0 == other.id.0
     }
 }
+
+impl User {
+    pub fn blank(user_id: Snowflake) -> User {
+        User {
+            id: user_id,
+            username: "".to_string(),
+            discriminator: Discriminator(0),
+            avatar: None,
+            bot: false,
+            system: false,
+            mfa_enabled: None,
+            locale: None,
+            verified: None,
+            email: None,
+            flags: None,
+            premium_type: None,
+            public_flags: None
+        }
+    }
+}
