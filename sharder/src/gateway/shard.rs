@@ -330,6 +330,16 @@ impl Shard {
                 *self.session_id.write().await = None;
                 *self.seq.write().await = None;
 
+                // delete session ID from Redis
+                if let Err(e) = self.delete_session_id().await {
+                    self.log_err("Error deleting session_id from Redis", &e).await;
+                }
+
+                // delete seq from Redis
+                if let Err(e) = self.delete_seq().await {
+                    self.log_err("Error deleting seq from Redis", &e).await;
+                }
+
                 self.kill().await;
             }
 
@@ -342,6 +352,11 @@ impl Shard {
                 // try to load session_id from redis
                 if let Ok(Some(session_id)) = self.load_session_id().await {
                     *self.session_id.write().await = Some(session_id);
+
+                    // if success, load seq from redis
+                    if let Ok(Some(seq)) = self.load_seq().await {
+                        *self.seq.write().await = Some(seq)
+                    }
                 }
 
                 if let (Some(session_id), Some(seq)) = (self.session_id.read().await.as_ref().cloned(), *self.seq.read().await) {
@@ -363,7 +378,7 @@ impl Shard {
                         }
                     } else {
                         should_identify = false;
-                        self.log("Resumed").await;
+                        self.log("Sent resume successfully").await;
                     }
                 }
 
@@ -396,6 +411,11 @@ impl Shard {
                 if let Err(e) = self.save_session_id().await {
                     self.log_err("Error occurred while saving session ID", &e).await;
                 }
+
+                // save seq
+                if let Err(e) = self.save_seq().await {
+                    self.log_err("Error occurred while saving seq", &e).await;
+                }
             }
 
             _ => {}
@@ -412,6 +432,10 @@ impl Shard {
         match &payload.data {
             Event::Ready(ready) => {
                 *self.session_id.write().await = Some(ready.session_id.clone());
+                if let Err(e) = self.save_session_id().await {
+                    self.log_err("Error saving session ID to Redis", &e).await;
+                }
+
                 *self.user.write().await = Some(ready.user.clone());
                 self.ready_guild_count.store(ready.guilds.len() as u16, Ordering::Relaxed);
 
@@ -420,7 +444,7 @@ impl Shard {
             }
 
             Event::Resumed(_) => {
-                self.log("Resumed").await;
+                self.log("Received resumed acknowledgement").await;
                 return Ok(());
             }
 
@@ -692,6 +716,87 @@ impl Shard {
         }
     }
 
+    async fn save_seq(&self) -> Result<(), GatewayError> {
+        match &*self.seq.read().await {
+            Some(seq) => {
+                let mut conn = self.redis.get().await?;
+
+                let key = match self.get_seq_key().await {
+                    Some(key) => key,
+                    None => return Ok(()),
+                };
+
+                cmd("SET")
+                    .arg(&[&key[..], &seq.to_string()[..], "EX", "120"]) // expiry of 120s
+                    .query_async(&mut conn)
+                    .await
+                    .map_err(GatewayError::RedisError)?;
+
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
+    async fn load_seq(&self) -> Result<Option<usize>, GatewayError> {
+        let key = match self.get_seq_key().await {
+            Some(key) => key,
+            None => return Ok(None),
+        };
+
+        let mut conn = self.redis.get().await?;
+
+        let res = cmd("GET")
+            .arg(&[&key[..]])
+            .query_async(&mut conn)
+            .await
+            .map_err(GatewayError::RedisError)?;
+
+        match res {
+            redis::Value::Data(data) => {
+                match str::from_utf8(&data[..]).map_err(GatewayError::Utf8Error)?.parse() {
+                    Ok(seq) => Ok(Some(seq)),
+                    Err(_) => Ok(None),
+                }
+            },
+            _ => Ok(None)
+        }
+    }
+
+    async fn delete_session_id(&self) -> Result<(), GatewayError> {
+        let mut conn = self.redis.get().await?;
+
+        let key = match self.get_resume_key().await {
+            Some(key) => key,
+            None => return Ok(()),
+        };
+
+        cmd("DEL")
+            .arg(&[&key[..]])
+            .query_async(&mut conn)
+            .await
+            .map_err(GatewayError::RedisError)?;
+
+        Ok(())
+    }
+
+    async fn delete_seq(&self) -> Result<(), GatewayError> {
+        let mut conn = self.redis.get().await?;
+
+        let key = match self.get_seq_key().await {
+            Some(key) => key,
+            None => return Ok(()),
+        };
+
+        cmd("DEL")
+            .arg(&[&key[..]])
+            .query_async(&mut conn)
+            .await
+            .map_err(GatewayError::RedisError)?;
+
+        Ok(())
+    }
+
     async fn get_resume_key(&self) -> Option<String> {
         if self.is_whitelabel {
             let bot_id = match &*self.user.read().await {
@@ -702,6 +807,19 @@ impl Shard {
             Some(format!("tickets:resume:{}:{}", bot_id, self.get_shard_id()))
         } else {
             Some(format!("tickets:resume:public:{}", self.get_shard_id()))
+        }
+    }
+
+    async fn get_seq_key(&self) -> Option<String> {
+        if self.is_whitelabel {
+            let bot_id = match &*self.user.read().await {
+                Some(user) => user.id,
+                None => return None,
+            };
+
+            Some(format!("tickets:seq:{}:{}", bot_id, self.get_shard_id()))
+        } else {
+            Some(format!("tickets:seq:public:{}", self.get_shard_id()))
         }
     }
 
