@@ -23,6 +23,7 @@ use crate::gateway::GatewayError;
 use crate::manager::FatalError;
 use model::user::{StatusUpdate, User};
 use std::fmt::Display;
+use std::str;
 
 use tokio_tungstenite::WebSocketStream;
 use futures_util::stream::{SplitStream, SplitSink};
@@ -49,8 +50,8 @@ pub struct Shard {
     status_update_rx: Mutex<mpsc::Receiver<StatusUpdate>>,
     pub user: RwLock<Option<User>>,
     total_rx: Mutex<u64>,
-    seq: Arc<RwLock<Option<usize>>>,
-    session_id: Arc<RwLock<Option<String>>>,
+    seq: RwLock<Option<usize>>,
+    session_id: RwLock<Option<String>>,
     writer: RwLock<Option<mpsc::Sender<OutboundMessage>>>,
     kill_heartbeat: Mutex<Option<oneshot::Sender<()>>>,
     pub kill_shard_tx: mpsc::Sender<()>,
@@ -90,8 +91,8 @@ impl Shard {
             status_update_rx: Mutex::new(status_update_rx),
             user: RwLock::new(None),
             total_rx: Mutex::new(0),
-            seq: Arc::new(RwLock::new(None)),
-            session_id: Arc::new(RwLock::new(None)),
+            seq: RwLock::new(None),
+            session_id: RwLock::new(None),
             writer: RwLock::new(None),
             kill_heartbeat: Mutex::new(None),
             kill_shard_tx,
@@ -337,6 +338,12 @@ impl Shard {
                 let interval = Duration::from_millis(hello.data.heartbeat_interval as u64);
 
                 let mut should_identify = true;
+
+                // try to load session_id from redis
+                if let Ok(Some(session_id)) = self.load_session_id().await {
+                    *self.session_id.write().await = Some(session_id);
+                }
+
                 if let (Some(session_id), Some(seq)) = (self.session_id.read().await.as_ref().cloned(), *self.seq.read().await) {
                     if let Err(e) = Arc::clone(&self).do_resume(session_id.clone(), seq).await {
                         self.log_err("Error RESUMEing, going to IDENTIFY", &e).await;
@@ -384,6 +391,11 @@ impl Shard {
 
             Opcode::HeartbeatAck => {
                 *self.last_ack.write().await = Instant::now();
+
+                // save session ID
+                if let Err(e) = self.save_session_id().await {
+                    self.log_err("Error occurred while saving session ID", &e).await;
+                }
             }
 
             _ => {}
@@ -394,7 +406,7 @@ impl Shard {
 
     async fn handle_event(self: Arc<Self>, data: Box<RawValue>) -> Result<(), GatewayError> {
         //let payload: Dispatch = simd_json::from_str(&mut data.get()).map_err(GatewayError::SimdJsonError)?;
-        let payload: Dispatch = serde_json::from_str( data.get()).map_err(GatewayError::JsonError)?;
+        let payload: Dispatch = serde_json::from_str(data.get()).map_err(GatewayError::JsonError)?;
 
         // Gateway events
         match &payload.data {
@@ -481,7 +493,7 @@ impl Shard {
                     bot_id: user.id.0,
                     is_whitelabel: self.is_whitelabel,
                     shard_id: self.get_shard_id(),
-                    event: &data
+                    event: &data,
                 };
 
                 match serde_json::to_string(&wrapped).map_err(GatewayError::JsonError) {
@@ -497,7 +509,7 @@ impl Shard {
                                 if let Err(e) = res {
                                     self.log_err("Error pushing event to Redis", &e).await;
                                 }
-                            },
+                            }
                             Err(e) => self.log_err("Error pushing event to Redis", &e).await
                         }
                     }
@@ -633,6 +645,64 @@ impl Shard {
         self.write(payload, tx).await?;
 
         Ok(rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketError)?)
+    }
+
+    async fn save_session_id(&self) -> Result<(), GatewayError> {
+        match &*self.session_id.read().await {
+            Some(session_id) => {
+                let mut conn = self.redis.get().await?;
+
+                let key = match self.get_resume_key().await {
+                    Some(key) => key,
+                    None => return Ok(()),
+                };
+
+                cmd("SET")
+                    .arg(&[&key[..], session_id, "EX", "120"]) // expiry of 120s
+                    .query_async(&mut conn)
+                    .await
+                    .map_err(GatewayError::RedisError)?;
+
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
+    async fn load_session_id(&self) -> Result<Option<String>, GatewayError> {
+        let key = match self.get_resume_key().await {
+            Some(key) => key,
+            None => return Ok(None),
+        };
+
+        let mut conn = self.redis.get().await?;
+
+        let res = cmd("GET")
+            .arg(&[&key[..]])
+            .query_async(&mut conn)
+            .await
+            .map_err(GatewayError::RedisError)?;
+
+        match res {
+            redis::Value::Data(data) => {
+                let session_id = str::from_utf8(&data[..]).map_err(GatewayError::Utf8Error)?.to_owned();
+                Ok(Some(session_id))
+            },
+            _ => Ok(None)
+        }
+    }
+
+    async fn get_resume_key(&self) -> Option<String> {
+        if self.is_whitelabel {
+            let bot_id = match &*self.user.read().await {
+                Some(user) => user.id,
+                None => return None,
+            };
+
+            Some(format!("tickets:resume:{}:{}", bot_id, self.get_shard_id()))
+        } else {
+            Some(format!("tickets:resume:public:{}", self.get_shard_id()))
+        }
     }
 
     /// helper

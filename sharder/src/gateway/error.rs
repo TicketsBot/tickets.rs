@@ -58,6 +58,9 @@ pub enum GatewayError {
 
     #[error("bot ID was missing on whitelabel identify")]
     MissingBotID(),
+
+    #[error("error occurred while parsing utf8 bytes: {0}")]
+    Utf8Error(#[from] std::str::Utf8Error),
 }
 
 impl GatewayError {
