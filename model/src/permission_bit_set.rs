@@ -4,7 +4,7 @@ use std::fmt;
 use std::fmt::Formatter;
 
 #[derive(Debug, Clone, Copy)]
-pub struct PermissionBitSet(pub usize);
+pub struct PermissionBitSet(pub u64);
 
 impl Serialize for PermissionBitSet {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

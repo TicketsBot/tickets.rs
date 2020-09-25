@@ -35,7 +35,7 @@ impl PublicShardManager {
 
         for i in options.shard_count.lowest..options.shard_count.highest {
             let shard_info = ShardInfo::new(i, options.shard_count.total);
-            let status = StatusUpdate::new(ActivityType::Game, "DM for help | t!help".to_owned(), StatusType::Online);
+            let status = StatusUpdate::new(ActivityType::Listening, "t!help | t!setup".to_owned(), StatusType::Online);
             let identify = Identify::new(options.token.clone(), None, shard_info, Some(status), super::get_intents());
             let shard = Shard::new(
                 identify,

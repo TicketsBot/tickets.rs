@@ -1,4 +1,5 @@
-pub use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize};
+use serde_repr::{Serialize_repr, Deserialize_repr};
 
 use crate::{Snowflake, PermissionBitSet};
 
@@ -9,20 +10,14 @@ pub struct PermissionOverwrite {
     #[serde(rename = "type")]
     pub overwrite_type: PermissionOverwriteType,
 
-    pub allow: u32,
+    pub allow: PermissionBitSet,
 
-    #[serde(skip_serializing)]
-    pub allow_new: Option<PermissionBitSet>,
-
-    pub deny: u32,
-
-    #[serde(skip_serializing)]
-    pub deny_new: Option<PermissionBitSet>,
+    pub deny: PermissionBitSet,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
+#[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy)]
+#[repr(u8)]
 pub enum PermissionOverwriteType {
-    Role,
-    Member,
+    Role = 0,
+    Member = 1,
 }

@@ -114,7 +114,7 @@ impl Shard {
         self.received_count.store(0, Ordering::Relaxed);
         // rst
 
-        let uri = url::Url::parse("wss://gateway.discord.gg/?v=6&encoding=json&compress=zlib-stream").unwrap();
+        let uri = url::Url::parse("wss://gateway.discord.gg/?v=8&encoding=json&compress=zlib-stream").unwrap();
 
         let (wss, _) = connect_async(uri).await?;
         let (ws_tx, ws_rx) = wss.split();

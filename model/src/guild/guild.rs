@@ -21,17 +21,11 @@ pub struct Guild {
     pub owner: Option<bool>,
     #[serde(serialize_with = "Snowflake::serialize_to_int")]
     pub owner_id: Snowflake,
-    pub permissions: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub permissions_new: Option<PermissionBitSet>,
+    pub permissions: Option<PermissionBitSet>,
     pub region: String,
     #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
     pub afk_channel_id: Option<Snowflake>,
     pub afk_timeout: u16,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub embed_enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
-    pub embed_channel_id: Option<Snowflake>,
     pub verification_level: VerificationLevel,
     pub default_message_notifications: DefaultMessageNotifications,
     pub explicit_content_filter: ExplicitContentFilterLevel,

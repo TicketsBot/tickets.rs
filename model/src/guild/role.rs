@@ -10,8 +10,7 @@ pub struct Role {
     pub color: u32,
     pub hoist: bool,
     pub position: i16,
-    pub permissions: u32,
-    pub permissions_new: PermissionBitSet,
+    pub permissions: PermissionBitSet,
     pub managed: bool,
     pub mentionable: bool,
 }
