@@ -35,6 +35,7 @@ use crate::gateway::payloads::PresenceUpdate;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use deadpool_redis::{Pool, cmd};
 use serde_json::value::RawValue;
+use model::Snowflake;
 
 type WebSocketTx = SplitSink<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>, Message>;
 type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>>;
@@ -711,7 +712,7 @@ impl Shard {
             redis::Value::Data(data) => {
                 let session_id = str::from_utf8(&data[..]).map_err(GatewayError::Utf8Error)?.to_owned();
                 Ok(Some(session_id))
-            },
+            }
             _ => Ok(None)
         }
     }
@@ -758,7 +759,7 @@ impl Shard {
                     Ok(seq) => Ok(Some(seq)),
                     Err(_) => Ok(None),
                 }
-            },
+            }
             _ => Ok(None)
         }
     }
@@ -830,7 +831,7 @@ impl Shard {
 
     pub async fn log(&self, msg: impl Display) {
         if self.is_whitelabel {
-            println!("[{}] {}", self.get_username_discrim().await, msg);
+            println!("[{}] {}", self.get_bot_id().await, msg);
         } else {
             println!("[{:0>2}] {}", self.get_shard_id(), msg);
         }
@@ -838,16 +839,16 @@ impl Shard {
 
     pub async fn log_err(&self, msg: impl Display, err: &GatewayError) {
         if self.is_whitelabel {
-            eprintln!("[{}] {}: {}", self.get_username_discrim().await, msg, err);
+            eprintln!("[{}] {}: {}", self.get_bot_id().await, msg, err);
         } else {
             eprintln!("[{:0>2}] {}: {}", self.get_shard_id(), msg, err);
         }
     }
 
-    async fn get_username_discrim(&self) -> String {
+    async fn get_bot_id(&self) -> Snowflake {
         match &*self.user.read().await {
-            Some(user) => format!("{}#{}", user.username, user.discriminator),
-            None => "Unknown".to_owned(),
+            Some(user) => user.id,
+            None => Snowflake(0),
         }
     }
 }
