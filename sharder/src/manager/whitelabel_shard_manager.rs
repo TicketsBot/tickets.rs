@@ -105,6 +105,7 @@ impl WhitelabelShardManager {
 
                 // we've received delete payload
                 if self.shards.read().await.get(&bot_id).is_none() {
+                    shard.log("Shard was removed from shard vec, not restarting").await;
                     break;
                 }
 
