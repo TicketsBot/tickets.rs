@@ -170,9 +170,7 @@ impl WhitelabelShardManager {
                         if payload.old_id.0 % (manager.sharder_count as u64) == manager.sharder_id as u64 {
                             if let Some(shard) = self.shards.read().await.get(&payload.old_id) {
                                 self.shards.write().await.remove(&payload.old_id);
-                                if let Err(e) = shard.kill_shard_tx.clone().send(()).await {
-                                    eprintln!("An error occurred while killing {}: {}", payload.old_id, e);
-                                }
+                                Arc::clone(&shard).kill().await;
                             }
                         }
 

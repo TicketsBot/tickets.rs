@@ -55,8 +55,8 @@ pub struct Shard {
     session_id: RwLock<Option<String>>,
     writer: RwLock<Option<mpsc::Sender<OutboundMessage>>>,
     kill_heartbeat: Mutex<Option<oneshot::Sender<()>>>,
-    pub kill_shard_tx: mpsc::Sender<()>,
-    kill_shard_rx: Mutex<mpsc::Receiver<()>>,
+    pub kill_shard_tx: Mutex<Option<oneshot::Sender<()>>>,
+    kill_shard_rx: Mutex<oneshot::Receiver<()>>,
     last_ack: RwLock<Instant>,
     last_heartbeat: RwLock<Instant>,
     connect_time: RwLock<Instant>,
@@ -78,7 +78,7 @@ impl Shard {
         error_tx: mpsc::Sender<FatalError>,
         ready_tx: Option<mpsc::Sender<u16>>,
     ) -> Arc<Shard> {
-        let (kill_shard_tx, kill_shard_rx) = mpsc::channel(1);
+        let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
         let (status_update_tx, status_update_rx) = mpsc::channel(1);
 
         let shard = Arc::new(Shard {
@@ -96,7 +96,7 @@ impl Shard {
             session_id: RwLock::new(None),
             writer: RwLock::new(None),
             kill_heartbeat: Mutex::new(None),
-            kill_shard_tx,
+            kill_shard_tx: Mutex::new(Some(kill_shard_tx)),
             kill_shard_rx: Mutex::new(kill_shard_rx),
             last_ack: RwLock::new(Instant::now()),
             last_heartbeat: RwLock::new(Instant::now()),
@@ -169,8 +169,14 @@ impl Shard {
         // TODO: Make this good
         tokio::spawn(async move {
             // TODO: panic?
-            if let Err(e) = self.kill_shard_tx.clone().send(()).await {
-                self.log_err("Failed to kill", &GatewayError::SendError(e)).await;
+            let kill_shard_tx = self.kill_shard_tx.lock().await.take();
+            match kill_shard_tx {
+                Some(kill_shard_tx) => {
+                    if let Err(_) = kill_shard_tx.send(()) {
+                        self.log_err("Failed to kill", &GatewayError::custom("Receiver already unallocated")).await;
+                    }
+                }
+                None => self.log("Tried to kill but kill_shard_tx was None").await
             }
         });
     }
@@ -185,7 +191,7 @@ impl Shard {
 
             tokio::select! {
                 // handle kill
-                _ = kill_rx.recv() => {
+                _ = kill_rx => {
                     self.log("Received kill message").await;
                     break;
                 }
