@@ -24,20 +24,12 @@ jobs:
           command: apt-get install -y pkg-config build-essential cmake libssl-dev
 
       - run:
-          name: Build debug
-          command: cargo build
-
-      - run:
           name: Build release
           command: cargo build --release
 
       - save_cache:
           paths:
             - /usr/local/cargo/registry
-            - target/debug/.fingerprint
-            - target/debug/build
-            - target/debug/deps
-            - target/debug/incremental
             - target/release/.fingerprint
             - target/release/build
             - target/release/deps
@@ -55,11 +47,3 @@ jobs:
       - store_artifacts:
           path: ./target/release/whitelabel
           destination: whitelabel-sharder
-
-      - store_artifacts:
-          path: ./target/debug/public
-          destination: public-sharder-debug
-
-      - store_artifacts:
-          path: ./target/debug/whitelabel
-          destination: whitelabel-sharder-debug
