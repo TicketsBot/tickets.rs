@@ -111,6 +111,10 @@ impl Shard {
 
     pub async fn connect(self: Arc<Self>) -> Result<(), GatewayError> {
         //rst
+        let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
+        *self.kill_shard_tx.lock().await = Some(kill_shard_tx);
+        *self.kill_shard_rx.lock().await = kill_shard_rx;
+
         *self.total_rx.lock().await = 0;
         self.ready_guild_count.store(0, Ordering::Relaxed);
         self.received_count.store(0, Ordering::Relaxed);
