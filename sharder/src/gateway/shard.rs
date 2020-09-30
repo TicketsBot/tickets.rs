@@ -174,6 +174,8 @@ impl Shard {
         tokio::spawn(async move {
             // TODO: panic?
             let kill_shard_tx = self.kill_shard_tx.lock().await.take();
+            let kill_heartbeat_tx = self.kill_heartbeat.lock().await.take();
+
             match kill_shard_tx {
                 Some(kill_shard_tx) => {
                     if let Err(_) = kill_shard_tx.send(()) {
@@ -181,6 +183,15 @@ impl Shard {
                     }
                 }
                 None => self.log("Tried to kill but kill_shard_tx was None").await
+            }
+
+            match kill_heartbeat_tx {
+                Some(kill_heartbeat_tx) => {
+                    if let Err(_) = kill_heartbeat_tx.send(()) {
+                        self.log_err("Failed to kill heartbeat", &GatewayError::custom("Receiver already unallocated")).await;
+                    }
+                }
+                None => self.log("Tried to kill but kill_heartbeat_tx was None").await
             }
         });
     }
@@ -580,7 +591,7 @@ impl Shard {
                 let elapsed = shard.last_ack.read().await.checked_duration_since(*self.last_heartbeat.read().await);
 
                 if has_done_heartbeat && (elapsed.is_none() || elapsed.unwrap() > interval) {
-                    shard.log("Hasn't received heartbeat, killing").await;
+                    shard.log("Hasn't received heartbeat ack, killing").await;
                     shard.kill().await;
                     break;
                 }
