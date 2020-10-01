@@ -203,19 +203,12 @@ impl WhitelabelShardManager {
             while let Some(m) = stream.next().await {
                 match m.get_payload::<String>().map(|s| s.parse::<Snowflake>()) {
                     Ok(Ok(user_id)) => {
-                        // get bot for user
-                        let mut user_ids = self.user_ids.write().await;
-                        let mut shards = self.shards.write().await;
-
-                        if let Some(bot_id) = user_ids.get(&user_id) {
-                            if let Some(shard) = shards.get(bot_id) {
-                                Arc::clone(&shard).kill().await;
+                        if let Some(bot_id) = self.user_ids.write().await.remove(&user_id) {
+                            if let Some(shard) = self.shards.write().await.remove(&bot_id) {
+                                shard.kill().await;
                             }
-
-                            shards.remove(&bot_id);
                         }
 
-                        user_ids.remove(&user_id);
                     }
                     Ok(Err(e)) => eprintln!("An error occured while reading delete payload: {}", e),
                     Err(e) => eprintln!("An error occured while reading delete payload: {}", e),
