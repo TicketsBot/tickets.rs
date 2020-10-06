@@ -110,8 +110,6 @@ impl Shard {
     }
 
     pub async fn connect(self: Arc<Self>) -> Result<(), GatewayError> {
-        let sex = Arc::clone(&self);
-
         //rst
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
         *self.kill_shard_tx.lock().await = Some(kill_shard_tx);
