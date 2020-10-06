@@ -110,6 +110,8 @@ impl Shard {
     }
 
     pub async fn connect(self: Arc<Self>) -> Result<(), GatewayError> {
+        let sex = Arc::clone(&self);
+
         //rst
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
         *self.kill_shard_tx.lock().await = Some(kill_shard_tx);
@@ -118,6 +120,9 @@ impl Shard {
         *self.total_rx.lock().await = 0;
         self.ready_guild_count.store(0, Ordering::Relaxed);
         self.received_count.store(0, Ordering::Relaxed);
+
+        *self.last_heartbeat.write().await = Instant::now();
+        *self.last_ack.write().await = Instant::now();
         // rst
 
         let uri = url::Url::parse("wss://gateway.discord.gg/?v=8&encoding=json&compress=zlib-stream").unwrap();

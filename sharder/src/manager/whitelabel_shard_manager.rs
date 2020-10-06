@@ -107,6 +107,8 @@ impl WhitelabelShardManager {
                 if self.shards.read().await.get(&bot_id).is_none() {
                     shard.log("Shard was removed from shard vec, not restarting").await;
                     break;
+                } else {
+                    shard.log("Shard still exists, restarting").await;
                 }
 
                 delay_for(Duration::from_millis(500)).await;
@@ -208,7 +210,6 @@ impl WhitelabelShardManager {
                                 shard.kill().await;
                             }
                         }
-
                     }
                     Ok(Err(e)) => eprintln!("An error occured while reading delete payload: {}", e),
                     Err(e) => eprintln!("An error occured while reading delete payload: {}", e),
@@ -239,6 +240,8 @@ impl ShardManager for WhitelabelShardManager {
             // get bot ID
             match self.db.whitelabel.get_bot_by_token(&msg.bot_token).await {
                 Ok(Some(bot)) => {
+                    self.shards.write().await.remove(&Snowflake(bot.user_id as u64));
+
                     if let Err(e) = self.db.whitelabel_errors.append(Snowflake(bot.user_id as u64), msg.error).await {
                         eprintln!("Error while logging error: {}", e);
                     }
