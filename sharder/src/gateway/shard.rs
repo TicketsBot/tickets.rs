@@ -468,6 +468,13 @@ impl Shard {
 
             Event::Resumed(_) => {
                 self.log("Received resumed acknowledgement").await;
+
+                if let Some(mut tx) = self.ready_tx.lock().await.take() {
+                    if let Err(e) = tx.send(self.get_shard_id()).await.map_err(GatewayError::SendU16Error) {
+                        self.log_err("Error sending ready notification to probe", &e).await;
+                    }
+                }
+
                 return Ok(());
             }
 
