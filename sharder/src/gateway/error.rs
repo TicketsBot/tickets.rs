@@ -1,7 +1,7 @@
 use thiserror::Error;
 use std::fmt::Display;
 use crate::gateway::outbound_message::OutboundMessage;
-use crate::manager::FatalError;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 #[derive(Error, Debug)]
 pub enum GatewayError {
@@ -38,9 +38,6 @@ pub enum GatewayError {
     #[error("error while sending message to writer: {0}")]
     SendMessageError(#[from] tokio::sync::mpsc::error::SendError<OutboundMessage>),
 
-    #[error("error while sending message to error chan: {0}")]
-    SendErrorError(#[from] tokio::sync::mpsc::error::SendError<FatalError>),
-
     #[error("error while sending message to chan: {0}")]
     SendError(#[from] tokio::sync::mpsc::error::SendError<()>),
 
@@ -61,6 +58,13 @@ pub enum GatewayError {
 
     #[error("error occurred while parsing utf8 bytes: {0}")]
     Utf8Error(#[from] std::str::Utf8Error),
+
+    #[error("[{error_code:?}] {error:?}")]
+    AuthenticationError {
+        bot_token: String,
+        error_code: CloseCode,
+        error: String,
+    },
 }
 
 impl GatewayError {

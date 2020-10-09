@@ -9,9 +9,8 @@ use model::user::{StatusUpdate, ActivityType, StatusType, User};
 use cache::PostgresCache;
 use std::sync::Arc;
 use database::{Database, WhitelabelBot};
-use tokio::sync::{Mutex, mpsc, RwLock};
+use tokio::sync::RwLock;
 use model::Snowflake;
-use crate::manager::FatalError;
 use crate::{GatewayError, get_redis_uri};
 use std::str;
 use tokio::stream::StreamExt;
@@ -26,8 +25,6 @@ pub struct WhitelabelShardManager {
     shards: RwLock<HashMap<Snowflake, Arc<Shard>>>,
     // user_id -> bot_id
     user_ids: RwLock<HashMap<Snowflake, Snowflake>>,
-    error_rx: Mutex<mpsc::Receiver<FatalError>>,
-    error_tx: mpsc::Sender<FatalError>,
     db: Arc<Database>,
     cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
@@ -41,15 +38,11 @@ impl WhitelabelShardManager {
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
     ) -> Arc<Self> {
-        let (error_tx, error_rx) = mpsc::channel(16);
-
         let sm = Arc::new(WhitelabelShardManager {
             sharder_count,
             sharder_id,
             shards: RwLock::new(HashMap::new()),
             user_ids: RwLock::new(HashMap::new()),
-            error_rx: Mutex::new(error_rx),
-            error_tx,
             db: Arc::clone(&database),
             cache,
             redis,
@@ -62,8 +55,6 @@ impl WhitelabelShardManager {
         self.user_ids.write().await.insert(Snowflake(bot.user_id as u64), Snowflake(bot.bot_id as u64));
 
         let bot_id = Snowflake(bot.bot_id as u64);
-
-        let error_tx = self.error_tx.clone();
 
         tokio::spawn(async move {
             // retrieve bot status
@@ -78,7 +69,7 @@ impl WhitelabelShardManager {
 
             let shard_info = ShardInfo::new(0, 1);
             let presence = StatusUpdate::new(ActivityType::Listening, status, StatusType::Online);
-            let identify = Identify::new(bot.token, None, shard_info, Some(presence), super::get_intents());
+            let identify = Identify::new(bot.token.clone(), None, shard_info, Some(presence), super::get_intents());
 
             let shard = Shard::new(
                 identify,
@@ -86,7 +77,6 @@ impl WhitelabelShardManager {
                 Arc::clone(&self.cache),
                 Arc::clone(&self.redis),
                 true,
-                error_tx,
                 None,
             );
 
@@ -100,7 +90,25 @@ impl WhitelabelShardManager {
 
                 match Arc::clone(&shard).connect().await {
                     Ok(()) => shard.log("Exited with Ok").await,
-                    Err(e) => shard.log_err("Exited with error", &e).await,
+                    Err(e) => {
+                        shard.log_err("Exited with error, quitting", &e).await;
+
+                        let user_id = Snowflake(bot.user_id as u64);
+                        self.shards.write().await.remove(&user_id);
+                        self.user_ids.write().await.remove(&user_id);
+
+                        let error_message = match e {
+                            GatewayError::AuthenticationError { error, .. } => error,
+                            _ => format!("{}", e),
+                        };
+
+                        if let Err(e) = self.db.whitelabel_errors.append(Snowflake(bot.user_id as u64), error_message).await {
+                            eprintln!("Error while logging error: {}", e);
+                        }
+
+                        self.delete_from_db(&bot.token).await;
+                        break;
+                    }
                 }
 
                 // we've received delete payload
@@ -172,7 +180,7 @@ impl WhitelabelShardManager {
                         if payload.old_id.0 % (manager.sharder_count as u64) == manager.sharder_id as u64 {
                             if let Some(shard) = self.shards.read().await.get(&payload.old_id) {
                                 self.shards.write().await.remove(&payload.old_id);
-                                Arc::clone(&shard).kill().await;
+                                Arc::clone(&shard).kill();
                             }
                         }
 
@@ -207,7 +215,7 @@ impl WhitelabelShardManager {
                     Ok(Ok(user_id)) => {
                         if let Some(bot_id) = self.user_ids.write().await.remove(&user_id) {
                             if let Some(shard) = self.shards.write().await.remove(&bot_id) {
-                                shard.kill().await;
+                                shard.kill();
                             }
                         }
                     }
@@ -229,32 +237,6 @@ impl ShardManager for WhitelabelShardManager {
 
         for bot in bots {
             Arc::clone(&self).connect_bot(bot).await;
-        }
-    }
-
-    // TODO: Sentry?
-    async fn start_error_loop(self: Arc<Self>) {
-        while let Some(msg) = self.error_rx.lock().await.recv().await {
-            eprintln!("A bot received a fatal error, removing: {:?}", msg);
-
-            // get bot ID
-            match self.db.whitelabel.get_bot_by_token(&msg.bot_token).await {
-                Ok(Some(bot)) => {
-                    self.shards.write().await.remove(&Snowflake(bot.user_id as u64));
-
-                    if let Err(e) = self.db.whitelabel_errors.append(Snowflake(bot.user_id as u64), msg.error).await {
-                        eprintln!("Error while logging error: {}", e);
-                    }
-                }
-                Ok(None) => {
-                    eprintln!("Bot had no ID, removing anyway");
-                }
-                Err(e) => {
-                    eprintln!("Error getting bot: {}", e);
-                }
-            }
-
-            self.delete_from_db(&msg.bot_token).await;
         }
     }
 }

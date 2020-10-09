@@ -13,25 +13,20 @@ use std::collections::HashMap;
 
 use cache::PostgresCache;
 
-use crate::manager::FatalError;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::mpsc;
 use tokio::time::delay_for;
 use std::time::Duration;
 use deadpool_redis::Pool;
 
 pub struct PublicShardManager {
-    shards: RwLock<HashMap<u16, Arc<Shard>>>,
-    error_rx: Mutex<mpsc::Receiver<FatalError>>,
+    shards: HashMap<u16, Arc<Shard>>,
 }
 
 impl PublicShardManager {
-    pub async fn new(options: Options, cache: Arc<PostgresCache>, redis: Arc<Pool>, ready_tx: mpsc::Sender<u16>) -> Arc<PublicShardManager> {
-        let (error_tx, error_rx) = mpsc::channel(16);
-
-        let sm = Arc::new(PublicShardManager {
-            shards: RwLock::new(HashMap::new()),
-            error_rx: Mutex::new(error_rx),
-        });
+    pub async fn new(options: Options, cache: Arc<PostgresCache>, redis: Arc<Pool>, ready_tx: mpsc::Sender<u16>) -> PublicShardManager {
+        let mut sm = PublicShardManager {
+            shards: HashMap::new(),
+        };
 
         for i in options.shard_count.lowest..options.shard_count.highest {
             let shard_info = ShardInfo::new(i, options.shard_count.total);
@@ -43,11 +38,10 @@ impl PublicShardManager {
                 Arc::clone(&cache),
                 Arc::clone(&redis),
                 false,
-                error_tx.clone(),
                 Some(ready_tx.clone()),
             );
 
-            sm.shards.write().await.insert(i, shard);
+            sm.shards.insert(i, shard);
         }
 
         sm
@@ -57,7 +51,7 @@ impl PublicShardManager {
 #[async_trait]
 impl ShardManager for PublicShardManager {
     async fn connect(self: Arc<Self>) {
-        for (_, shard) in self.shards.read().await.iter() {
+        for (_, shard) in self.shards.iter() {
             let shard = Arc::clone(&shard);
 
             tokio::spawn(async move {
@@ -73,13 +67,6 @@ impl ShardManager for PublicShardManager {
                     delay_for(Duration::from_millis(500)).await;
                 }
             });
-        }
-    }
-
-    // TODO: Sentry
-    async fn start_error_loop(self: Arc<Self>) {
-        while let Some(msg) = self.error_rx.lock().await.recv().await {
-            eprintln!("A fatal error occurred: {:?}", msg);
         }
     }
 }

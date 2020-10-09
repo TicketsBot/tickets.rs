@@ -6,6 +6,8 @@ use sharder::{var_or_panic, build_cache};
 use database::Database;
 use sqlx::postgres::PgPoolOptions;
 
+use tokio::signal;
+
 use jemallocator::Jemalloc;
 
 #[global_allocator]
@@ -42,7 +44,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Arc::clone(&sm).listen_status_updates().await.unwrap();
     Arc::clone(&sm).listen_new_tokens().await.unwrap();
     Arc::clone(&sm).listen_delete().await.unwrap();
-    sm.start_error_loop().await;
 
-    Ok(())
+    Ok(signal::ctrl_c().await?)
 }

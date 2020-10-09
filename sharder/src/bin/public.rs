@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::fs::File;
+use tokio::signal;
 
 use sharder::{PublicShardManager, ShardCount, ShardManager};
 use model::user::{StatusUpdate, ActivityType, StatusType};
@@ -13,7 +14,7 @@ use jemallocator::Jemalloc;
 static GLOBAL: Jemalloc = Jemalloc;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     // init sharder options
     let shard_count = get_shard_count();
 
@@ -22,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let presence = StatusUpdate::new(ActivityType::Listening, "t!help".to_owned(), StatusType::Online);
     let options = sharder::Options {
         token: var_or_panic("SHARDER_TOKEN"),
-        shard_count: shard_count,
+        shard_count,
         presence,
         large_sharding_buckets: 1,
     };
@@ -35,10 +36,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let redis = Arc::new(build_redis());
 
     let sm = PublicShardManager::new(options, cache, redis, ready_tx).await;
-    Arc::clone(&sm).connect().await;
+    Arc::new(sm).connect().await;
 
-    sm.start_error_loop().await;
-    Ok(())
+    signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
 }
 
 fn get_shard_count() -> ShardCount {
