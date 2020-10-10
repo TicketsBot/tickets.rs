@@ -448,7 +448,6 @@ impl Shard {
     }
 
     async fn handle_event(self: Arc<Self>, data: Box<RawValue>) -> Result<(), GatewayError> {
-        //let payload: Dispatch = simd_json::from_str(&mut data.get()).map_err(GatewayError::SimdJsonError)?;
         let payload: Dispatch = serde_json::from_str(data.get()).map_err(GatewayError::JsonError)?;
 
         // Gateway events

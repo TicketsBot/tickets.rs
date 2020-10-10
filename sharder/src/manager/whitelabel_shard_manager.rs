@@ -143,6 +143,8 @@ impl WhitelabelShardManager {
                 match m.get_payload::<String>().map(|s| s.parse::<Snowflake>()) {
                     Ok(Ok(bot_id)) => {
                         if let Some(shard) = self.shards.read().await.get(&bot_id) {
+                            shard.log("Received status update payload").await;
+
                             // retrieve new status
                             // TODO: New tokio::spawn for this?
                             match database.whitelabel_status.get(bot_id).await {
@@ -179,6 +181,8 @@ impl WhitelabelShardManager {
                         // check whether this shard has the old bot
                         if payload.old_id.0 % (manager.sharder_count as u64) == manager.sharder_id as u64 {
                             if let Some(shard) = self.shards.read().await.get(&payload.old_id) {
+                                shard.log("Received token update payload, stopping").await;
+
                                 self.shards.write().await.remove(&payload.old_id);
                                 Arc::clone(&shard).kill();
                             }
@@ -215,6 +219,7 @@ impl WhitelabelShardManager {
                     Ok(Ok(user_id)) => {
                         if let Some(bot_id) = self.user_ids.write().await.remove(&user_id) {
                             if let Some(shard) = self.shards.write().await.remove(&bot_id) {
+                                shard.log("Received delete payload, stopping").await;
                                 shard.kill();
                             }
                         }

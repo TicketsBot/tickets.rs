@@ -142,4 +142,5 @@ pub enum Features {
     WelcomeScreenEnabled,
     Community,
     EnabledDiscoverableBefore,
+    PreviewEnabled
 }
