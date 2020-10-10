@@ -224,8 +224,8 @@ impl WhitelabelShardManager {
                             }
                         }
                     }
-                    Ok(Err(e)) => eprintln!("An error occured while reading delete payload: {}", e),
-                    Err(e) => eprintln!("An error occured while reading delete payload: {}", e),
+                    Ok(Err(e)) => eprintln!("An error occurred while reading delete payload: {}", e),
+                    Err(e) => eprintln!("An error occurred while reading delete payload: {}", e),
                 }
             }
         });
