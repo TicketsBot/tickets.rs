@@ -20,7 +20,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use serde::Serialize;
 use cache::{PostgresCache, Cache};
 use crate::gateway::GatewayError;
-use model::user::{StatusUpdate, User};
+use model::user::StatusUpdate;
 use std::fmt::Display;
 use std::str;
 
@@ -47,7 +47,7 @@ pub struct Shard {
     is_whitelabel: bool,
     pub status_update_tx: mpsc::Sender<StatusUpdate>,
     status_update_rx: Mutex<mpsc::Receiver<StatusUpdate>>,
-    pub user: RwLock<Option<User>>,
+    user_id: Snowflake,
     total_rx: Mutex<u64>,
     seq: RwLock<Option<usize>>,
     session_id: RwLock<Option<String>>,
@@ -61,6 +61,7 @@ pub struct Shard {
     ready_tx: Mutex<Option<mpsc::Sender<u16>>>,
     ready_guild_count: AtomicU16,
     received_count: AtomicU16,
+    is_ready: RwLock<bool>,
 }
 
 // 16 KiB
@@ -73,6 +74,7 @@ impl Shard {
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
         is_whitelabel: bool,
+        user_id: Snowflake,
         ready_tx: Option<mpsc::Sender<u16>>,
     ) -> Arc<Shard> {
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
@@ -86,7 +88,7 @@ impl Shard {
             is_whitelabel,
             status_update_tx,
             status_update_rx: Mutex::new(status_update_rx),
-            user: RwLock::new(None),
+            user_id,
             total_rx: Mutex::new(0),
             seq: RwLock::new(None),
             session_id: RwLock::new(None),
@@ -100,6 +102,7 @@ impl Shard {
             ready_tx: Mutex::new(ready_tx),
             ready_guild_count: AtomicU16::new(0),
             received_count: AtomicU16::new(0),
+            is_ready: RwLock::new(false),
         });
 
         shard
@@ -114,6 +117,7 @@ impl Shard {
         *self.total_rx.lock().await = 0;
         self.ready_guild_count.store(0, Ordering::Relaxed);
         self.received_count.store(0, Ordering::Relaxed);
+        *self.is_ready.write().await = false;
 
         *self.last_heartbeat.write().await = Instant::now();
         *self.last_ack.write().await = Instant::now();
@@ -178,19 +182,19 @@ impl Shard {
             match kill_shard_tx {
                 Some(kill_shard_tx) => {
                     if let Err(_) = kill_shard_tx.send(()) {
-                        self.log_err("Failed to kill", &GatewayError::custom("Receiver already unallocated")).await;
+                        self.log_err("Failed to kill", &GatewayError::custom("Receiver already unallocated"));
                     }
                 }
-                None => self.log("Tried to kill but kill_shard_tx was None").await
+                None => self.log("Tried to kill but kill_shard_tx was None")
             }
 
             match kill_heartbeat_tx {
                 Some(kill_heartbeat_tx) => {
                     if let Err(_) = kill_heartbeat_tx.send(()) {
-                        self.log_err("Failed to kill heartbeat", &GatewayError::custom("Receiver already unallocated")).await;
+                        self.log_err("Failed to kill heartbeat", &GatewayError::custom("Receiver already unallocated"));
                     }
                 }
-                None => self.log("Tried to kill but kill_heartbeat_tx was None").await
+                None => self.log("Tried to kill but kill_heartbeat_tx was None")
             }
         });
     }
@@ -206,7 +210,7 @@ impl Shard {
             tokio::select! {
                 // handle kill
                 _ = kill_rx => {
-                    self.log("Received kill message").await;
+                    self.log("Received kill message");
                     break;
                 }
 
@@ -214,19 +218,19 @@ impl Shard {
                 payload = ws_rx.next() => {
                     match payload {
                         None => {
-                            self.log("Payload was None, killing").await;
+                            self.log("Payload was None, killing");
                             self.kill();
                             break;
                         }
 
                         Some(Err(e)) => {
-                            self.log_err("Error reading data from websocket, killing", &GatewayError::WebsocketError(e)).await;
+                            self.log_err("Error reading data from websocket, killing", &GatewayError::WebsocketError(e));
                             self.kill();
                             break;
                         }
 
                         Some(Ok(Message::Close(frame))) => {
-                            self.log(format!("Got close from gateway: {:?}", frame)).await;
+                            self.log(format!("Got close from gateway: {:?}", frame));
                             Arc::clone(&self).kill();
 
                             if let Some(frame) = frame {
@@ -252,7 +256,7 @@ impl Shard {
                             };
 
                             if let Err(e) = Arc::clone(&self).process_payload(payload, data).await {
-                                self.log_err("An error occurred while processing a payload", &e).await;
+                                self.log_err("An error occurred while processing a payload", &e);
                             }
                         }
 
@@ -269,12 +273,12 @@ impl Shard {
                         tokio::spawn(async move {
                             let payload = PresenceUpdate::new(presence);
                             if let Err(e) = shard.write(payload, tx).await {
-                                shard.log_err("Error sending presence update payload to writer", &e).await;
+                                shard.log_err("Error sending presence update payload to writer", &e);
                             }
 
                             match rx.await {
-                                Ok(Err(e)) => shard.log_err("Error writing presence update payload", &GatewayError::WebsocketError(e)).await,
-                                Err(e) => shard.log_err("Error writing presence update payload", &GatewayError::RecvError(e)).await,
+                                Ok(Err(e)) => shard.log_err("Error writing presence update payload", &GatewayError::WebsocketError(e)),
+                                Err(e) => shard.log_err("Error writing presence update payload", &GatewayError::RecvError(e)),
                                 _ => {}
                             }
                         });
@@ -306,7 +310,7 @@ impl Shard {
 
                 // TODO: Should we reconnect?
                 Err(e) => {
-                    self.log_err("Error while decompressing", &e).await;
+                    self.log_err("Error while decompressing", &e);
 
                     *total_rx = 0;
                     decoder.reset(true);
@@ -322,7 +326,7 @@ impl Shard {
         match serde_json::from_slice(&output[..]).map_err(GatewayError::JsonError) {
             Ok(payload) => Some((payload, output)),
             Err(e) => {
-                self.log_err("Error while deserializing payload", &e).await;
+                self.log_err("Error while deserializing payload", &e);
                 None
             }
         }
@@ -331,6 +335,10 @@ impl Shard {
     async fn process_payload(self: Arc<Self>, payload: Payload, raw: Vec<u8>) -> Result<(), GatewayError> {
         if let Some(seq) = payload.seq {
             *self.seq.write().await = Some(seq);
+
+            if let Err(e) = self.save_seq().await {
+                self.log_err("Error saving sequence number", &e);
+            }
         }
 
         match payload.opcode {
@@ -338,29 +346,29 @@ impl Shard {
                 let payload = serde_json::from_slice(&raw[..])?;
 
                 if let Err(e) = Arc::clone(&self).handle_event(payload).await {
-                    self.log_err("Error processing dispatch", &e).await;
+                    self.log_err("Error processing dispatch", &e);
                 }
             }
 
             Opcode::Reconnect => {
-                self.log("Received reconnect payload from Discord").await;
+                self.log("Received reconnect payload from Discord");
                 self.kill();
             }
 
             Opcode::InvalidSession => {
-                self.log("Received invalid session payload from Discord").await;
+                self.log("Received invalid session payload from Discord");
 
                 *self.session_id.write().await = None;
                 *self.seq.write().await = None;
 
                 // delete session ID from Redis
                 if let Err(e) = self.delete_session_id().await {
-                    self.log_err("Error deleting session_id from Redis", &e).await;
+                    self.log_err("Error deleting session_id from Redis", &e);
                 }
 
                 // delete seq from Redis
                 if let Err(e) = self.delete_seq().await {
-                    self.log_err("Error deleting seq from Redis", &e).await;
+                    self.log_err("Error deleting seq from Redis", &e);
                 }
 
                 self.kill();
@@ -384,7 +392,7 @@ impl Shard {
 
                 if let (Some(session_id), Some(seq)) = (self.session_id.read().await.as_ref().cloned(), *self.seq.read().await) {
                     if let Err(e) = Arc::clone(&self).do_resume(session_id.clone(), seq).await {
-                        self.log_err("Error RESUMEing, going to IDENTIFY", &e).await;
+                        self.log_err("Error RESUMEing, going to IDENTIFY", &e);
 
                         // rst
                         *self.session_id.write().await = None;
@@ -393,7 +401,7 @@ impl Shard {
                         self.wait_for_ratelimit().await?;
 
                         if self.connect_time.read().await.elapsed() > interval {
-                            self.log("Connected over 45s ago, Discord will kick us off. Reconnecting.").await;
+                            self.log("Connected over 45s ago, Discord will kick us off. Reconnecting.");
                             Arc::clone(&self).kill();
                             return Ok(());
                         } else {
@@ -401,7 +409,7 @@ impl Shard {
                         }
                     } else {
                         should_identify = false;
-                        self.log("Sent resume successfully").await;
+                        self.log("Sent resume successfully");
                     }
                 }
 
@@ -409,18 +417,18 @@ impl Shard {
                     self.wait_for_ratelimit().await?;
 
                     if self.connect_time.read().await.elapsed() > interval {
-                        self.log("Connected over 45s ago, Discord will kick us off. Reconnecting.").await;
+                        self.log("Connected over 45s ago, Discord will kick us off. Reconnecting.");
                         self.kill();
                         return Ok(());
                     }
 
                     if let Err(e) = Arc::clone(&self).do_identify().await {
-                        self.log_err("Error identifying, killing", &e).await;
+                        self.log_err("Error identifying, killing", &e);
                         self.kill();
                         return e.into();
                     }
 
-                    self.log("Identified").await;
+                    self.log("Identified");
                 }
 
                 let kill_tx = Arc::clone(&self).start_heartbeat(interval).await;
@@ -432,12 +440,12 @@ impl Shard {
 
                 // save session ID
                 if let Err(e) = self.save_session_id().await {
-                    self.log_err("Error occurred while saving session ID", &e).await;
+                    self.log_err("Error occurred while saving session ID", &e);
                 }
 
                 // save seq
                 if let Err(e) = self.save_seq().await {
-                    self.log_err("Error occurred while saving seq", &e).await;
+                    self.log_err("Error occurred while saving seq", &e);
                 }
             }
 
@@ -455,22 +463,23 @@ impl Shard {
             Event::Ready(ready) => {
                 *self.session_id.write().await = Some(ready.session_id.clone());
                 if let Err(e) = self.save_session_id().await {
-                    self.log_err("Error saving session ID to Redis", &e).await;
+                    self.log_err("Error saving session ID to Redis", &e);
                 }
 
-                *self.user.write().await = Some(ready.user.clone());
                 self.ready_guild_count.store(ready.guilds.len() as u16, Ordering::Relaxed);
 
-                self.log(format!("Ready on {}#{} ({})", ready.user.username, ready.user.discriminator, ready.user.id)).await;
+                self.log(format!("Ready on {}#{} ({})", ready.user.username, ready.user.discriminator, ready.user.id));
                 return Ok(());
             }
 
             Event::Resumed(_) => {
-                self.log("Received resumed acknowledgement").await;
+                self.log("Received resumed acknowledgement");
 
-                if let Some(mut tx) = self.ready_tx.lock().await.take() {
-                    if let Err(e) = tx.send(self.get_shard_id()).await.map_err(GatewayError::SendU16Error) {
-                        self.log_err("Error sending ready notification to probe", &e).await;
+                if !*self.is_ready.read().await {
+                    if let Some(mut tx) = self.ready_tx.lock().await.take() {
+                        if let Err(e) = tx.send(self.get_shard_id()).await.map_err(GatewayError::SendU16Error) {
+                            self.log_err("Error sending ready notification to probe", &e);
+                        }
                     }
                 }
 
@@ -478,11 +487,13 @@ impl Shard {
             }
 
             Event::GuildCreate(_) => {
-                let received = self.received_count.fetch_add(1, Ordering::Relaxed);
-                if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 { // Once we have 90% of the guilds, we're ok to load more shards
-                    if let Some(mut tx) = self.ready_tx.lock().await.take() {
-                        if let Err(e) = tx.send(self.get_shard_id()).await.map_err(GatewayError::SendU16Error) {
-                            self.log_err("Error sending ready notification to probe", &e).await;
+                if !*self.is_ready.read().await {
+                    let received = self.received_count.fetch_add(1, Ordering::Relaxed);
+                    if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 { // Once we have 90% of the guilds, we're ok to load more shards
+                        if let Some(mut tx) = self.ready_tx.lock().await.take() {
+                            if let Err(e) = tx.send(self.get_shard_id()).await.map_err(GatewayError::SendU16Error) {
+                                self.log_err("Error sending ready notification to probe", &e);
+                            }
                         }
                     }
                 }
@@ -535,39 +546,37 @@ impl Shard {
             };
 
             if let Err(e) = res {
-                self.log_err("Error updating cache", &GatewayError::CacheError(e)).await;
+                self.log_err("Error updating cache", &GatewayError::CacheError(e));
             }
 
             // push to redis, even if error occurred
             // prepare redis payload
-            if let Some(user) = &*self.user.read().await {
-                let wrapped = event_forwarding::Event {
-                    bot_token: &self.identify.data.token[..],
-                    bot_id: user.id.0,
-                    is_whitelabel: self.is_whitelabel,
-                    shard_id: self.get_shard_id(),
-                    event: &data,
-                };
+            let wrapped = event_forwarding::Event {
+                bot_token: &self.identify.data.token[..],
+                bot_id: self.user_id.0,
+                is_whitelabel: self.is_whitelabel,
+                shard_id: self.get_shard_id(),
+                event: &data,
+            };
 
-                match serde_json::to_string(&wrapped).map_err(GatewayError::JsonError) {
-                    Ok(json) => {
-                        match self.redis.get().await.map_err(GatewayError::PoolError) {
-                            Ok(mut conn) => {
-                                let res = cmd("RPUSH")
-                                    .arg(&[event_forwarding::KEY, &json[..]])
-                                    .execute_async(&mut conn)
-                                    .await
-                                    .map_err(GatewayError::RedisError);
+            match serde_json::to_string(&wrapped).map_err(GatewayError::JsonError) {
+                Ok(json) => {
+                    match self.redis.get().await.map_err(GatewayError::PoolError) {
+                        Ok(mut conn) => {
+                            let res = cmd("RPUSH")
+                                .arg(&[event_forwarding::KEY, &json[..]])
+                                .execute_async(&mut conn)
+                                .await
+                                .map_err(GatewayError::RedisError);
 
-                                if let Err(e) = res {
-                                    self.log_err("Error pushing event to Redis", &e).await;
-                                }
+                            if let Err(e) = res {
+                                self.log_err("Error pushing event to Redis", &e);
                             }
-                            Err(e) => self.log_err("Error pushing event to Redis", &e).await
                         }
+                        Err(e) => self.log_err("Error pushing event to Redis", &e)
                     }
-                    Err(e) => self.log_err("Error serializing redis payload", &e).await,
                 }
+                Err(e) => self.log_err("Error serializing redis payload", &e),
             }
         });
 
@@ -598,13 +607,13 @@ impl Shard {
                 let elapsed = shard.last_ack.read().await.checked_duration_since(*self.last_heartbeat.read().await);
 
                 if has_done_heartbeat && (elapsed.is_none() || elapsed.unwrap() > interval) {
-                    shard.log("Hasn't received heartbeat ack, killing").await;
+                    shard.log("Hasn't received heartbeat ack, killing");
                     shard.kill();
                     break;
                 }
 
                 if let Err(e) = Arc::clone(&shard).do_heartbeat().await {
-                    shard.log_err("Error sending heartbeat, killing", &e).await;
+                    shard.log_err("Error sending heartbeat, killing", &e);
                     shard.kill();
                     break;
                 }
@@ -638,16 +647,10 @@ impl Shard {
     }
 
     async fn wait_for_ratelimit(&self) -> Result<(), GatewayError> {
-        let key = match self.is_whitelabel {
-            true => {
-                let bot_id = match &*self.user.read().await {
-                    Some(user) => user.id,
-                    None => return GatewayError::MissingEventData.into(),
-                };
-
-                format!("ratelimiter:whitelabel:identify:{}", bot_id)
-            }
-            false => format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets),
+        let key = if self.is_whitelabel {
+            format!("ratelimiter:whitelabel:identify:{}", self.user_id)
+        } else {
+            format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets)
         };
 
         let mut res = redis::Value::Nil;
@@ -828,12 +831,7 @@ impl Shard {
 
     async fn get_resume_key(&self) -> Option<String> {
         if self.is_whitelabel {
-            let bot_id = match &*self.user.read().await {
-                Some(user) => user.id,
-                None => return None,
-            };
-
-            Some(format!("tickets:resume:{}:{}", bot_id, self.get_shard_id()))
+            Some(format!("tickets:resume:{}:{}", self.user_id, self.get_shard_id()))
         } else {
             Some(format!("tickets:resume:public:{}", self.get_shard_id()))
         }
@@ -841,12 +839,7 @@ impl Shard {
 
     async fn get_seq_key(&self) -> Option<String> {
         if self.is_whitelabel {
-            let bot_id = match &*self.user.read().await {
-                Some(user) => user.id,
-                None => return None,
-            };
-
-            Some(format!("tickets:seq:{}:{}", bot_id, self.get_shard_id()))
+            Some(format!("tickets:seq:{}:{}", self.user_id, self.get_shard_id()))
         } else {
             Some(format!("tickets:seq:public:{}", self.get_shard_id()))
         }
@@ -857,26 +850,19 @@ impl Shard {
         self.identify.data.shard_info.shard_id
     }
 
-    pub async fn log(&self, msg: impl Display) {
+    pub fn log(&self, msg: impl Display) {
         if self.is_whitelabel {
-            println!("[{}] {}", self.get_bot_id().await, msg);
+            println!("[{}] {}", self.user_id, msg);
         } else {
             println!("[{:0>2}] {}", self.get_shard_id(), msg);
         }
     }
 
-    pub async fn log_err(&self, msg: impl Display, err: &GatewayError) {
+    pub fn log_err(&self, msg: impl Display, err: &GatewayError) {
         if self.is_whitelabel {
-            eprintln!("[{}] {}: {}", self.get_bot_id().await, msg, err);
+            eprintln!("[{}] {}: {}", self.user_id, msg, err);
         } else {
             eprintln!("[{:0>2}] {}: {}", self.get_shard_id(), msg, err);
-        }
-    }
-
-    async fn get_bot_id(&self) -> Snowflake {
-        match &*self.user.read().await {
-            Some(user) => user.id,
-            None => Snowflake(0),
         }
     }
 }

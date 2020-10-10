@@ -5,7 +5,7 @@ use super::ShardManager;
 use crate::gateway::{Shard, Identify, ShardInfo};
 
 use std::collections::HashMap;
-use model::user::{StatusUpdate, ActivityType, StatusType, User};
+use model::user::{StatusUpdate, ActivityType, StatusType};
 use cache::PostgresCache;
 use std::sync::Arc;
 use database::{Database, WhitelabelBot};
@@ -77,21 +77,20 @@ impl WhitelabelShardManager {
                 Arc::clone(&self.cache),
                 Arc::clone(&self.redis),
                 true,
+                bot_id,
                 None,
             );
-
-            *shard.user.write().await = Some(User::blank(bot_id));
 
             self.shards.write().await.insert(bot_id, Arc::clone(&shard));
 
             loop {
                 let shard = Arc::clone(&shard);
-                shard.log("Starting...").await;
+                shard.log("Starting...");
 
                 match Arc::clone(&shard).connect().await {
-                    Ok(()) => shard.log("Exited with Ok").await,
+                    Ok(()) => shard.log("Exited with Ok"),
                     Err(e) => {
-                        shard.log_err("Exited with error, quitting", &e).await;
+                        shard.log_err("Exited with error, quitting", &e);
 
                         let user_id = Snowflake(bot.user_id as u64);
                         self.shards.write().await.remove(&user_id);
@@ -113,10 +112,10 @@ impl WhitelabelShardManager {
 
                 // we've received delete payload
                 if self.shards.read().await.get(&bot_id).is_none() {
-                    shard.log("Shard was removed from shard vec, not restarting").await;
+                    shard.log("Shard was removed from shard vec, not restarting");
                     break;
                 } else {
-                    shard.log("Shard still exists, restarting").await;
+                    shard.log("Shard still exists, restarting");
                 }
 
                 delay_for(Duration::from_millis(500)).await;
@@ -143,7 +142,7 @@ impl WhitelabelShardManager {
                 match m.get_payload::<String>().map(|s| s.parse::<Snowflake>()) {
                     Ok(Ok(bot_id)) => {
                         if let Some(shard) = self.shards.read().await.get(&bot_id) {
-                            shard.log("Received status update payload").await;
+                            shard.log("Received status update payload");
 
                             // retrieve new status
                             // TODO: New tokio::spawn for this?
@@ -181,7 +180,7 @@ impl WhitelabelShardManager {
                         // check whether this shard has the old bot
                         if payload.old_id.0 % (manager.sharder_count as u64) == manager.sharder_id as u64 {
                             if let Some(shard) = self.shards.read().await.get(&payload.old_id) {
-                                shard.log("Received token update payload, stopping").await;
+                                shard.log("Received token update payload, stopping");
 
                                 self.shards.write().await.remove(&payload.old_id);
                                 Arc::clone(&shard).kill();
@@ -219,7 +218,7 @@ impl WhitelabelShardManager {
                     Ok(Ok(user_id)) => {
                         if let Some(bot_id) = self.user_ids.write().await.remove(&user_id) {
                             if let Some(shard) = self.shards.write().await.remove(&bot_id) {
-                                shard.log("Received delete payload, stopping").await;
+                                shard.log("Received delete payload, stopping");
                                 shard.kill();
                             }
                         }

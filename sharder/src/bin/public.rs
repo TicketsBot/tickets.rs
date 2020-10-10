@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::env;
 use tokio::sync::mpsc;
 use tokio::fs::File;
 use tokio::signal;
@@ -9,6 +10,8 @@ use model::user::{StatusUpdate, ActivityType, StatusType};
 use sharder::{var_or_panic, build_cache, build_redis};
 
 use jemallocator::Jemalloc;
+use model::Snowflake;
+use std::str::FromStr;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
@@ -26,6 +29,7 @@ async fn main() {
         shard_count,
         presence,
         large_sharding_buckets: 1,
+        user_id: env::var("BOT_ID").map(|s| Snowflake::from_str(&s[..])).unwrap().unwrap(),
     };
 
     // init cache

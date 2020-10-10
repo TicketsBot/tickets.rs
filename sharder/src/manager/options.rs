@@ -1,10 +1,12 @@
 use model::user::StatusUpdate;
+use model::Snowflake;
 
 pub struct Options {
     pub token: String,
     pub shard_count: ShardCount,
     pub presence: StatusUpdate,
     pub large_sharding_buckets: u16,
+    pub user_id: Snowflake,
 }
 
 pub struct ShardCount {
