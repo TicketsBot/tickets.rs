@@ -442,11 +442,6 @@ impl Shard {
                 if let Err(e) = self.save_session_id().await {
                     self.log_err("Error occurred while saving session ID", &e);
                 }
-
-                // save seq
-                if let Err(e) = self.save_seq().await {
-                    self.log_err("Error occurred while saving seq", &e);
-                }
             }
 
             _ => {}
