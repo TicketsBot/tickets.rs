@@ -179,10 +179,12 @@ impl WhitelabelShardManager {
                     Ok(payload) => {
                         // check whether this shard has the old bot
                         if payload.old_id.0 % (manager.sharder_count as u64) == manager.sharder_id as u64 {
-                            if let Some(shard) = self.shards.read().await.get(&payload.old_id) {
+                            let mut shards = *self.shards.write().await;
+
+                            if let Some(shard) = shards.get(&payload.old_id) {
                                 shard.log("Received token update payload, stopping");
 
-                                self.shards.write().await.remove(&payload.old_id);
+                                shards.remove(&payload.old_id);
                                 Arc::clone(&shard).kill();
                             }
                         }
