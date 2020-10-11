@@ -39,6 +39,10 @@ jobs:
           path: ./target/release/whitelabel
           destination: whitelabel-sharder
 
+      - store_artifacts:
+          path: ./target/release/vote_listener
+          destination: vote_listener
+
       - save_cache:
           paths:
             - /usr/local/cargo/registry
