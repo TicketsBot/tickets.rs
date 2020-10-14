@@ -87,27 +87,23 @@ impl WhitelabelShardManager {
                 let shard = Arc::clone(&shard);
                 shard.log("Starting...");
 
-                match Arc::clone(&shard).connect().await {
+                let res = Arc::clone(&shard).connect().await;
+                match res {
                     Ok(()) => shard.log("Exited with Ok"),
-                    Err(e) => {
-                        shard.log_err("Exited with error, quitting", &e);
+                    Err(GatewayError::AuthenticationError { error, .. }) => {
+                        shard.log_err("Exited with authentication error, removing ", &GatewayError::custom(&error));
 
                         let user_id = Snowflake(bot.user_id as u64);
                         self.shards.write().await.remove(&user_id);
                         self.user_ids.write().await.remove(&user_id);
 
-                        let error_message = match e {
-                            GatewayError::AuthenticationError { error, .. } => error,
-                            _ => format!("{}", e),
-                        };
-
-                        if let Err(e) = self.db.whitelabel_errors.append(Snowflake(bot.user_id as u64), error_message).await {
-                            eprintln!("Error while logging error: {}", e);
+                        if let Err(e) = self.db.whitelabel_errors.append(Snowflake(bot.user_id as u64), error).await {
+                            shard.log_err("Error occurred while recording error to database", &GatewayError::DatabaseError(e));
                         }
 
                         self.delete_from_db(&bot.token).await;
-                        break;
                     }
+                    Err(e) => shard.log_err("Exited with error", &e),
                 }
 
                 // we've received delete payload

@@ -53,6 +53,9 @@ pub enum GatewayError {
     #[error("error occurred while operating on the cache: {0}")]
     CacheError(#[from] cache::CacheError),
 
+    #[error("error occurred while operating on database: {0}")]
+    DatabaseError(#[from] sqlx::Error),
+
     #[error("bot ID was missing on whitelabel identify")]
     MissingBotID(),
 
