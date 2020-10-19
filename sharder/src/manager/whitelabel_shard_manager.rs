@@ -93,8 +93,10 @@ impl WhitelabelShardManager {
                     Err(GatewayError::AuthenticationError { error, .. }) => {
                         shard.log_err("Exited with authentication error, removing ", &GatewayError::custom(&error));
 
+                        let bot_id = Snowflake(bot.bot_id as u64);
+                        self.shards.write().await.remove(&bot_id);
+
                         let user_id = Snowflake(bot.user_id as u64);
-                        self.shards.write().await.remove(&user_id);
                         self.user_ids.write().await.remove(&user_id);
 
                         if let Err(e) = self.db.whitelabel_errors.append(Snowflake(bot.user_id as u64), error).await {
