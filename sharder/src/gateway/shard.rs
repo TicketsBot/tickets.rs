@@ -828,7 +828,7 @@ impl Shard {
         if self.is_whitelabel {
             Some(format!("tickets:resume:{}:{}", self.user_id, self.get_shard_id()))
         } else {
-            Some(format!("tickets:resume:public:{}", self.get_shard_id()))
+            Some(format!("tickets:resume:public:{}-{}", self.get_shard_id(), self.identify.data.shard_info.num_shards))
         }
     }
 
@@ -836,7 +836,7 @@ impl Shard {
         if self.is_whitelabel {
             Some(format!("tickets:seq:{}:{}", self.user_id, self.get_shard_id()))
         } else {
-            Some(format!("tickets:seq:public:{}", self.get_shard_id()))
+            Some(format!("tickets:seq:public:{}-{}", self.get_shard_id(), self.identify.data.shard_info.num_shards))
         }
     }
 
