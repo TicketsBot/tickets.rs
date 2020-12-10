@@ -46,6 +46,7 @@ pub struct Message {
     pub message_reference: Option<MessageReference>,
     #[serde(default)]
     pub flags: u32,
+    pub referenced_message: Box<Option<Message>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -93,6 +94,7 @@ pub enum MessageType {
     ChannelFollowAdd = 12,
     GuildDiscoveryDisqualified = 14,
     GuildDiscoveryRequalified = 15,
+    Reply = 19,
 }
 
 impl Default for MessageType {
