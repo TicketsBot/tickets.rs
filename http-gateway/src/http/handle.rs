@@ -52,12 +52,12 @@ pub async fn handle(
 pub async fn forward(server: Arc<Server>, bot_id: Snowflake, data: &[u8]) -> Result<(), Error> {
     let json = str::from_utf8(data).map_err(Error::Utf8Error)?.to_owned();
 
-    let token = get_token(server.clone(), bot_id).await?;
+    let (token, is_whitelabel) = get_token(server.clone(), bot_id).await?;
 
     let wrapped = Command {
         bot_token: &token,
         bot_id: bot_id.0,
-        is_whitelabel: false,
+        is_whitelabel,
         data: RawValue::from_string(json).map_err(Error::JsonError)?,
     };
 
@@ -71,18 +71,17 @@ pub async fn forward(server: Arc<Server>, bot_id: Snowflake, data: &[u8]) -> Res
         .map_err(Error::RedisError)
 }
 
-async fn get_token<'a>(server: Arc<Server>, bot_id: Snowflake) -> Result<Box<str>, Error> {
+// Returns tuple of (token,is_whitelabel)
+async fn get_token<'a>(server: Arc<Server>, bot_id: Snowflake) -> Result<(Box<str>, bool), Error> {
     // Check if public bot
     if server.config.main_bot_id == bot_id {
         let token = server.config.main_bot_token.clone();
-        return Ok(token);
+        return Ok((token, false));
     }
 
     let bot = server.database.whitelabel.get_bot_by_id(bot_id).await.map_err(Error::DatabaseError)?;
     match bot {
-        Some(bot) => {
-            Ok(bot.token.into_boxed_str())
-        }
-        None => Err(Error::TokenNotFound(bot_id))
+        Some(bot) => Ok((bot.token.into_boxed_str(), true)),
+        None => Err(Error::TokenNotFound(bot_id)),
     }
 }
