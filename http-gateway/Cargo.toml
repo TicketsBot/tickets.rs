@@ -12,3 +12,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 model = { path = "../model" }
 common = { path = "../common" }
+database = { path = "../database" }
+ed25519-dalek = "1.0"
+hex = "0.4"
+deadpool = { version = "0.5", features = ["managed"] }
+deadpool-redis = "0.6"
+sqlx = { version = "0.4.0-beta.1", features = ["macros", "runtime-tokio", "postgres", "chrono", "json"], default-features = false }

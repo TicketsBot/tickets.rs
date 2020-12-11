@@ -15,4 +15,21 @@ pub enum InteractionResponseType {
     Acknowledge = 2,
     ChannelMessage = 3,
     ChannelMessageWithSource = 4,
+    ACKWithSource = 5,
+}
+
+impl InteractionResponse {
+    pub fn new_pong() -> InteractionResponse {
+        InteractionResponse {
+            r#type: InteractionResponseType::Pong,
+            data: None
+        }
+    }
+    
+    pub fn new_ack() -> InteractionResponse {
+        InteractionResponse {
+            r#type: InteractionResponseType::Acknowledge,
+            data: None
+        }
+    }
 }

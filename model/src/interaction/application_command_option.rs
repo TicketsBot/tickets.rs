@@ -10,7 +10,7 @@ pub struct ApplicationCommandOption {
     pub default: bool,
     pub required: bool,
     pub choices: Vec<ApplicationCommandOptionChoice>,
-    pub vec: Vec<ApplicationCommandOption>,
+    pub options: Option<Vec<ApplicationCommandOption>>,
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy)]

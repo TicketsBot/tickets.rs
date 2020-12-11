@@ -2,6 +2,6 @@ mod config;
 pub use config::Config;
 
 mod error;
-pub use error::{Error, Result};
+pub use error::Error;
 
 pub mod http;
