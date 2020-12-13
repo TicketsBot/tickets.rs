@@ -43,6 +43,10 @@ jobs:
           path: ./target/release/vote_listener
           destination: vote_listener
 
+      - store_artifacts:
+          path: ./target/release/http-gateway
+          destination: http-gateway
+
       - save_cache:
           paths:
             - /usr/local/cargo/registry

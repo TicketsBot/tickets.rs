@@ -29,7 +29,7 @@ async fn main() {
         shard_count,
         presence,
         large_sharding_buckets: 1,
-        user_id: env::var("BOT_ID").map(|s| Snowflake::from_str(&s[..])).unwrap().unwrap(),
+        user_id: Snowflake::from_str(&var_or_panic("BOT_ID")[..]).unwrap(),
     };
 
     // init cache
