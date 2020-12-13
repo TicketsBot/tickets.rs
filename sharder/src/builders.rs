@@ -3,6 +3,7 @@ use super::var_or_panic;
 use cache::{PostgresCache, Options};
 use deadpool_redis::{Config, Pool};
 use deadpool::managed::PoolConfig;
+use crate::var;
 
 /// panics on err
 pub async fn build_cache() -> PostgresCache {
@@ -27,7 +28,6 @@ pub async fn build_cache() -> PostgresCache {
 }
 
 /// panics on err
-// TODO: Use REDIS_PASSWORD
 pub fn build_redis() -> Pool {
     let mut cfg = Config::default();
     cfg.url = Some(get_redis_uri());
@@ -37,5 +37,10 @@ pub fn build_redis() -> Pool {
 }
 
 pub fn get_redis_uri() -> String {
-    format!("redis://{}/", var_or_panic("REDIS_ADDR"))
+    let addr = var_or_panic("REDIS_ADDR");
+
+    match var("REDIS_PASSWORD") {
+        Some(pwd) => format!("redis://:{}@{}/", pwd, addr),
+        None => format!("redis://{}/", addr),
+    }
 }

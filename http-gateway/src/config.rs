@@ -14,6 +14,7 @@ pub struct Config {
 pub struct RedisConfig {
     pub address: Box<str>,
     pub threads: usize,
+    pub password: Option<Box<str>>,
 }
 
 pub struct DatabaseConfig {
@@ -31,6 +32,7 @@ impl Config {
             redis: RedisConfig {
                 address: Config::get_envvar("REDIS_ADDR").into_boxed_str(),
                 threads: Config::get_envvar("REDIS_THREADS").parse().unwrap(),
+                password: Config::get_envvar_or_none("REDIS_PASSWORD").map(String::into_boxed_str),
             },
             database: DatabaseConfig {
                 uri: Config::get_envvar("DATABASE_URI").into_boxed_str(),
@@ -40,7 +42,26 @@ impl Config {
     }
 
     pub fn get_envvar(name: &str) -> String {
-        env::var(name).expect(&format!("envvar {} was missing!", name)[..])
+        let var = env::var(name).expect(&format!("envvar {} was missing!", name)[..]);
+
+        match var.strip_suffix("\r") {
+            Some(s) => s.to_owned(),
+            None => var,
+        }
+    }
+
+    pub fn get_envvar_or_none(name: &str) -> Option<String> {
+        let var = match env::var(name) {
+            Ok(var) => var,
+            Err(_) => return None,
+        };
+
+        let var = match var.strip_suffix("\r") {
+            Some(s) => s.to_owned(),
+            None => var,
+        };
+
+        Some(var)
     }
 
     fn read_public_key() -> ed25519_dalek::PublicKey {

@@ -24,8 +24,15 @@ async fn main() -> Result<(), Error> {
 
 fn connect_redis(config: &Config) -> Pool {
     let mut cfg = RedisConfig::default();
-    cfg.url = Some(format!("redis://{}/", config.redis.address));
+    cfg.url = Some(get_redis_uri(config));
     cfg.pool = Some(PoolConfig::new(config.redis.threads));
 
     cfg.create_pool().unwrap()
+}
+
+fn get_redis_uri(config: &Config) -> String {
+    match &config.redis.password {
+        Some(pwd) => format!("redis://:{}@{}/", pwd, config.redis.address),
+        None => format!("redis://{}/", config.redis.address),
+    }
 }
