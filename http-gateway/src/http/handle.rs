@@ -20,14 +20,8 @@ pub async fn handle(
     timestamp: String,
     body: Bytes,
 ) -> Result<Json, Rejection> {
-    let a = signature.to_bytes();
-    println!("{}{}", hex::encode(&a[0..32]), hex::encode(&a[32..64]));
-    println!("{}", timestamp);
-
     let timestamp = (&timestamp[..]).as_bytes();
     let body = &body[..];
-
-    println!("{}", String::from_utf8_lossy(body));
 
     let body_with_timestamp: Vec<u8> = timestamp.iter().copied().chain(body.iter().copied()).collect();
     if let Err(e) = server.config.main_public_key.verify(&body_with_timestamp[..], &signature) {
