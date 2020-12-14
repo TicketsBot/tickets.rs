@@ -6,5 +6,6 @@ use crate::interaction::ApplicationCommandInteractionDataOption;
 pub struct ApplicationCommandInteractionData {
     pub id: Snowflake,
     pub name: Box<str>,
-    pub options: Vec<ApplicationCommandInteractionDataOption>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<Vec<ApplicationCommandInteractionDataOption>>,
 }
