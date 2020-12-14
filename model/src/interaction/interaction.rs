@@ -9,9 +9,9 @@ pub struct Interaction {
     pub id: Snowflake,
     pub r#type: InteractionType,
     pub data: Option<ApplicationCommandInteractionData>,
-    pub guild_id: Snowflake,
-    pub channel_id: Snowflake,
-    pub member: Member,
+    pub guild_id: Option<Snowflake>,
+    pub channel_id: Option<Snowflake>,
+    pub member: Option<Member>,
     pub token: Box<str>,
 }
 
