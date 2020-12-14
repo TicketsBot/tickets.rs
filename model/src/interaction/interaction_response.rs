@@ -5,6 +5,7 @@ use crate::interaction::InteractionApplicationCommandCallbackData;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct InteractionResponse {
     pub r#type: InteractionResponseType,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<InteractionApplicationCommandCallbackData>,
 }
 
