@@ -45,6 +45,7 @@ impl Server {
             .and(warp::header("x-signature-timestamp"))
             .and(warp::body::bytes())
             .and_then(super::handle)
+            .with(warp::log("warp"))
             .recover(|error: Rejection| async move {
                 if let Some(err) = error.find::<Error>() {
                     let json: Json = ErrorResponse::from(&err).into();
