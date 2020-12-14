@@ -40,11 +40,17 @@ pub async fn handle(
         }
 
         _ => {
-            // TODO: Handle error
-            let _ = forward(server, bot_id, body).await;
-
-            let response = InteractionResponse::new_ack();
-            Ok(warp::reply::json(&response))
+            match forward(server, bot_id, body).await {
+                Ok(_) => {
+                    let response = InteractionResponse::new_ack();
+                    Ok(warp::reply::json(&response))
+                }
+                Err(e) => {
+                    // TODO: Proper logging
+                    eprintln!("Error occurred while forwarding command: {}", e);
+                    Err(warp::reject::custom(e))
+                }
+            }
         }
     }
 }

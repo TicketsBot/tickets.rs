@@ -54,7 +54,7 @@ impl Server {
                         Error::InvalidSignature(..) |
                         Error::InvalidSignatureLength |
                         Error::InvalidSignatureFormat(..) => StatusCode::UNAUTHORIZED,
-                        _ => StatusCode::BAD_REQUEST
+                        _ => StatusCode::INTERNAL_SERVER_ERROR
                     };
 
                     Ok(warp::reply::with_status(json, status_code))
