@@ -42,7 +42,7 @@ pub async fn handle(
         _ => {
             match forward(server, bot_id, body).await {
                 Ok(_) => {
-                    let response = InteractionResponse::new_ack();
+                    let response = InteractionResponse::new_ack_with_source();
                     Ok(warp::reply::json(&response))
                 }
                 Err(e) => {

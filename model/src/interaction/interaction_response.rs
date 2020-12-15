@@ -33,4 +33,11 @@ impl InteractionResponse {
             data: None
         }
     }
+
+    pub fn new_ack_with_source() -> InteractionResponse {
+        InteractionResponse {
+            r#type: InteractionResponseType::ACKWithSource,
+            data: None
+        }
+    }
 }
