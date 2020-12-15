@@ -16,6 +16,10 @@ jobs:
           command: cargo --version
 
       - run:
+          name: Print arch info
+          command: lscpu
+
+      - run:
           name: Update archives
           command: apt-get update && apt-get upgrade -y
 
@@ -42,6 +46,10 @@ jobs:
       - store_artifacts:
           path: ./target/release/vote_listener
           destination: vote_listener
+
+      - store_artifacts:
+          path: ./target/release/http-gateway
+          destination: http-gateway
 
       - save_cache:
           paths:

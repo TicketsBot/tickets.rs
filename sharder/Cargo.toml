@@ -3,6 +3,7 @@ name = "sharder"
 version = "0.1.0"
 authors = ["rxdn"]
 edition = "2018"
+default-run = "public"
 
 [dependencies]
 cache = { path = "../cache" }

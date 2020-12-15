@@ -559,7 +559,7 @@ impl Shard {
                     match self.redis.get().await.map_err(GatewayError::PoolError) {
                         Ok(mut conn) => {
                             let res = cmd("RPUSH")
-                                .arg(&[event_forwarding::KEY, &json[..]])
+                                .arg(&[event_forwarding::EVENT_KEY, &json[..]])
                                 .execute_async(&mut conn)
                                 .await
                                 .map_err(GatewayError::RedisError);
