@@ -66,6 +66,6 @@ impl Config {
     }
 
     fn get_svc_uri() -> Box<str> {
-        format!("http://{}/command", Config::get_envvar("WORKER_SVC_URI")).into_boxed_str()
+        format!("http://{}/interaction", Config::get_envvar("WORKER_SVC_URI")).into_boxed_str()
     }
 }
