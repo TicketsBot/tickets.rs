@@ -17,22 +17,32 @@ use tokio::sync::mpsc;
 use tokio::time::delay_for;
 use std::time::Duration;
 use deadpool_redis::Pool;
+use crate::config::Config;
 
 pub struct PublicShardManager {
+    config: Arc<Config>,
     shards: HashMap<u16, Arc<Shard>>,
 }
 
 impl PublicShardManager {
-    pub async fn new(options: Options, cache: Arc<PostgresCache>, redis: Arc<Pool>, ready_tx: mpsc::Sender<u16>) -> PublicShardManager {
+    pub async fn new(
+        config: Arc<Config>,
+        options: Options,
+        cache: Arc<PostgresCache>,
+        redis: Arc<Pool>,
+        ready_tx: mpsc::Sender<u16>,
+    ) -> PublicShardManager {
         let mut sm = PublicShardManager {
+            config,
             shards: HashMap::new(),
         };
 
         for i in options.shard_count.lowest..options.shard_count.highest {
             let shard_info = ShardInfo::new(i, options.shard_count.total);
             let status = StatusUpdate::new(ActivityType::Listening, "t!help | t!setup".to_owned(), StatusType::Online);
-            let identify = Identify::new(options.token.clone(), None, shard_info, Some(status), super::get_intents());
+            let identify = Identify::new(options.token.clone().into_string(), None, shard_info, Some(status), super::get_intents());
             let shard = Shard::new(
+                sm.config.clone(),
                 identify,
                 options.large_sharding_buckets,
                 Arc::clone(&cache),

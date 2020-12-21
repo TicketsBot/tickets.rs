@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use sharder::{ShardManager, build_redis, WhitelabelShardManager};
+use sharder::{ShardManager, build_redis, WhitelabelShardManager, Config};
 
 use sharder::{var_or_panic, build_cache};
 use database::Database;
@@ -15,6 +15,8 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Arc::new(Config::from_envvar());
+
     let sharder_id: u16 = var_or_panic("SHARDER_ID").parse().unwrap();
     let sharder_count: u16 = var_or_panic("SHARDER_TOTAL").parse().unwrap();
 
@@ -32,11 +34,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let redis = Arc::new(build_redis());
 
     let sm = WhitelabelShardManager::new(
+        config,
         sharder_count,
         sharder_id,
         database,
         cache,
-        redis
+        redis,
     ).await;
 
     Arc::clone(&sm).connect().await;

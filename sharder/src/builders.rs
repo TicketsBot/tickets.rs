@@ -44,3 +44,8 @@ pub fn get_redis_uri() -> String {
         None => format!("redis://{}/", addr),
     }
 }
+
+pub fn get_worker_svc_uri() -> Box<str> {
+    let uri = var_or_panic("WORKER_SVC_URI");
+    format!("http://{}/event", uri).into_boxed_str()
+}

@@ -1,23 +1,23 @@
 mod gateway;
-
 pub use gateway::*;
 
 mod manager;
-
 pub use manager::{ShardManager, PublicShardManager, WhitelabelShardManager, Options, ShardCount};
 
 mod builders;
+pub use builders::{build_cache, build_redis, get_redis_uri, get_worker_svc_uri};
 
-pub use builders::{build_cache, build_redis, get_redis_uri};
+mod config;
+pub use config::Config;
 
 use std::env;
 
-pub fn var_or_panic(s: &str) -> String {
-    let var = env::var(s).unwrap();
+pub fn var_or_panic(s: &str) -> Box<str> {
+    let var = env::var(s).expect(&format!("Couldn't parse envvar {}", s)[..]);
 
     match var.strip_suffix("\r") {
-        Some(s) => s.to_owned(),
-        None => var,
+        Some(s) => Box::from(s),
+        None => var.into_boxed_str(),
     }
 }
 

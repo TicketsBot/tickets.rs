@@ -10,8 +10,6 @@ use common::event_forwarding::Command;
 use serde_json::value::RawValue;
 use std::str;
 use model::Snowflake;
-use deadpool_redis::cmd;
-use common::event_forwarding;
 
 pub async fn handle(
     bot_id: Snowflake,
@@ -40,22 +38,25 @@ pub async fn handle(
         }
 
         _ => {
-            match forward(server, bot_id, body).await {
-                Ok(_) => {
-                    let response = InteractionResponse::new_ack_with_source();
-                    Ok(warp::reply::json(&response))
+            match interaction.guild_id { // Should never be None
+                Some(guild_id) => match forward(server, bot_id, guild_id, body).await {
+                    Ok(_) => {
+                        let response = InteractionResponse::new_ack_with_source();
+                        Ok(warp::reply::json(&response))
+                    }
+                    Err(e) => {
+                        // TODO: Proper logging
+                        eprintln!("Error occurred while forwarding command: {}", e);
+                        Err(warp::reject::custom(e))
+                    }
                 }
-                Err(e) => {
-                    // TODO: Proper logging
-                    eprintln!("Error occurred while forwarding command: {}", e);
-                    Err(warp::reject::custom(e))
-                }
+                None => Err(warp::reject::custom(Error::MissingGuildId)),
             }
         }
     }
 }
 
-pub async fn forward(server: Arc<Server>, bot_id: Snowflake, data: &[u8]) -> Result<(), Error> {
+pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake, data: &[u8]) -> Result<(), Error> {
     let json = str::from_utf8(data).map_err(Error::Utf8Error)?.to_owned();
 
     let (token, is_whitelabel) = get_token(server.clone(), bot_id).await?;
@@ -67,14 +68,15 @@ pub async fn forward(server: Arc<Server>, bot_id: Snowflake, data: &[u8]) -> Res
         data: RawValue::from_string(json).map_err(Error::JsonError)?,
     };
 
-    let encoded = serde_json::to_string(&wrapped).map_err(Error::JsonError)?;
-
-    let mut conn = server.redis.get().await.map_err(Error::PoolError)?;
-    cmd("RPUSH")
-        .arg(&[event_forwarding::COMMAND_KEY, &encoded[..]])
-        .execute_async(&mut conn)
+    server.http_client.clone()
+        .post(&server.config.worker_svc_uri[..])
+        .header(&server.config.worker_sticky_cookie[..], guild_id.0.to_string())
+        .json(&wrapped)
+        .send()
         .await
-        .map_err(Error::RedisError)
+        .map_err(Error::ReqwestError)?;
+
+    Ok(())
 }
 
 // Returns tuple of (token,is_whitelabel)

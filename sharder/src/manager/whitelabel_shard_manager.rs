@@ -11,7 +11,7 @@ use std::sync::Arc;
 use database::{Database, WhitelabelBot};
 use tokio::sync::RwLock;
 use model::Snowflake;
-use crate::{GatewayError, get_redis_uri};
+use crate::{GatewayError, get_redis_uri, Config};
 use std::str;
 use tokio::stream::StreamExt;
 use common::token_change;
@@ -20,6 +20,7 @@ use std::time::Duration;
 use deadpool_redis::Pool;
 
 pub struct WhitelabelShardManager {
+    config: Arc<Config>,
     sharder_count: u16,
     sharder_id: u16,
     shards: RwLock<HashMap<Snowflake, Arc<Shard>>>,
@@ -32,6 +33,7 @@ pub struct WhitelabelShardManager {
 
 impl WhitelabelShardManager {
     pub async fn new(
+        config: Arc<Config>,
         sharder_count: u16,
         sharder_id: u16,
         database: Arc<Database>,
@@ -39,6 +41,7 @@ impl WhitelabelShardManager {
         redis: Arc<Pool>,
     ) -> Arc<Self> {
         let sm = Arc::new(WhitelabelShardManager {
+            config,
             sharder_count,
             sharder_id,
             shards: RwLock::new(HashMap::new()),
@@ -72,6 +75,7 @@ impl WhitelabelShardManager {
             let identify = Identify::new(bot.token.clone(), None, shard_info, Some(presence), super::get_intents());
 
             let shard = Shard::new(
+                self.config.clone(),
                 identify,
                 1,
                 Arc::clone(&self.cache),

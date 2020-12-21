@@ -35,11 +35,13 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use deadpool_redis::{Pool, cmd};
 use serde_json::value::RawValue;
 use model::Snowflake;
+use crate::config::Config;
 
 type WebSocketTx = SplitSink<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>, Message>;
 type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>>;
 
 pub struct Shard {
+    pub(crate) config: Arc<Config>,
     identify: payloads::Identify,
     large_sharding_buckets: u16,
     cache: Arc<PostgresCache>,
@@ -62,6 +64,7 @@ pub struct Shard {
     ready_guild_count: AtomicU16,
     received_count: AtomicU16,
     is_ready: RwLock<bool>,
+    pub(crate) http_client: reqwest::Client,
 }
 
 // 16 KiB
@@ -69,6 +72,7 @@ const CHUNK_SIZE: usize = 16 * 1024;
 
 impl Shard {
     pub fn new(
+        config: Arc<Config>,
         identify: payloads::Identify,
         large_sharding_buckets: u16,
         cache: Arc<PostgresCache>,
@@ -81,6 +85,7 @@ impl Shard {
         let (status_update_tx, status_update_rx) = mpsc::channel(1);
 
         let shard = Arc::new(Shard {
+            config,
             identify,
             large_sharding_buckets,
             cache,
@@ -103,6 +108,7 @@ impl Shard {
             ready_guild_count: AtomicU16::new(0),
             received_count: AtomicU16::new(0),
             is_ready: RwLock::new(false),
+            http_client: Shard::build_http_client(),
         });
 
         shard
@@ -499,6 +505,8 @@ impl Shard {
 
         // cache + push to redis
         tokio::spawn(async move {
+            let guild_id = Shard::get_guild_id(&payload.data);
+
             // cache
             let res = match payload.data {
                 Event::ChannelCreate(channel) => self.cache.store_channel(channel).await,
@@ -544,8 +552,8 @@ impl Shard {
                 self.log_err("Error updating cache", &GatewayError::CacheError(e));
             }
 
-            // push to redis, even if error occurred
-            // prepare redis payload
+            // push to workers, even if error occurred
+            // prepare payload
             let wrapped = event_forwarding::Event {
                 bot_token: &self.identify.data.token[..],
                 bot_id: self.user_id.0,
@@ -554,24 +562,13 @@ impl Shard {
                 event: &data,
             };
 
-            match serde_json::to_string(&wrapped).map_err(GatewayError::JsonError) {
-                Ok(json) => {
-                    match self.redis.get().await.map_err(GatewayError::PoolError) {
-                        Ok(mut conn) => {
-                            let res = cmd("RPUSH")
-                                .arg(&[event_forwarding::EVENT_KEY, &json[..]])
-                                .execute_async(&mut conn)
-                                .await
-                                .map_err(GatewayError::RedisError);
-
-                            if let Err(e) = res {
-                                self.log_err("Error pushing event to Redis", &e);
-                            }
-                        }
-                        Err(e) => self.log_err("Error pushing event to Redis", &e)
+            match Arc::clone(&self).forward_event(wrapped, guild_id).await {
+                Ok(res) => {
+                    if let Some(error) = res.error {
+                        self.log_err("Error occurred while forwarding event to worker", &GatewayError::WorkerError(error))
                     }
                 }
-                Err(e) => self.log_err("Error serializing redis payload", &e),
+                Err(e) => self.log_err("Error while executing worker HTTP request", &e),
             }
         });
 

@@ -7,14 +7,9 @@ pub struct Config {
     pub main_bot_id: Snowflake,
     pub main_bot_token: Box<str>,
     pub main_public_key: ed25519_dalek::PublicKey,
-    pub redis: RedisConfig,
     pub database: DatabaseConfig,
-}
-
-pub struct RedisConfig {
-    pub address: Box<str>,
-    pub threads: usize,
-    pub password: Option<Box<str>>,
+    pub worker_sticky_cookie: Box<str>,
+    pub worker_svc_uri: Box<str>,
 }
 
 pub struct DatabaseConfig {
@@ -25,28 +20,25 @@ pub struct DatabaseConfig {
 impl Config {
     pub fn from_envvar() -> Config {
         Config {
-            server_addr: Config::get_envvar("SERVER_ADDR").into_boxed_str(),
+            server_addr: Config::get_envvar("SERVER_ADDR"),
             main_bot_id: Snowflake(Config::get_envvar("PUBLIC_BOT_ID").parse().unwrap()),
-            main_bot_token: Config::get_envvar("PUBLIC_TOKEN").into_boxed_str(),
+            main_bot_token: Config::get_envvar("PUBLIC_TOKEN"),
             main_public_key: Config::read_public_key(),
-            redis: RedisConfig {
-                address: Config::get_envvar("REDIS_ADDR").into_boxed_str(),
-                threads: Config::get_envvar("REDIS_THREADS").parse().unwrap(),
-                password: Config::get_envvar_or_none("REDIS_PASSWORD").map(String::into_boxed_str),
-            },
             database: DatabaseConfig {
-                uri: Config::get_envvar("DATABASE_URI").into_boxed_str(),
+                uri: Config::get_envvar("DATABASE_URI"),
                 threads: Config::get_envvar("DATABASE_THREADS").parse().unwrap(),
             },
+            worker_sticky_cookie: Config::get_envvar("WORKER_STICKY_COOKIE"),
+            worker_svc_uri: Config::get_svc_uri(),
         }
     }
 
-    pub fn get_envvar(name: &str) -> String {
+    pub fn get_envvar(name: &str) -> Box<str> {
         let var = env::var(name).expect(&format!("envvar {} was missing!", name)[..]);
 
         match var.strip_suffix("\r") {
-            Some(s) => s.to_owned(),
-            None => var,
+            Some(s) => Box::from(s),
+            None => var.into_boxed_str(),
         }
     }
 
@@ -68,8 +60,12 @@ impl Config {
         let key = Config::get_envvar("PUBLIC_PUBLIC_KEY");
 
         let mut bytes = [0u8; 32];
-        hex::decode_to_slice(key, &mut bytes).unwrap();
+        hex::decode_to_slice(key.as_bytes(), &mut bytes).unwrap();
 
         PublicKey::from_bytes(&bytes).unwrap()
+    }
+
+    fn get_svc_uri() -> Box<str> {
+        format!("http://{}/command", Config::get_envvar("WORKER_SVC_URI")).into_boxed_str()
     }
 }
