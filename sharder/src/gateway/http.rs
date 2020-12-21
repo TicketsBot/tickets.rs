@@ -33,7 +33,6 @@ impl Shard {
         reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(3))
             .gzip(true)
-            .http2_prior_knowledge()
             .build()
             .expect("build_http_client")
     }
