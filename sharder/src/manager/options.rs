@@ -2,7 +2,7 @@ use model::user::StatusUpdate;
 use model::Snowflake;
 
 pub struct Options {
-    pub token: String,
+    pub token: Box<str>,
     pub shard_count: ShardCount,
     pub presence: StatusUpdate,
     pub large_sharding_buckets: u16,
@@ -11,6 +11,7 @@ pub struct Options {
 
 pub struct ShardCount {
     pub total: u16,
-    pub lowest: u16, // Inclusive
+    pub lowest: u16,
+    // Inclusive
     pub highest: u16, // Exclusive
 }

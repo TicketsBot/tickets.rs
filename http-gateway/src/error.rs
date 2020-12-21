@@ -2,7 +2,6 @@ use warp::reject::Reject;
 use warp::Rejection;
 use serde::Serializer;
 use std::fmt::Debug;
-use deadpool_redis::redis;
 use model::Snowflake;
 
 #[derive(thiserror::Error, Debug)]
@@ -25,14 +24,14 @@ pub enum Error {
     #[error("error while performing database operation: {0}")]
     DatabaseError(#[from] sqlx::Error),
 
-    #[error("error while getting redis conn: {0}")]
-    PoolError(#[from] deadpool::managed::PoolError<redis::RedisError>),
-
-    #[error("error while operating on Redis: {0}")]
-    RedisError(#[from] redis::RedisError),
-
     #[error("token not found for bot {0}")]
     TokenNotFound(Snowflake),
+
+    #[error("error occurred while forwarding event to worker: {0}")]
+    ReqwestError(reqwest::Error),
+
+    #[error("guild_id was missing from request")]
+    MissingGuildId,
 }
 
 impl Reject for Error {}

@@ -1,10 +1,9 @@
 use std::sync::Arc;
-use std::env;
 use tokio::sync::mpsc;
 use tokio::fs::File;
 use tokio::signal;
 
-use sharder::{PublicShardManager, ShardCount, ShardManager};
+use sharder::{PublicShardManager, ShardCount, ShardManager, Config};
 use model::user::{StatusUpdate, ActivityType, StatusType};
 
 use sharder::{var_or_panic, build_cache, build_redis};
@@ -19,6 +18,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 #[tokio::main]
 async fn main() {
     // init sharder options
+    let config = Arc::new(Config::from_envvar());
     let shard_count = get_shard_count();
 
     let ready_tx = handle_ready_probe((shard_count.highest - shard_count.lowest) as usize);
@@ -39,7 +39,7 @@ async fn main() {
     // init redis
     let redis = Arc::new(build_redis());
 
-    let sm = PublicShardManager::new(options, cache, redis, ready_tx).await;
+    let sm = PublicShardManager::new(config, options, cache, redis, ready_tx).await;
     Arc::new(sm).connect().await;
 
     signal::ctrl_c().await.expect("Failed to listen for ctrl_c");

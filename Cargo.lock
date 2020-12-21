@@ -315,6 +315,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-compression"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb1ff21a63d3262af46b9f33a826a8d134e2d0d9b2179c86034948b732ea8b2a"
+dependencies = [
+ "bytes 0.5.6",
+ "flate2",
+ "futures-core",
+ "memchr",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "async-executor"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1348,11 +1361,10 @@ version = "0.1.0"
 dependencies = [
  "common",
  "database",
- "deadpool",
- "deadpool-redis",
  "ed25519-dalek",
  "hex",
  "model",
+ "reqwest",
  "serde",
  "serde_json",
  "sqlx",
@@ -2217,6 +2229,7 @@ version = "0.10.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9eaa17ac5d7b838b7503d118fa16ad88f440498bf9ffe5424e621f93190d61e"
 dependencies = [
+ "async-compression",
  "base64 0.12.3",
  "bytes 0.5.6",
  "encoding_rs",
@@ -2496,6 +2509,7 @@ dependencies = [
  "jemallocator",
  "model",
  "redis",
+ "reqwest",
  "serde",
  "serde_json",
  "serde_repr",

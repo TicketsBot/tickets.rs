@@ -68,6 +68,12 @@ pub enum GatewayError {
         error_code: CloseCode,
         error: String,
     },
+
+    #[error("error occurred while forwarding event to worker over HTTP: {0}")]
+    ReqwestError(reqwest::Error),
+
+    #[error("Received error response from worker: {0}")]
+    WorkerError(String),
 }
 
 impl GatewayError {

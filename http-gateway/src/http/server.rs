@@ -6,21 +6,21 @@ use ed25519_dalek::Signature;
 use warp::http::StatusCode;
 use crate::http::response::ErrorResponse;
 use warp::reply::Json;
-use deadpool_redis::Pool;
 use database::Database;
+use std::time::Duration;
 
 pub struct Server {
     pub config: Config,
-    pub redis: Pool,
     pub database: Database,
+    pub http_client: reqwest::Client,
 }
 
 impl Server {
-    pub fn new(config: Config, redis: Pool, database: Database) -> Server {
+    pub fn new(config: Config, database: Database) -> Server {
         Server {
             config,
-            redis,
             database,
+            http_client: Server::build_http_client(),
         }
     }
 
@@ -54,6 +54,7 @@ impl Server {
                         Error::InvalidSignature(..) |
                         Error::InvalidSignatureLength |
                         Error::InvalidSignatureFormat(..) => StatusCode::UNAUTHORIZED,
+                        Error::MissingGuildId => StatusCode::BAD_REQUEST,
                         _ => StatusCode::INTERNAL_SERVER_ERROR
                     };
 
@@ -73,5 +74,13 @@ impl Server {
 
             Ok(Signature::new(bytes.into()))
         })
+    }
+
+    fn build_http_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(3))
+            .gzip(true)
+            .build()
+            .expect("build_http_client")
     }
 }
