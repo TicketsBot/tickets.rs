@@ -33,6 +33,7 @@ impl Shard {
             .map_err(GatewayError::ReqwestError)?;
 
         if let Some(cookie) = res.cookies().find(|c| c.name() == &*self.config.sticky_cookie) {
+            self.log(format!("Got new session cookie: {}", cookie.value()));
             *self.cookie.write().await = Some(Box::from(cookie.value()));
         }
 
