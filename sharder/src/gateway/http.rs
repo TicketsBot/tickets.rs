@@ -23,7 +23,8 @@ impl Shard {
 
         let cookie = self.cookie.read().await;
         if let Some(cookie) = &*cookie {
-            req = req.header(reqwest::header::COOKIE, format!("{}={}", self.config.sticky_cookie, cookie))
+            let value = format!("{}={}", self.config.sticky_cookie, cookie);
+            req = req.header(reqwest::header::COOKIE, value);
         }
         drop(cookie); // drop here so we can write later
 

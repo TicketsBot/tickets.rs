@@ -8,19 +8,25 @@ use crate::http::response::ErrorResponse;
 use warp::reply::Json;
 use database::Database;
 use std::time::Duration;
+use tokio::sync::RwLock;
+use std::collections::HashMap;
 
 pub struct Server {
     pub config: Config,
     pub database: Database,
     pub http_client: reqwest::Client,
+    pub cookies: RwLock<HashMap<u16, Box<str>>>,
 }
 
 impl Server {
     pub fn new(config: Config, database: Database) -> Server {
+        let shard_count = config.shard_count;
+
         Server {
             config,
             database,
             http_client: Server::build_http_client(),
+            cookies: RwLock::new(HashMap::with_capacity(shard_count as usize)),
         }
     }
 

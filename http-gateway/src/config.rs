@@ -10,6 +10,7 @@ pub struct Config {
     pub database: DatabaseConfig,
     pub worker_sticky_cookie: Box<str>,
     pub worker_svc_uri: Box<str>,
+    pub shard_count: u16,
 }
 
 pub struct DatabaseConfig {
@@ -30,6 +31,7 @@ impl Config {
             },
             worker_sticky_cookie: Config::get_envvar("WORKER_STICKY_COOKIE"),
             worker_svc_uri: Config::get_svc_uri(),
+            shard_count: Config::get_envvar("SHARD_COUNT").parse().unwrap(),
         }
     }
 

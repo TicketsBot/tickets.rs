@@ -68,13 +68,29 @@ pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake
         data: RawValue::from_string(json).map_err(Error::JsonError)?,
     };
 
-    server.http_client.clone()
+    let mut req = server.http_client.clone()
         .post(&server.config.worker_svc_uri[..])
         .header("x-guild-id", guild_id.0.to_string())
-        .json(&wrapped)
-        .send()
+        .json(&wrapped);
+
+    // apply sticky cookie header
+    let shard_id = calculate_shard_id(guild_id, server.config.shard_count);
+
+    let cookie = server.cookies.read().await;
+    if let Some(cookie) = cookie.get(&shard_id) {
+        let value = format!("{}={}", server.config.worker_sticky_cookie, cookie);
+        req = req.header(reqwest::header::COOKIE, value);
+    }
+    drop(cookie); // drop here so we can write safely later
+
+    let res = req.send()
         .await
         .map_err(Error::ReqwestError)?;
+
+    if let Some(cookie) = res.cookies().find(|c| c.name() == &*server.config.worker_sticky_cookie) {
+        let mut cookies = server.cookies.write().await;
+        cookies.insert(shard_id, Box::from(cookie.value()));
+    }
 
     Ok(())
 }
@@ -92,4 +108,8 @@ async fn get_token<'a>(server: Arc<Server>, bot_id: Snowflake) -> Result<(Box<st
         Some(bot) => Ok((bot.token.into_boxed_str(), true)),
         None => Err(Error::TokenNotFound(bot_id)),
     }
+}
+
+fn calculate_shard_id(guild_id: Snowflake, shard_count: u16) -> u16 {
+    ((guild_id.0 >> 22) % (shard_count as u64)) as u16
 }
