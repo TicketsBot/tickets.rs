@@ -65,6 +65,7 @@ pub struct Shard {
     received_count: AtomicU16,
     is_ready: RwLock<bool>,
     pub(crate) http_client: reqwest::Client,
+    pub(crate) cookie: RwLock<Option<Box<str>>>,
 }
 
 // 16 KiB
@@ -109,6 +110,7 @@ impl Shard {
             received_count: AtomicU16::new(0),
             is_ready: RwLock::new(false),
             http_client: Shard::build_http_client(),
+            cookie: RwLock::new(None),
         });
 
         shard

@@ -70,7 +70,7 @@ pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake
 
     server.http_client.clone()
         .post(&server.config.worker_svc_uri[..])
-        .header(&server.config.worker_sticky_cookie[..], guild_id.0.to_string())
+        .header("x-guild-id", guild_id.0.to_string())
         .json(&wrapped)
         .send()
         .await

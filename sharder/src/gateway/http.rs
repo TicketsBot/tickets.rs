@@ -21,10 +21,21 @@ impl Shard {
             req = req.header(header_name, guild_id.0);
         }
 
-        req.send()
+        let cookie = self.cookie.read().await;
+        if let Some(cookie) = &*cookie {
+            req = req.header(reqwest::header::COOKIE, format!("{}={}", self.config.sticky_cookie, cookie))
+        }
+        drop(cookie); // drop here so we can write later
+
+        let res = req.send()
             .await
-            .map_err(GatewayError::ReqwestError)?
-            .json()
+            .map_err(GatewayError::ReqwestError)?;
+
+        if let Some(cookie) = res.cookies().find(|c| c.name() == &*self.config.sticky_cookie) {
+            *self.cookie.write().await = Some(Box::from(cookie.value()));
+        }
+
+        res.json()
             .await
             .map_err(GatewayError::ReqwestError)
     }
