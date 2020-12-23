@@ -95,6 +95,7 @@ pub enum MessageType {
     GuildDiscoveryDisqualified = 14,
     GuildDiscoveryRequalified = 15,
     Reply = 19,
+    ApplicationCommand = 20,
 }
 
 impl Default for MessageType {

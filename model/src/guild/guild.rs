@@ -142,5 +142,6 @@ pub enum Features {
     WelcomeScreenEnabled,
     Community,
     EnabledDiscoverableBefore,
-    PreviewEnabled
+    PreviewEnabled,
+    MemberVerificationGateEnabled
 }
