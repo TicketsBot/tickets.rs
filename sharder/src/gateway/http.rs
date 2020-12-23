@@ -45,7 +45,7 @@ impl Shard {
     pub fn build_http_client() -> reqwest::Client {
         reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(3))
-            .gzip(true)
+            .gzip(cfg!(feature = "compression"))
             .build()
             .expect("build_http_client")
     }

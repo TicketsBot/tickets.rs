@@ -16,7 +16,6 @@ tokio-tls = "0.3"
 url = "2.1"
 futures = "0.3"
 futures-util = "0.3"
-flate2 = { version = "1.0", features = ["tokio", "zlib-ng-compat"], default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value"] }
 serde_repr = "0.1"
@@ -30,3 +29,7 @@ deadpool-redis = "0.6"
 jemallocator = "0.3"
 simd-json = "0.3"
 reqwest = { version = "0.10", features = ["json", "gzip", "cookies"] }
+flate2 = { version = "1.0", features = ["tokio", "zlib-ng-compat"], default-features = false, optional = true }
+
+[features]
+compression = ["flate2"]

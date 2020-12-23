@@ -31,7 +31,7 @@ impl Identify {
             data: IdentifyData {
                 token,
                 properties: ConnectionProperties::new(),
-                compress: Some(true),
+                compress: Some(cfg!(feature = "compression")),
                 large_threshold,
                 shard_info,
                 presence,

@@ -4,6 +4,7 @@ use super::payloads::{Opcode, Payload, Dispatch};
 
 use super::OutboundMessage;
 
+#[cfg(feature = "compression")]
 use flate2::{Decompress, FlushDecompress, Status};
 
 use tokio::time::delay_for;
@@ -68,8 +69,8 @@ pub struct Shard {
     pub(crate) cookie: RwLock<Option<Box<str>>>,
 }
 
-// 16 KiB
-const CHUNK_SIZE: usize = 16 * 1024;
+#[cfg(feature = "compression")]
+const CHUNK_SIZE: usize = 16 * 1024; // 16KiB
 
 impl Shard {
     pub fn new(
@@ -131,7 +132,12 @@ impl Shard {
         *self.last_ack.write().await = Instant::now();
         // rst
 
-        let uri = url::Url::parse("wss://gateway.discord.gg/?v=8&encoding=json&compress=zlib-stream").unwrap();
+        let uri = match cfg!(feature = "compression") {
+            true => "wss://gateway.discord.gg/?v=8&encoding=json&compress=zlib-stream",
+            false => "wss://gateway.discord.gg/?v=8&encoding=json",
+        };
+
+        let uri = url::Url::parse(uri).unwrap();
 
         let (wss, _) = connect_async(uri).await?;
         let (ws_tx, ws_rx) = wss.split();
@@ -208,6 +214,7 @@ impl Shard {
     }
 
     async fn listen(self: Arc<Self>, mut ws_rx: WebSocketRx) -> Result<(), GatewayError> {
+        #[cfg(feature = "compression")]
         let mut decoder = Decompress::new(true);
 
         loop {
@@ -257,13 +264,39 @@ impl Shard {
                             break;
                         }
 
-                        Some(Ok(Message::Binary(data))) => {
-                            let (payload, data) = match Arc::clone(&self).read_payload(data, &mut decoder).await {
-                                Some(r) => r,
-                                _ => continue
+                        Some(Ok(Message::Text(data))) => {
+                            let payload = match Arc::clone(&self).read_payload(data.as_bytes()).await {
+                                Ok(payload) => payload,
+                                Err(e) => {
+                                    self.log_err("Error while deserializing payload", &e);
+                                    continue;
+                                }
                             };
 
-                            if let Err(e) = Arc::clone(&self).process_payload(payload, data).await {
+                            if let Err(e) = Arc::clone(&self).process_payload(payload, data.as_bytes()).await {
+                                self.log_err("An error occurred while processing a payload", &e);
+                            }
+                        }
+
+                        #[cfg(feature = "compression")]
+                        Some(Ok(Message::Binary(data))) => {
+                            let data = match Arc::clone(&self).decompress(data, &mut decoder).await {
+                                Ok(data) => data,
+                                Err(e) => {
+                                    self.log_err("Error while decompressing payload", &e);
+                                    continue;
+                                }
+                            };
+
+                            let payload = match Arc::clone(&self).read_payload(&data[..]).await {
+                                Ok(payload) => payload,
+                                Err(e) => {
+                                    self.log_err("Error while deserializing payload", &e);
+                                    continue;
+                                }
+                            };
+
+                            if let Err(e) = Arc::clone(&self).process_payload(payload, &data[..]).await {
                                 self.log_err("An error occurred while processing a payload", &e);
                             }
                         }
@@ -298,8 +331,8 @@ impl Shard {
         Ok(())
     }
 
-    // we return None because it's ok to discard the payload
-    async fn read_payload(self: Arc<Self>, data: Vec<u8>, decoder: &mut Decompress) -> Option<(Payload, Vec<u8>)> {
+    #[cfg(feature = "compression")]
+    async fn decompress(self: Arc<Self>, data: Vec<u8>, decoder: &mut Decompress) -> Result<Vec<u8>, GatewayError> {
         let mut total_rx = self.total_rx.lock().await;
 
         let mut output: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
@@ -318,29 +351,25 @@ impl Shard {
 
                 // TODO: Should we reconnect?
                 Err(e) => {
-                    self.log_err("Error while decompressing", &e);
-
                     *total_rx = 0;
                     decoder.reset(true);
 
-                    return None;
+                    return Err(e);
                 }
             };
         }
 
         *total_rx = decoder.total_in();
 
-        // deserialize payload
-        match serde_json::from_slice(&output[..]).map_err(GatewayError::JsonError) {
-            Ok(payload) => Some((payload, output)),
-            Err(e) => {
-                self.log_err("Error while deserializing payload", &e);
-                None
-            }
-        }
+        return Ok(output);
     }
 
-    async fn process_payload(self: Arc<Self>, payload: Payload, raw: Vec<u8>) -> Result<(), GatewayError> {
+    // we return None because it's ok to discard the payload
+    async fn read_payload(self: Arc<Self>, data: &[u8]) -> Result<Payload, GatewayError> {
+        serde_json::from_slice(&data[..]).map_err(GatewayError::JsonError)
+    }
+
+    async fn process_payload(self: Arc<Self>, payload: Payload, raw: &[u8]) -> Result<(), GatewayError> {
         if let Some(seq) = payload.seq {
             *self.seq.write().await = Some(seq);
 
