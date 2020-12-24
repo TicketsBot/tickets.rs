@@ -1,7 +1,7 @@
 use warp::reply::Json;
 use crate::http::Server;
 use std::sync::Arc;
-use ed25519_dalek::{Verifier, Signature};
+use ed25519_dalek::{Verifier, Signature, PublicKey};
 use warp::hyper::body::Bytes;
 use crate::Error;
 use warp::Rejection;
@@ -22,7 +22,10 @@ pub async fn handle(
     let body = &body[..];
 
     let body_with_timestamp: Vec<u8> = timestamp.iter().copied().chain(body.iter().copied()).collect();
-    if let Err(e) = server.config.main_public_key.verify(&body_with_timestamp[..], &signature) {
+
+    let public_key = get_public_key(server.clone(), bot_id).await.map_err(warp::reject::custom)?;
+
+    if let Err(e) = public_key.verify(&body_with_timestamp[..], &signature) {
         return Err(Error::InvalidSignature(e).into());
     }
 
@@ -56,10 +59,27 @@ pub async fn handle(
     }
 }
 
+async fn get_public_key(server: Arc<Server>, bot_id: Snowflake) -> Result<PublicKey, Error> {
+    if bot_id == server.config.main_bot_id {
+        Ok(server.config.main_public_key)
+    } else {
+        match server.database.whitelabel_keys.get(bot_id).await {
+            Ok(raw) => {
+                let mut bytes = [0u8; 32];
+                hex::decode_to_slice(raw.as_bytes(), &mut bytes).map_err(Error::InvalidSignatureFormat)?;
+
+                PublicKey::from_bytes(&bytes).map_err(Error::InvalidSignature)
+            }
+            Err(e) => Err(Error::DatabaseError(e))
+        }
+    }
+}
+
 pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake, data: &[u8]) -> Result<(), Error> {
     let json = str::from_utf8(data).map_err(Error::Utf8Error)?.to_owned();
 
-    let (token, is_whitelabel) = get_token(server.clone(), bot_id).await?;
+    let token = get_token(server.clone(), bot_id).await?;
+    let is_whitelabel = bot_id == server.config.main_bot_id;
 
     let wrapped = Command {
         bot_token: &token,
@@ -74,6 +94,9 @@ pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake
         .json(&wrapped);
 
     // apply sticky cookie header
+    // although whitelabel bots run on shard 0 only, we still treat them in the regular fashion to
+    // ensure a good spread of events across all workers, to prevent all events going to the worker
+    // assigned to shard 0 only.
     let shard_id = calculate_shard_id(guild_id, server.config.shard_count);
 
     let cookie = server.cookies.read().await;
@@ -96,16 +119,16 @@ pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake
 }
 
 // Returns tuple of (token,is_whitelabel)
-async fn get_token<'a>(server: Arc<Server>, bot_id: Snowflake) -> Result<(Box<str>, bool), Error> {
+async fn get_token<'a>(server: Arc<Server>, bot_id: Snowflake) -> Result<Box<str>, Error> {
     // Check if public bot
     if server.config.main_bot_id == bot_id {
         let token = server.config.main_bot_token.clone();
-        return Ok((token, false));
+        return Ok(token);
     }
 
     let bot = server.database.whitelabel.get_bot_by_id(bot_id).await.map_err(Error::DatabaseError)?;
     match bot {
-        Some(bot) => Ok((bot.token.into_boxed_str(), true)),
+        Some(bot) => Ok(bot.token.into_boxed_str()),
         None => Err(Error::TokenNotFound(bot_id)),
     }
 }
