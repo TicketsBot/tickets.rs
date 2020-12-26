@@ -93,7 +93,7 @@ impl Shard {
     pub fn start_reset_cookie_loop(self: Arc<Self>) {
         tokio::spawn(async move {
             loop {
-                delay_for(Duration::from_secs(180));
+                delay_for(Duration::from_secs(180)).await;
                 *self.cookie.write().await = None;
             }
         });
