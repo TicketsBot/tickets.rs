@@ -38,7 +38,6 @@ impl Shard {
             *self.cookie.write().await = Some(Box::from(cookie.value()));
         }
 
-        serde_json::
         res.json()
             .await
             .map_err(GatewayError::ReqwestError)
