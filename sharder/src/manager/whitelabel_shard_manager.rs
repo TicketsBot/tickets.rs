@@ -85,6 +85,8 @@ impl WhitelabelShardManager {
                 None,
             );
 
+            Arc::clone(&shard).start_reset_cookie_loop();
+
             self.shards.write().await.insert(bot_id, Arc::clone(&shard));
 
             loop {
