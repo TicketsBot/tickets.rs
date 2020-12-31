@@ -52,6 +52,8 @@ impl PublicShardManager {
                 Some(ready_tx.clone()),
             );
 
+            Arc::clone(&shard).start_reset_cookie_loop();
+
             sm.shards.insert(i, shard);
         }
 

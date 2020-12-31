@@ -143,5 +143,5 @@ pub enum Features {
     Community,
     EnabledDiscoverableBefore,
     PreviewEnabled,
-    MemberVerificationGateEnabled
+    MemberVerificationGateEnabled,
 }

@@ -15,3 +15,6 @@ pub use whitelabel_guilds::WhitelabelGuilds;
 
 mod whitelabel_status;
 pub use whitelabel_status::WhitelabelStatus;
+
+mod whitelabel_keys;
+pub use whitelabel_keys::WhitelabelKeys;

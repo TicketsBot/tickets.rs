@@ -5,6 +5,7 @@ use std::time::Duration;
 use crate::gateway::worker_response::WorkerResponse;
 use crate::gateway::payloads::event::Event;
 use model::Snowflake;
+use tokio::time::delay_for;
 
 impl Shard {
     pub async fn forward_event(self: Arc<Self>, event: event_forwarding::Event<'_>, guild_id: Option<Snowflake>) -> Result<WorkerResponse, GatewayError> {
@@ -87,5 +88,14 @@ impl Shard {
             Event::WebhookUpdate(data) => Some(data.guild_id),
             _ => None
         }
+    }
+
+    pub fn start_reset_cookie_loop(self: Arc<Self>) {
+        tokio::spawn(async move {
+            loop {
+                delay_for(Duration::from_secs(180)).await;
+                *self.cookie.write().await = None;
+            }
+        });
     }
 }
