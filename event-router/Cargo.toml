@@ -1,0 +1,16 @@
+[package]
+name = "event-router"
+version = "0.1.0"
+authors = ["rxdn"]
+edition = "2018"
+
+[dependencies]
+model = { path = "../model" }
+tokio = { version = "0.2", features = ["full"] }
+thiserror = "1.0"
+kube = "0.45.0"
+kube-runtime = "0.45.0"
+k8s-openapi = { version = "0.10", features = ["v1_18"] }
+reqwest = "0.10"
+hashring = "0.2"
+futures-util = "0.3"

@@ -7,5 +7,6 @@ members = [
     "common",
     "database",
     "vote_listener",
-    "http-gateway"
+    "http-gateway",
+    "event-router"
 ]

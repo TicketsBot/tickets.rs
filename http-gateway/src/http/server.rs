@@ -53,6 +53,8 @@ impl Server {
             .and_then(super::handle)
             .with(warp::log("warp"))
             .recover(|error: Rejection| async move {
+                eprintln!("Rejecting with {:?}", error);
+
                 if let Some(err) = error.find::<Error>() {
                     let json: Json = ErrorResponse::from(&err).into();
 
