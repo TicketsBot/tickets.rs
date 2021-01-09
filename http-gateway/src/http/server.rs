@@ -80,7 +80,7 @@ impl Server {
                 return Err(warp::reject::custom(Error::InvalidSignatureFormat(e)));
             }
 
-            Ok(Signature::new(bytes.into()))
+            Ok(Signature::new(bytes))
         })
     }
 

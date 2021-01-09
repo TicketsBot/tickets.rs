@@ -78,7 +78,7 @@ pub struct ConnectionProperties {
     pub device: String,
 }
 
-const LIBRARY_NAME: &'static str = "tickets.rs";
+const LIBRARY_NAME: &str = "tickets.rs";
 
 impl ConnectionProperties {
     pub fn new() -> ConnectionProperties {
@@ -87,5 +87,11 @@ impl ConnectionProperties {
             browser: LIBRARY_NAME.to_owned(),
             device: LIBRARY_NAME.to_owned(),
         }
+    }
+}
+
+impl Default for ConnectionProperties {
+    fn default() -> Self {
+        Self::new()
     }
 }

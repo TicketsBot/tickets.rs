@@ -10,10 +10,10 @@ pub struct Server {
 
 impl Server {
     pub fn new(config: Config, database: Database) -> Server {
-        return Server {
+        Server {
             config,
             database,
-        };
+        }
     }
 
     pub async fn start(self: Arc<Self>) -> Result<(), Error> {
@@ -26,7 +26,7 @@ impl Server {
         };
 
         let server = HttpServer::new(factory)
-            .bind(&**&self.config.server_addr)
+            .bind(&*self.config.server_addr)
             .map_err(Error::IOError)?;
 
         server.run().await.map_err(Error::IOError)

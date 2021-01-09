@@ -86,7 +86,7 @@ impl Shard {
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
         let (status_update_tx, status_update_rx) = mpsc::channel(1);
 
-        let shard = Arc::new(Shard {
+        Arc::new(Shard {
             config,
             identify,
             large_sharding_buckets,
@@ -112,9 +112,7 @@ impl Shard {
             is_ready: RwLock::new(false),
             http_client: Shard::build_http_client(),
             cookie: RwLock::new(None),
-        });
-
-        shard
+        })
     }
 
     pub async fn connect(self: Arc<Self>) -> Result<(), GatewayError> {
@@ -195,7 +193,7 @@ impl Shard {
 
             match kill_shard_tx {
                 Some(kill_shard_tx) => {
-                    if let Err(_) = kill_shard_tx.send(()) {
+                    if kill_shard_tx.send(()).is_err() {
                         self.log_err("Failed to kill", &GatewayError::custom("Receiver already unallocated"));
                     }
                 }
@@ -204,7 +202,7 @@ impl Shard {
 
             match kill_heartbeat_tx {
                 Some(kill_heartbeat_tx) => {
-                    if let Err(_) = kill_heartbeat_tx.send(()) {
+                    if kill_heartbeat_tx.send(()).is_err() {
                         self.log_err("Failed to kill heartbeat", &GatewayError::custom("Receiver already unallocated"));
                     }
                 }
@@ -215,7 +213,7 @@ impl Shard {
 
     async fn listen(self: Arc<Self>, mut ws_rx: WebSocketRx) -> Result<(), GatewayError> {
         #[cfg(feature = "compression")]
-        let mut decoder = Decompress::new(true);
+            let mut decoder = Decompress::new(true);
 
         loop {
             let shard = Arc::clone(&self);
@@ -427,7 +425,9 @@ impl Shard {
                     }
                 }
 
-                if let (Some(session_id), Some(seq)) = (self.session_id.read().await.as_ref().cloned(), *self.seq.read().await) {
+                let session_id = self.session_id.read().await.as_ref().cloned();
+                let seq = *self.seq.read().await;
+                if let (Some(session_id), Some(seq)) = (session_id, seq) {
                     if let Err(e) = Arc::clone(&self).do_resume(session_id.clone(), seq).await {
                         self.log_err("Error RESUMEing, going to IDENTIFY", &e);
 
@@ -627,7 +627,13 @@ impl Shard {
             let mut has_done_heartbeat = false;
             while let Err(oneshot::error::TryRecvError::Empty) = cancel_rx.try_recv() {
                 let shard = Arc::clone(&self);
-                let elapsed = shard.last_ack.read().await.checked_duration_since(*self.last_heartbeat.read().await);
+
+                // if done inline, clippy complains about evaluation order
+                let last_ack = shard.last_ack.read().await;
+                let last_heartbeat = shard.last_heartbeat.read().await;
+                let elapsed = last_ack.checked_duration_since(*last_heartbeat);
+                drop(last_heartbeat); // drop here so that a reference is no longer held to shard
+                drop(last_ack);
 
                 if has_done_heartbeat && (elapsed.is_none() || elapsed.unwrap() > interval) {
                     shard.log("Hasn't received heartbeat ack, killing");
@@ -694,16 +700,13 @@ impl Shard {
                     .await
                     .map_err(GatewayError::RedisError)?;
 
-                match ttl {
-                    redis::Value::Int(ttl) => {
-                        // if number is negative, we can go ahead and identify
-                        // -1 = no expire, -2 = doesn't exist
-                        if ttl > 0 {
-                            let ttl = Duration::from_millis(ttl as u64);
-                            delay_for(ttl).await
-                        }
+                if let redis::Value::Int(ttl) = ttl {
+                    // if number is negative, we can go ahead and identify
+                    // -1 = no expire, -2 = doesn't exist
+                    if ttl > 0 {
+                        let ttl = Duration::from_millis(ttl as u64);
+                        delay_for(ttl).await
                     }
-                    _ => {}
                 }
             }
         }

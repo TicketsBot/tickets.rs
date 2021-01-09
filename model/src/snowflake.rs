@@ -15,7 +15,7 @@ impl Snowflake {
         serializer.serialize_u64(self.0)
     }
 
-    pub fn serialize_vec_to_ints<S: Serializer>(vec: &Vec<Snowflake>, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize_vec_to_ints<S: Serializer>(vec: &[Snowflake], serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(vec.len()))?;
 
         for snowflake in vec {

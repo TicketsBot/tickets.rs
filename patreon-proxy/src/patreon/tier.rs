@@ -4,8 +4,9 @@ pub enum Tier {
     Whitelabel,
 }
 
-const TIER_PREMIUM: &'static str = "4071609";
-const TIER_WHITELABEL: &'static str = "5259899";
+// TODO: Don't store these as constants
+const TIER_PREMIUM: &str = "4071609";
+const TIER_WHITELABEL: &str = "5259899";
 
 impl Tier {
     pub fn get_by_patreon_id(patreon_id: &str) -> Option<Tier> {

@@ -78,7 +78,7 @@ impl Worker {
 
 impl Worker {
     async fn store_guilds(&self, mut guilds: Vec<Guild>) -> Result<(), CacheError> {
-        if guilds.len() == 0 {
+        if guilds.is_empty() {
             return Ok(());
         }
 
@@ -164,7 +164,7 @@ impl Worker {
     async fn store_channels(&self, channels: Vec<Channel>) -> Result<(), CacheError> {
         let mut channels = channels.into_iter().filter(|c| c.guild_id.is_some()).collect::<Vec<Channel>>();
 
-        if channels.len() == 0 {
+        if channels.is_empty() {
             return Ok(());
         }
 
@@ -203,7 +203,7 @@ impl Worker {
     }
 
     async fn store_users(&self, mut users: Vec<User>) -> Result<(), CacheError> {
-        if users.len() == 0 {
+        if users.is_empty() {
             return Ok(());
         }
 
@@ -248,7 +248,7 @@ impl Worker {
     async fn store_members(&self, members: Vec<Member>, guild_id: Snowflake) -> Result<(), CacheError> {
         let mut members = members.into_iter().filter(|m| m.user.is_some()).collect::<Vec<Member>>();
 
-        if members.len() == 0 {
+        if members.is_empty() {
             return Ok(());
         }
 
@@ -300,7 +300,7 @@ impl Worker {
     }
 
     async fn store_roles(&self, mut roles: Vec<Role>, guild_id: Snowflake) -> Result<(), CacheError> {
-        if roles.len() == 0 {
+        if roles.is_empty() {
             return Ok(());
         }
 
@@ -341,7 +341,7 @@ impl Worker {
     async fn store_emojis(&self, emojis: Vec<Emoji>, guild_id: Snowflake) -> Result<(), CacheError> {
         let mut emojis = emojis.into_iter().filter(|e| e.id.is_some()).collect::<Vec<Emoji>>();
 
-        if emojis.len() == 0 {
+        if emojis.is_empty() {
             return Ok(());
         }
 
@@ -382,7 +382,7 @@ impl Worker {
     async fn store_voice_states(&self, voice_states: Vec<VoiceState>) -> Result<(), CacheError> {
         let mut voice_states = voice_states.into_iter().filter(|vs| vs.guild_id.is_some()).collect::<Vec<VoiceState>>();
 
-        if voice_states.len() == 0 {
+        if voice_states.is_empty() {
             return Ok(());
         }
 

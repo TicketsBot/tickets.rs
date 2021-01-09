@@ -27,7 +27,7 @@ impl<'de> Deserialize<'de> for ImageHash {
 
         let animated = raw.len() == 34;
         let hash = raw.trim_start_matches("a_");
-        let data = u128::from_str_radix(hash, 16).map_err(|e| Error::custom(e))?;
+        let data = u128::from_str_radix(hash, 16).map_err(Error::custom)?;
 
         Ok(ImageHash { animated, data })
     }

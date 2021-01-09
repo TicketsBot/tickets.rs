@@ -52,7 +52,7 @@ WHERE
         ";
 
         let res = self.client.query(query, &[&client_id]).await?;
-        if res.len() == 0 {
+        if res.is_empty() {
             return Err(Box::new(PatreonError::MissingTokens(client_id)));
         }
 

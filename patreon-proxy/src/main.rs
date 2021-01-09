@@ -1,8 +1,8 @@
 mod config;
 mod database;
-mod error;
 mod patreon;
 mod http;
+mod error;
 
 use config::Config;
 use database::Database;

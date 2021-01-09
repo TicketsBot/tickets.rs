@@ -40,7 +40,7 @@ impl WhitelabelShardManager {
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
     ) -> Arc<Self> {
-        let sm = Arc::new(WhitelabelShardManager {
+        Arc::new(WhitelabelShardManager {
             config,
             sharder_count,
             sharder_id,
@@ -49,9 +49,7 @@ impl WhitelabelShardManager {
             db: Arc::clone(&database),
             cache,
             redis,
-        });
-
-        sm
+        })
     }
 
     async fn connect_bot(self: Arc<Self>, bot: WhitelabelBot) {
@@ -68,7 +66,7 @@ impl WhitelabelShardManager {
                     eprintln!("Error occurred while retrieving status for {}: {:?}", bot.bot_id, e);
                     None
                 }
-            }.unwrap_or("t!help".to_owned());
+            }.unwrap_or_else(|| "t!help".to_owned());
 
             let shard_info = ShardInfo::new(0, 1);
             let presence = StatusUpdate::new(ActivityType::Listening, status, StatusType::Online);
