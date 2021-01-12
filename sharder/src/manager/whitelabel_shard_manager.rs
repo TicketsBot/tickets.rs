@@ -1,3 +1,5 @@
+#[cfg(feature = "whitelabel")]
+
 use async_trait::async_trait;
 
 use super::ShardManager;
@@ -18,6 +20,7 @@ use common::token_change;
 use tokio::time::delay_for;
 use std::time::Duration;
 use deadpool_redis::Pool;
+use crate::gateway::event_forwarding::HttpEventForwarder;
 
 pub struct WhitelabelShardManager {
     config: Arc<Config>,
@@ -26,30 +29,33 @@ pub struct WhitelabelShardManager {
     shards: RwLock<HashMap<Snowflake, Arc<Shard>>>,
     // user_id -> bot_id
     user_ids: RwLock<HashMap<Snowflake, Snowflake>>,
-    db: Arc<Database>,
+    database: Arc<Database>,
     cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
+    event_forwarder: Arc<HttpEventForwarder>,
 }
 
 impl WhitelabelShardManager {
-    pub async fn new(
+    pub fn new(
         config: Arc<Config>,
         sharder_count: u16,
         sharder_id: u16,
         database: Arc<Database>,
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
-    ) -> Arc<Self> {
-        Arc::new(WhitelabelShardManager {
+        event_forwarder: Arc<HttpEventForwarder>,
+    ) -> Self {
+        WhitelabelShardManager {
             config,
             sharder_count,
             sharder_id,
             shards: RwLock::new(HashMap::new()),
             user_ids: RwLock::new(HashMap::new()),
-            db: Arc::clone(&database),
+            database,
             cache,
             redis,
-        })
+            event_forwarder,
+        }
     }
 
     async fn connect_bot(self: Arc<Self>, bot: WhitelabelBot) {
@@ -59,18 +65,19 @@ impl WhitelabelShardManager {
 
         tokio::spawn(async move {
             // retrieve bot status
-            let status = match self.db.whitelabel_status.get(bot_id).await {
+            let status = match self.database.whitelabel_status.get(bot_id).await {
                 Ok(status) => Some(status),
                 Err(sqlx::Error::RowNotFound) => None,
                 Err(e) => {
                     eprintln!("Error occurred while retrieving status for {}: {:?}", bot.bot_id, e);
                     None
                 }
-            }.unwrap_or_else(|| "t!help".to_owned());
+            }.unwrap_or_else(|| "/help".to_owned());
 
             let shard_info = ShardInfo::new(0, 1);
             let presence = StatusUpdate::new(ActivityType::Listening, status, StatusType::Online);
             let identify = Identify::new(bot.token.clone(), None, shard_info, Some(presence), super::get_intents());
+
 
             let shard = Shard::new(
                 self.config.clone(),
@@ -78,12 +85,11 @@ impl WhitelabelShardManager {
                 1,
                 Arc::clone(&self.cache),
                 Arc::clone(&self.redis),
-                true,
                 bot_id,
                 None,
+                Arc::clone(&self.event_forwarder),
+                #[cfg(feature = "whitelabel")] Arc::clone(&self.database),
             );
-
-            Arc::clone(&shard).start_reset_cookie_loop();
 
             self.shards.write().await.insert(bot_id, Arc::clone(&shard));
 
@@ -103,7 +109,7 @@ impl WhitelabelShardManager {
                         let user_id = Snowflake(bot.user_id as u64);
                         self.user_ids.write().await.remove(&user_id);
 
-                        if let Err(e) = self.db.whitelabel_errors.append(Snowflake(bot.user_id as u64), error).await {
+                        if let Err(e) = self.database.whitelabel_errors.append(Snowflake(bot.user_id as u64), error).await {
                             shard.log_err("Error occurred while recording error to database", &GatewayError::DatabaseError(e));
                         }
 
@@ -126,13 +132,13 @@ impl WhitelabelShardManager {
     }
 
     async fn delete_from_db(&self, token: &str) {
-        if let Err(e) = self.db.whitelabel.delete_by_token(token).await {
+        if let Err(e) = self.database.whitelabel.delete_by_token(token).await {
             eprintln!("Error removing bot: {}", e);
         }
     }
 
     pub async fn listen_status_updates(self: Arc<Self>) -> Result<(), GatewayError> {
-        let database = Arc::clone(&self.db);
+        let database = Arc::clone(&self.database);
 
         let mut conn = redis::Client::open(get_redis_uri()).unwrap().get_async_connection().await?.into_pubsub();
         conn.subscribe(common::status_updates::KEY).await.map_err(GatewayError::RedisError)?;
@@ -189,7 +195,7 @@ impl WhitelabelShardManager {
 
                         // start new bot
                         if payload.new_id.0 % (manager.sharder_count as u64) == manager.sharder_id as u64 {
-                            match self.db.whitelabel.get_bot_by_id(payload.new_id).await {
+                            match self.database.whitelabel.get_bot_by_id(payload.new_id).await {
                                 Ok(Some(bot)) => {
                                     manager.connect_bot(bot).await;
                                 }
@@ -234,10 +240,11 @@ impl WhitelabelShardManager {
 }
 
 #[async_trait]
+#[cfg(feature = "whitelabel")]
 impl ShardManager for WhitelabelShardManager {
     async fn connect(self: Arc<Self>) {
         // we should panic if we cant read db
-        let bots = self.db.whitelabel.get_bots_by_sharder(self.sharder_count, self.sharder_id).await.unwrap();
+        let bots = self.database.whitelabel.get_bots_by_sharder(self.sharder_count, self.sharder_id).await.unwrap();
 
         for bot in bots {
             Arc::clone(&self).connect_bot(bot).await;

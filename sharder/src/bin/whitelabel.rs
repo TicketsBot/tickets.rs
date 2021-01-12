@@ -9,6 +9,7 @@ use sqlx::postgres::PgPoolOptions;
 use tokio::signal;
 
 use jemallocator::Jemalloc;
+use sharder::event_forwarding::HttpEventForwarder;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
@@ -33,14 +34,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // init redis
     let redis = Arc::new(build_redis());
 
-    let sm = WhitelabelShardManager::new(
+    let event_forwarder = Arc::new(HttpEventForwarder::new(HttpEventForwarder::build_http_client()));
+    Arc::clone(&event_forwarder).start_reset_cookie_loop();
+
+    let sm = Arc::new(WhitelabelShardManager::new(
         config,
         sharder_count,
         sharder_id,
         database,
         cache,
         redis,
-    ).await;
+        event_forwarder,
+    ));
 
     Arc::clone(&sm).connect().await;
 

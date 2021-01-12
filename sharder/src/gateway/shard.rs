@@ -1,42 +1,43 @@
-use super::payloads;
-use super::payloads::event::Event;
-use super::payloads::{Opcode, Payload, Dispatch};
-
-use super::OutboundMessage;
-
-#[cfg(feature = "compression")]
-use flate2::{Decompress, FlushDecompress, Status};
-
-use tokio::time::delay_for;
+use std::fmt::Display;
+use std::str;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
 use std::time::Instant;
 
-use std::sync::Arc;
-use tokio::sync::{RwLock, Mutex};
-use std::sync::atomic::{AtomicU16, Ordering};
-
-use tokio::sync::{mpsc, oneshot};
-use futures_util::{StreamExt, SinkExt};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use deadpool_redis::{cmd, Pool};
+#[cfg(feature = "compression")]
+use flate2::{Decompress, FlushDecompress, Status};
+use futures_util::{SinkExt, StreamExt};
+use futures_util::stream::{SplitSink, SplitStream};
 use serde::Serialize;
-use cache::{PostgresCache, Cache};
-use crate::gateway::GatewayError;
-use model::user::StatusUpdate;
-use std::fmt::Display;
-use std::str;
-
-use tokio_tungstenite::WebSocketStream;
-use futures_util::stream::{SplitStream, SplitSink};
-use tokio::net::TcpStream;
-use tokio_tls::TlsStream;
-use common::event_forwarding;
-use model::guild::{Member, Guild};
-use crate::gateway::payloads::PresenceUpdate;
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use deadpool_redis::{Pool, cmd};
 use serde_json::value::RawValue;
+use tokio::net::TcpStream;
+use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{mpsc, oneshot};
+use tokio::time::delay_for;
+use tokio_tls::TlsStream;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::WebSocketStream;
+
+use cache::{Cache, PostgresCache};
+use common::event_forwarding;
+use database::Database;
+use model::guild::{Guild, Member};
 use model::Snowflake;
+use model::user::StatusUpdate;
+
 use crate::config::Config;
+use crate::gateway::GatewayError;
+use crate::gateway::payloads::PresenceUpdate;
+use crate::gateway::whitelabel_utils::is_whitelabel;
+
+use super::OutboundMessage;
+use super::payloads;
+use super::payloads::{Dispatch, Opcode, Payload};
+use super::payloads::event::Event;
+use crate::gateway::event_forwarding::{EventForwarder, HttpEventForwarder, is_whitelisted};
 
 type WebSocketTx = SplitSink<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>, Message>;
 type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>>;
@@ -47,10 +48,9 @@ pub struct Shard {
     large_sharding_buckets: u16,
     cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
-    is_whitelabel: bool,
     pub status_update_tx: mpsc::Sender<StatusUpdate>,
     status_update_rx: Mutex<mpsc::Receiver<StatusUpdate>>,
-    user_id: Snowflake,
+    pub(crate) user_id: Snowflake,
     total_rx: Mutex<u64>,
     seq: RwLock<Option<usize>>,
     session_id: RwLock<Option<String>>,
@@ -65,8 +65,10 @@ pub struct Shard {
     ready_guild_count: AtomicU16,
     received_count: AtomicU16,
     is_ready: RwLock<bool>,
-    pub(crate) http_client: reqwest::Client,
-    pub(crate) cookie: RwLock<Option<Box<str>>>,
+    pub(crate) event_forwarder: Arc<HttpEventForwarder>,
+
+    #[cfg(feature = "whitelabel")]
+    pub(crate) database: Arc<Database>,
 }
 
 #[cfg(feature = "compression")]
@@ -79,9 +81,10 @@ impl Shard {
         large_sharding_buckets: u16,
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
-        is_whitelabel: bool,
         user_id: Snowflake,
         ready_tx: Option<mpsc::Sender<u16>>,
+        event_forwarder: Arc<HttpEventForwarder>,
+        #[cfg(feature = "whitelabel")] database: Arc<Database>,
     ) -> Arc<Shard> {
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
         let (status_update_tx, status_update_rx) = mpsc::channel(1);
@@ -92,7 +95,6 @@ impl Shard {
             large_sharding_buckets,
             cache,
             redis,
-            is_whitelabel,
             status_update_tx,
             status_update_rx: Mutex::new(status_update_rx),
             user_id,
@@ -110,8 +112,8 @@ impl Shard {
             ready_guild_count: AtomicU16::new(0),
             received_count: AtomicU16::new(0),
             is_ready: RwLock::new(false),
-            http_client: Shard::build_http_client(),
-            cookie: RwLock::new(None),
+            event_forwarder,
+            #[cfg(feature = "whitelabel")] database,
         })
     }
 
@@ -518,7 +520,7 @@ impl Shard {
                 return Ok(());
             }
 
-            Event::GuildCreate(_) => {
+            Event::GuildCreate(g) => {
                 if !*self.is_ready.read().await {
                     let received = self.received_count.fetch_add(1, Ordering::Relaxed);
                     if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 { // Once we have 90% of the guilds, we're ok to load more shards
@@ -529,6 +531,9 @@ impl Shard {
                         }
                     }
                 }
+
+                #[cfg(feature = "whitelabel")]
+                self.store_whitelabel_guild(g.id).await;
             }
 
             _ => {}
@@ -536,7 +541,8 @@ impl Shard {
 
         // cache + push to redis
         tokio::spawn(async move {
-            let guild_id = Shard::get_guild_id(&payload.data);
+            let guild_id = super::event_forwarding::get_guild_id(&payload.data);
+            let should_forward = is_whitelisted(&payload.data) && self.meets_forward_threshold(&payload.data).await;
 
             // cache
             let res = match payload.data {
@@ -584,26 +590,34 @@ impl Shard {
             }
 
             // push to workers, even if error occurred
-            // prepare payload
-            let wrapped = event_forwarding::Event {
-                bot_token: &self.identify.data.token[..],
-                bot_id: self.user_id.0,
-                is_whitelabel: self.is_whitelabel,
-                shard_id: self.get_shard_id(),
-                event: &data,
-            };
+            if should_forward {
+                // prepare payload
+                let wrapped = event_forwarding::Event {
+                    bot_token: &self.identify.data.token[..],
+                    bot_id: self.user_id.0,
+                    is_whitelabel: is_whitelabel(),
+                    shard_id: self.get_shard_id(),
+                    event: &data,
+                };
 
-            match Arc::clone(&self).forward_event(wrapped, guild_id).await {
-                Ok(res) => {
-                    if let Some(error) = res.error {
-                        self.log_err("Error occurred while forwarding event to worker", &GatewayError::WorkerError(error))
-                    }
+                if let Err(e) = self.event_forwarder.forward_event(Arc::clone(&self), wrapped, guild_id).await {
+                    self.log_err("Error while executing worker HTTP request", &e);
                 }
-                Err(e) => self.log_err("Error while executing worker HTTP request", &e),
             }
         });
 
         Ok(())
+    }
+
+    async fn meets_forward_threshold(&self, event: &Event) -> bool {
+        if cfg!(feature = "skip-initial-guild-creates") {
+            if let Event::GuildCreate(_) = event {
+                // if not ready, don't forward event
+                return *self.is_ready.read().await;
+            }
+        }
+
+        true
     }
 
     fn apply_guild_id_to_channels(guild: &mut Guild) {
@@ -676,7 +690,7 @@ impl Shard {
     }
 
     async fn wait_for_ratelimit(&self) -> Result<(), GatewayError> {
-        let key = if self.is_whitelabel {
+        let key = if is_whitelabel() {
             format!("ratelimiter:whitelabel:identify:{}", self.user_id)
         } else {
             format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets)
@@ -856,7 +870,7 @@ impl Shard {
     }
 
     async fn get_resume_key(&self) -> Option<String> {
-        if self.is_whitelabel {
+        if is_whitelabel() {
             Some(format!("tickets:resume:{}:{}", self.user_id, self.get_shard_id()))
         } else {
             Some(format!("tickets:resume:public:{}-{}", self.get_shard_id(), self.identify.data.shard_info.num_shards))
@@ -864,7 +878,7 @@ impl Shard {
     }
 
     async fn get_seq_key(&self) -> Option<String> {
-        if self.is_whitelabel {
+        if is_whitelabel() {
             Some(format!("tickets:seq:{}:{}", self.user_id, self.get_shard_id()))
         } else {
             Some(format!("tickets:seq:public:{}-{}", self.get_shard_id(), self.identify.data.shard_info.num_shards))
@@ -877,7 +891,7 @@ impl Shard {
     }
 
     pub fn log(&self, msg: impl Display) {
-        if self.is_whitelabel {
+        if is_whitelabel() {
             println!("[{}] {}", self.user_id, msg);
         } else {
             println!("[{:0>2}] {}", self.get_shard_id(), msg);
@@ -885,7 +899,7 @@ impl Shard {
     }
 
     pub fn log_err(&self, msg: impl Display, err: &GatewayError) {
-        if self.is_whitelabel {
+        if is_whitelabel() {
             eprintln!("[{}] {}: {}", self.user_id, msg, err);
         } else {
             eprintln!("[{:0>2}] {}: {}", self.get_shard_id(), msg, err);

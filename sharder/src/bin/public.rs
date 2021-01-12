@@ -11,19 +11,30 @@ use sharder::{var_or_panic, build_cache, build_redis};
 use jemallocator::Jemalloc;
 use model::Snowflake;
 use std::str::FromStr;
+use sharder::event_forwarding::HttpEventForwarder;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
 #[tokio::main]
 async fn main() {
+    if cfg!(feature = "whitelabel") {
+        panic!("Started public binary with whitelabel feature flag");
+    }
+
+    #[cfg(not(feature = "whitelabel"))]
+    bootstrap().await;
+}
+
+#[cfg(not(feature = "whitelabel"))]
+async fn bootstrap() {
     // init sharder options
     let config = Arc::new(Config::from_envvar());
     let shard_count = get_shard_count();
 
     let ready_tx = handle_ready_probe((shard_count.highest - shard_count.lowest) as usize);
 
-    let presence = StatusUpdate::new(ActivityType::Listening, "t!help".to_owned(), StatusType::Online);
+    let presence = StatusUpdate::new(ActivityType::Listening, "/help".to_owned(), StatusType::Online);
     let options = sharder::Options {
         token: var_or_panic("SHARDER_TOKEN"),
         shard_count,
@@ -39,7 +50,10 @@ async fn main() {
     // init redis
     let redis = Arc::new(build_redis());
 
-    let sm = PublicShardManager::new(config, options, cache, redis, ready_tx).await;
+    let event_forwarder = Arc::new(HttpEventForwarder::new(HttpEventForwarder::build_http_client()));
+    Arc::clone(&event_forwarder).start_reset_cookie_loop();
+
+    let sm = PublicShardManager::new(config, options, cache, redis, ready_tx, event_forwarder).await;
     Arc::new(sm).connect().await;
 
     signal::ctrl_c().await.expect("Failed to listen for ctrl_c");

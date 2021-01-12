@@ -18,12 +18,14 @@ use tokio::time::delay_for;
 use std::time::Duration;
 use deadpool_redis::Pool;
 use crate::config::Config;
+use crate::event_forwarding::HttpEventForwarder;
 
 pub struct PublicShardManager {
     config: Arc<Config>,
     shards: HashMap<u16, Arc<Shard>>,
 }
 
+#[cfg(not(feature = "whitelabel"))]
 impl PublicShardManager {
     pub async fn new(
         config: Arc<Config>,
@@ -31,7 +33,8 @@ impl PublicShardManager {
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
         ready_tx: mpsc::Sender<u16>,
-    ) -> PublicShardManager {
+        event_forwarder: Arc<HttpEventForwarder>,
+    ) -> Self {
         let mut sm = PublicShardManager {
             config,
             shards: HashMap::new(),
@@ -39,20 +42,19 @@ impl PublicShardManager {
 
         for i in options.shard_count.lowest..options.shard_count.highest {
             let shard_info = ShardInfo::new(i, options.shard_count.total);
-            let status = StatusUpdate::new(ActivityType::Listening, "t!help | t!setup".to_owned(), StatusType::Online);
+            let status = StatusUpdate::new(ActivityType::Listening, "/help | /setup".to_owned(), StatusType::Online);
             let identify = Identify::new(options.token.clone().into_string(), None, shard_info, Some(status), super::get_intents());
+
             let shard = Shard::new(
                 sm.config.clone(),
                 identify,
                 options.large_sharding_buckets,
                 Arc::clone(&cache),
                 Arc::clone(&redis),
-                false,
                 options.user_id,
                 Some(ready_tx.clone()),
+                Arc::clone(&event_forwarder),
             );
-
-            Arc::clone(&shard).start_reset_cookie_loop();
 
             sm.shards.insert(i, shard);
         }

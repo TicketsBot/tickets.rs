@@ -32,4 +32,11 @@ reqwest = { version = "0.10", features = ["json", "gzip", "cookies"] }
 flate2 = { version = "1.0", features = ["tokio", "zlib-ng-compat"], default-features = false, optional = true }
 
 [features]
+default = ["skip-initial-guild-creates"]
 compression = ["flate2"]
+whitelabel = []
+skip-initial-guild-creates = []
+
+[[bin]]
+name = "whitelabel"
+required-features = ["whitelabel"]
