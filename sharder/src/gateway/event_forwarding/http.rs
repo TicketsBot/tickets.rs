@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use crate::{Shard, GatewayError};
+use crate::{Shard, GatewayError, Config};
 use common::event_forwarding;
 use std::sync::Arc;
 use std::time::Duration;
@@ -43,8 +43,8 @@ impl HttpEventForwarder {
 
 #[async_trait]
 impl EventForwarder for HttpEventForwarder {
-    async fn forward_event(&self, shard: Arc<Shard>, event: event_forwarding::Event<'_>, guild_id: Option<Snowflake>) -> Result<(), GatewayError> {
-        let uri = &*shard.config.worker_svc_uri;
+    async fn forward_event(&self, config: &Config, event: event_forwarding::Event<'_>, guild_id: Option<Snowflake>) -> Result<(), GatewayError> {
+        let uri = &*config.worker_svc_uri;
 
         // reqwest::Client uses Arcs internally, meaning this method clones the same client but
         // allows us to make use of connection pooling
@@ -53,13 +53,13 @@ impl EventForwarder for HttpEventForwarder {
             .json(&event);
 
         if let Some(guild_id) = guild_id {
-            let header_name = &*shard.config.sticky_cookie;
+            let header_name = &*config.sticky_cookie;
             req = req.header(header_name, guild_id.0);
         }
 
         let cookie = self.cookie.read().await;
         if let Some(cookie) = &*cookie {
-            let value = format!("{}={}", shard.config.sticky_cookie, cookie);
+            let value = format!("{}={}", config.sticky_cookie, cookie);
             req = req.header(reqwest::header::COOKIE, value);
         }
         drop(cookie); // drop here so we can write later
@@ -68,8 +68,8 @@ impl EventForwarder for HttpEventForwarder {
             .await
             .map_err(GatewayError::ReqwestError)?;
 
-        if let Some(cookie) = res.cookies().find(|c| c.name() == &*shard.config.sticky_cookie) {
-            shard.log(format!("Got new session cookie: {}", cookie.value()));
+        if let Some(cookie) = res.cookies().find(|c| c.name() == &*config.sticky_cookie) {
+            //shard.log(format!("Got new session cookie: {}", cookie.value()));
             *self.cookie.write().await = Some(Box::from(cookie.value()));
         }
 

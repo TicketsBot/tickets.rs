@@ -42,7 +42,7 @@ use crate::gateway::event_forwarding::{EventForwarder, HttpEventForwarder, is_wh
 type WebSocketTx = SplitSink<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>, Message>;
 type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>>;
 
-pub struct Shard {
+pub struct Shard<T: EventForwarder> {
     pub(crate) config: Arc<Config>,
     identify: payloads::Identify,
     large_sharding_buckets: u16,
@@ -65,7 +65,7 @@ pub struct Shard {
     ready_guild_count: AtomicU16,
     received_count: AtomicU16,
     is_ready: RwLock<bool>,
-    pub(crate) event_forwarder: Arc<HttpEventForwarder>,
+    pub(crate) event_forwarder: Arc<T>,
 
     #[cfg(feature = "whitelabel")]
     pub(crate) database: Arc<Database>,
@@ -74,7 +74,7 @@ pub struct Shard {
 #[cfg(feature = "compression")]
 const CHUNK_SIZE: usize = 16 * 1024; // 16KiB
 
-impl Shard {
+impl<T: EventForwarder> Shard<T> {
     pub fn new(
         config: Arc<Config>,
         identify: payloads::Identify,
@@ -83,9 +83,9 @@ impl Shard {
         redis: Arc<Pool>,
         user_id: Snowflake,
         ready_tx: Option<mpsc::Sender<u16>>,
-        event_forwarder: Arc<HttpEventForwarder>,
+        event_forwarder: Arc<T>,
         #[cfg(feature = "whitelabel")] database: Arc<Database>,
-    ) -> Arc<Shard> {
+    ) -> Arc<Shard<T>> {
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
         let (status_update_tx, status_update_rx) = mpsc::channel(1);
 
@@ -146,7 +146,7 @@ impl Shard {
         // start writer
         let (writer_tx, writer_rx) = mpsc::channel(16);
         tokio::spawn(async move {
-            Shard::handle_writes(ws_tx, writer_rx).await;
+            handle_writes(ws_tx, writer_rx).await;
         });
         *self.writer.write().await = Some(writer_tx);
 
@@ -158,21 +158,10 @@ impl Shard {
         Ok(())
     }
 
-    async fn handle_writes(mut ws_tx: WebSocketTx, mut rx: mpsc::Receiver<super::OutboundMessage>) {
-        while let Some(msg) = rx.recv().await {
-            let payload = tokio_tungstenite::tungstenite::Message::text(msg.message);
-            let res = ws_tx.send(payload).await;
-
-            if let Err(e) = msg.tx.send(res) {
-                eprintln!("Error while sending write result back to caller: {:?}", e);
-            }
-        }
-    }
-
     // helper function
-    async fn write<T: Serialize>(
+    async fn write<U: Serialize>(
         &self,
-        msg: T,
+        msg: U,
         tx: oneshot::Sender<Result<(), tokio_tungstenite::tungstenite::Error>>,
     ) -> Result<(), GatewayError> {
         OutboundMessage::new(msg, tx)
@@ -550,11 +539,11 @@ impl Shard {
                 Event::ChannelUpdate(channel) => self.cache.store_channel(channel).await,
                 Event::ChannelDelete(channel) => self.cache.delete_channel(channel.id).await,
                 Event::GuildCreate(mut guild) => {
-                    Shard::apply_guild_id_to_channels(&mut guild);
+                    apply_guild_id_to_channels(&mut guild);
                     self.cache.store_guild(guild).await
                 }
                 Event::GuildUpdate(mut guild) => {
-                    Shard::apply_guild_id_to_channels(&mut guild);
+                    apply_guild_id_to_channels(&mut guild);
                     self.cache.store_guild(guild).await
                 }
                 Event::GuildDelete(guild) => {
@@ -600,7 +589,7 @@ impl Shard {
                     event: &data,
                 };
 
-                if let Err(e) = self.event_forwarder.forward_event(Arc::clone(&self), wrapped, guild_id).await {
+                if let Err(e) = self.event_forwarder.forward_event(&*self.config, wrapped, guild_id).await {
                     self.log_err("Error while executing worker HTTP request", &e);
                 }
             }
@@ -618,14 +607,6 @@ impl Shard {
         }
 
         true
-    }
-
-    fn apply_guild_id_to_channels(guild: &mut Guild) {
-        if let Some(channels) = &mut guild.channels {
-            for channel in channels {
-                channel.guild_id = Some(guild.id)
-            }
-        }
     }
 
     // returns cancellation channel
@@ -903,6 +884,25 @@ impl Shard {
             eprintln!("[{}] {}: {}", self.user_id, msg, err);
         } else {
             eprintln!("[{:0>2}] {}: {}", self.get_shard_id(), msg, err);
+        }
+    }
+}
+
+async fn handle_writes(mut ws_tx: WebSocketTx, mut rx: mpsc::Receiver<super::OutboundMessage>) {
+    while let Some(msg) = rx.recv().await {
+        let payload = tokio_tungstenite::tungstenite::Message::text(msg.message);
+        let res = ws_tx.send(payload).await;
+
+        if let Err(e) = msg.tx.send(res) {
+            eprintln!("Error while sending write result back to caller: {:?}", e);
+        }
+    }
+}
+
+fn apply_guild_id_to_channels(guild: &mut Guild) {
+    if let Some(channels) = &mut guild.channels {
+        for channel in channels {
+            channel.guild_id = Some(guild.id)
         }
     }
 }

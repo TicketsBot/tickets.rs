@@ -1,5 +1,3 @@
-#[cfg(feature = "whitelabel")]
-
 use async_trait::async_trait;
 
 use super::ShardManager;
@@ -20,22 +18,22 @@ use common::token_change;
 use tokio::time::delay_for;
 use std::time::Duration;
 use deadpool_redis::Pool;
-use crate::gateway::event_forwarding::HttpEventForwarder;
+use crate::gateway::event_forwarding::EventForwarder;
 
-pub struct WhitelabelShardManager {
+pub struct WhitelabelShardManager<T: EventForwarder> {
     config: Arc<Config>,
     sharder_count: u16,
     sharder_id: u16,
-    shards: RwLock<HashMap<Snowflake, Arc<Shard>>>,
+    shards: RwLock<HashMap<Snowflake, Arc<Shard<T>>>>,
     // user_id -> bot_id
     user_ids: RwLock<HashMap<Snowflake, Snowflake>>,
     database: Arc<Database>,
     cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
-    event_forwarder: Arc<HttpEventForwarder>,
+    event_forwarder: Arc<T>,
 }
 
-impl WhitelabelShardManager {
+impl<T: EventForwarder> WhitelabelShardManager<T> {
     pub fn new(
         config: Arc<Config>,
         sharder_count: u16,
@@ -43,7 +41,7 @@ impl WhitelabelShardManager {
         database: Arc<Database>,
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
-        event_forwarder: Arc<HttpEventForwarder>,
+        event_forwarder: Arc<T>,
     ) -> Self {
         WhitelabelShardManager {
             config,
@@ -241,7 +239,7 @@ impl WhitelabelShardManager {
 
 #[async_trait]
 #[cfg(feature = "whitelabel")]
-impl ShardManager for WhitelabelShardManager {
+impl<T: EventForwarder> ShardManager for WhitelabelShardManager<T> {
     async fn connect(self: Arc<Self>) {
         // we should panic if we cant read db
         let bots = self.database.whitelabel.get_bots_by_sharder(self.sharder_count, self.sharder_id).await.unwrap();

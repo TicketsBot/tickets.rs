@@ -19,21 +19,22 @@ use std::time::Duration;
 use deadpool_redis::Pool;
 use crate::config::Config;
 use crate::event_forwarding::HttpEventForwarder;
+use crate::gateway::event_forwarding::EventForwarder;
 
-pub struct PublicShardManager {
+pub struct PublicShardManager<T: EventForwarder> {
     config: Arc<Config>,
-    shards: HashMap<u16, Arc<Shard>>,
+    shards: HashMap<u16, Arc<Shard<T>>>,
 }
 
 #[cfg(not(feature = "whitelabel"))]
-impl PublicShardManager {
+impl<T: EventForwarder> PublicShardManager<T> {
     pub async fn new(
         config: Arc<Config>,
         options: Options,
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
         ready_tx: mpsc::Sender<u16>,
-        event_forwarder: Arc<HttpEventForwarder>,
+        event_forwarder: Arc<T>,
     ) -> Self {
         let mut sm = PublicShardManager {
             config,
@@ -64,7 +65,7 @@ impl PublicShardManager {
 }
 
 #[async_trait]
-impl ShardManager for PublicShardManager {
+impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
     async fn connect(self: Arc<Self>) {
         for (_, shard) in self.shards.iter() {
             let shard = Arc::clone(&shard);

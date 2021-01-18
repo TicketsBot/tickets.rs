@@ -8,5 +8,6 @@ members = [
     "database",
     "vote_listener",
     "http-gateway",
-    "event-router"
+    "event-router",
+    "botlistupdater"
 ]
