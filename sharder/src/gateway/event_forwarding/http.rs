@@ -69,6 +69,7 @@ impl EventForwarder for HttpEventForwarder {
             .map_err(GatewayError::ReqwestError)?;
 
         if let Some(cookie) = res.cookies().find(|c| c.name() == &*config.sticky_cookie) {
+            // TODO: LOG
             //shard.log(format!("Got new session cookie: {}", cookie.value()));
             *self.cookie.write().await = Some(Box::from(cookie.value()));
         }
