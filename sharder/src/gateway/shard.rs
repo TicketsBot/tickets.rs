@@ -499,6 +499,7 @@ impl<T: EventForwarder> Shard<T> {
                 self.log("Received resumed acknowledgement");
 
                 if !*self.is_ready.read().await {
+                    *self.is_ready.write().await = true;
                     if let Some(mut tx) = self.ready_tx.lock().await.take() {
                         if let Err(e) = tx.send(self.get_shard_id()).await.map_err(GatewayError::SendU16Error) {
                             self.log_err("Error sending ready notification to probe", &e);
@@ -513,6 +514,7 @@ impl<T: EventForwarder> Shard<T> {
                 if !*self.is_ready.read().await {
                     let received = self.received_count.fetch_add(1, Ordering::Relaxed);
                     if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 { // Once we have 90% of the guilds, we're ok to load more shards
+                        *self.is_ready.write().await = true;
                         if let Some(mut tx) = self.ready_tx.lock().await.take() {
                             if let Err(e) = tx.send(self.get_shard_id()).await.map_err(GatewayError::SendU16Error) {
                                 self.log_err("Error sending ready notification to probe", &e);
