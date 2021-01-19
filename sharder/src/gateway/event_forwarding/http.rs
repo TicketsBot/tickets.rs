@@ -74,13 +74,18 @@ impl EventForwarder for HttpEventForwarder {
             *self.cookie.write().await = Some(Box::from(cookie.value()));
         }
 
-        let res: WorkerResponse = res.json()
-            .await
-            .map_err(GatewayError::ReqwestError)?;
+        let bytes = res.bytes().await.map_err(GatewayError::ReqwestError)?;
+        let res: WorkerResponse = serde_json::from_slice(&bytes).map_err(|_| {
+            let message = std::str::from_utf8(&*bytes).map_err(GatewayError::Utf8Error);
+            match message {
+                Ok(message) => GatewayError::WorkerError(Box::from(message)),
+                Err(e) => e,
+            }
+        })?;
 
         match res.success {
             true => Ok(()),
-            false => GatewayError::WorkerError(res.error.unwrap_or_else(|| "No error found".to_owned())).into()
+            false => GatewayError::WorkerError(Box::from(res.error.unwrap_or(std::str::from_utf8(&*bytes).map_err(GatewayError::Utf8Error)?))).into()
         }
     }
 }

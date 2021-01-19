@@ -75,7 +75,7 @@ pub enum GatewayError {
     ReqwestError(reqwest::Error),
 
     #[error("Received error response from worker: {0}")]
-    WorkerError(String),
+    WorkerError(Box<str>),
 }
 
 impl GatewayError {
