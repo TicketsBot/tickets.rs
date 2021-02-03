@@ -144,4 +144,5 @@ pub enum Features {
     EnabledDiscoverableBefore,
     PreviewEnabled,
     MemberVerificationGateEnabled,
+    DiscoverableDisabled,
 }
