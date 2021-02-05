@@ -35,6 +35,9 @@ pub enum GatewayError {
     #[error("error while reading oneshot channel: {0}")]
     RecvError(#[from] tokio::sync::oneshot::error::RecvError),
 
+    #[error("oneshot receiver already hung up")]
+    ReceiverHungUpError,
+
     #[error("error while sending message to writer: {0}")]
     SendMessageError(#[from] tokio::sync::mpsc::error::SendError<OutboundMessage>),
 

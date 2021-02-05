@@ -84,7 +84,6 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                 Arc::clone(&self.cache),
                 Arc::clone(&self.redis),
                 bot_id,
-                None,
                 Arc::clone(&self.event_forwarder),
                 #[cfg(feature = "whitelabel")] Arc::clone(&self.database),
             );
@@ -95,7 +94,7 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                 let shard = Arc::clone(&shard);
                 shard.log("Starting...");
 
-                let res = Arc::clone(&shard).connect().await;
+                let res = Arc::clone(&shard).connect(None).await;
                 match res {
                     Ok(()) => shard.log("Exited with Ok"),
                     Err(GatewayError::AuthenticationError { error, .. }) => {

@@ -1,6 +1,4 @@
 use std::sync::Arc;
-use tokio::sync::mpsc;
-use tokio::fs::File;
 use tokio::signal;
 
 use sharder::{PublicShardManager, ShardCount, ShardManager, Config};
@@ -12,6 +10,7 @@ use jemallocator::Jemalloc;
 use model::Snowflake;
 use std::str::FromStr;
 use sharder::event_forwarding::HttpEventForwarder;
+use deadpool_redis::cmd;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
@@ -22,7 +21,6 @@ async fn main() {
         panic!("Started public binary with whitelabel feature flag");
     }
 
-    #[cfg(not(feature = "whitelabel"))]
     bootstrap().await;
 }
 
@@ -31,8 +29,6 @@ async fn bootstrap() {
     // init sharder options
     let config = Arc::new(Config::from_envvar());
     let shard_count = get_shard_count();
-
-    let ready_tx = handle_ready_probe((shard_count.highest - shard_count.lowest) as usize);
 
     let presence = StatusUpdate::new(ActivityType::Listening, "/help".to_owned(), StatusType::Online);
     let options = sharder::Options {
@@ -50,10 +46,21 @@ async fn bootstrap() {
     // init redis
     let redis = Arc::new(build_redis());
 
+    // test redis connection
+    let mut conn = redis.get().await
+        .expect("Failed to get redis conn");
+
+    let res: String = cmd("PING")
+        .query_async(&mut conn)
+        .await
+        .expect("Redis PING failed");
+
+    assert_eq!(res, "PONG");
+
     let event_forwarder = Arc::new(HttpEventForwarder::new(HttpEventForwarder::build_http_client()));
     Arc::clone(&event_forwarder).start_reset_cookie_loop();
 
-    let sm = PublicShardManager::new(config, options, cache, redis, ready_tx, event_forwarder).await;
+    let sm = PublicShardManager::new(config, options, cache, redis, event_forwarder).await;
     Arc::new(sm).connect().await;
 
     signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
@@ -70,25 +77,3 @@ fn get_shard_count() -> ShardCount {
         highest: cluster_size * (sharder_id + 1),
     }
 }
-
-fn handle_ready_probe(shard_count: usize) -> mpsc::Sender<u16> {
-    let (tx, mut rx) = mpsc::channel(shard_count);
-
-    tokio::spawn(async move {
-        let mut ready = 0;
-
-        while let Some(shard_id) = rx.recv().await {
-            println!("[{:0>2}] Loaded guilds", shard_id);
-            ready += 1;
-
-            if ready == shard_count {
-                File::create("/tmp/ready").await.unwrap(); // panic if can't create
-                println!("Reported readiness to probe");
-                break
-            }
-        }
-    });
-
-    tx
-}
-

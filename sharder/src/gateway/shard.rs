@@ -44,7 +44,7 @@ type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream
 
 pub struct Shard<T: EventForwarder> {
     pub(crate) config: Arc<Config>,
-    identify: payloads::Identify,
+    pub(crate) identify: payloads::Identify,
     large_sharding_buckets: u16,
     cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
@@ -61,7 +61,7 @@ pub struct Shard<T: EventForwarder> {
     last_ack: RwLock<Instant>,
     last_heartbeat: RwLock<Instant>,
     connect_time: RwLock<Instant>,
-    ready_tx: Mutex<Option<mpsc::Sender<u16>>>,
+    ready_tx: Mutex<Option<oneshot::Sender<()>>>,
     ready_guild_count: AtomicU16,
     received_count: AtomicU16,
     is_ready: RwLock<bool>,
@@ -82,7 +82,6 @@ impl<T: EventForwarder> Shard<T> {
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
         user_id: Snowflake,
-        ready_tx: Option<mpsc::Sender<u16>>,
         event_forwarder: Arc<T>,
         #[cfg(feature = "whitelabel")] database: Arc<Database>,
     ) -> Arc<Shard<T>> {
@@ -108,7 +107,7 @@ impl<T: EventForwarder> Shard<T> {
             last_ack: RwLock::new(Instant::now()),
             last_heartbeat: RwLock::new(Instant::now()),
             connect_time: RwLock::new(Instant::now()), // will be overwritten
-            ready_tx: Mutex::new(ready_tx),
+            ready_tx: Mutex::new(None),
             ready_guild_count: AtomicU16::new(0),
             received_count: AtomicU16::new(0),
             is_ready: RwLock::new(false),
@@ -117,8 +116,10 @@ impl<T: EventForwarder> Shard<T> {
         })
     }
 
-    pub async fn connect(self: Arc<Self>) -> Result<(), GatewayError> {
+    pub async fn connect(self: Arc<Self>, ready_tx: Option<oneshot::Sender<()>>) -> Result<(), GatewayError> {
         //rst
+        *self.ready_tx.lock().await = ready_tx;
+
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
         *self.kill_shard_tx.lock().await = Some(kill_shard_tx);
         *self.kill_shard_rx.lock().await = kill_shard_rx;
@@ -144,7 +145,7 @@ impl<T: EventForwarder> Shard<T> {
         *self.connect_time.write().await = Instant::now();
 
         // start writer
-        let (writer_tx, writer_rx) = mpsc::channel(16);
+        let (writer_tx, writer_rx) = mpsc::channel(1);
         tokio::spawn(async move {
             handle_writes(ws_tx, writer_rx).await;
         });
@@ -501,8 +502,8 @@ impl<T: EventForwarder> Shard<T> {
                 if !*self.is_ready.read().await {
                     *self.is_ready.write().await = true;
                     if let Some(mut tx) = self.ready_tx.lock().await.take() {
-                        if let Err(e) = tx.send(self.get_shard_id()).await.map_err(GatewayError::SendU16Error) {
-                            self.log_err("Error sending ready notification to probe", &e);
+                        if let Err(_) = tx.send(()) {
+                            self.log_err("Error sending ready notification to probe", &GatewayError::ReceiverHungUpError);
                         }
                     }
                 }
@@ -513,12 +514,17 @@ impl<T: EventForwarder> Shard<T> {
             Event::GuildCreate(g) => {
                 if !*self.is_ready.read().await {
                     let received = self.received_count.fetch_add(1, Ordering::Relaxed);
+                    if received % 100 == 0 {
+                        self.log(received);
+                    }
                     if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 { // Once we have 90% of the guilds, we're ok to load more shards
                         *self.is_ready.write().await = true;
                         if let Some(mut tx) = self.ready_tx.lock().await.take() {
-                            if let Err(e) = tx.send(self.get_shard_id()).await.map_err(GatewayError::SendU16Error) {
-                                self.log_err("Error sending ready notification to probe", &e);
+                            self.log("Reporting readiness");
+                            if let Err(_) = tx.send(()) {
+                                self.log_err("Error sending ready notification to probe", &GatewayError::ReceiverHungUpError);
                             }
+                            self.log("Reported readiness");
                         }
                     }
                 }
@@ -869,7 +875,7 @@ impl<T: EventForwarder> Shard<T> {
     }
 
     /// helper
-    fn get_shard_id(&self) -> u16 {
+    pub fn get_shard_id(&self) -> u16 {
         self.identify.data.shard_info.shard_id
     }
 
