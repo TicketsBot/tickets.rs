@@ -1,15 +1,15 @@
 use serde::Serialize;
 use tokio::sync::{oneshot, mpsc};
-use tokio_tungstenite::tungstenite::Error;
+use futures::channel::mpsc::SendError;
 
 #[derive(Debug)]
 pub struct OutboundMessage {
     pub message: String,
-    pub tx: oneshot::Sender<Result<(), Error>>,
+    pub tx: oneshot::Sender<Result<(), SendError>>,
 }
 
 impl OutboundMessage {
-    pub fn new<T: Serialize>(msg: T, tx: oneshot::Sender<Result<(), Error>>) -> Result<OutboundMessage, serde_json::Error> {
+    pub fn new<T: Serialize>(msg: T, tx: oneshot::Sender<Result<(), SendError>>) -> Result<OutboundMessage, serde_json::Error> {
         let serialized = serde_json::to_string(&msg)?;
 
         Ok(OutboundMessage {
@@ -18,7 +18,7 @@ impl OutboundMessage {
         })
     }
 
-    pub async fn send(self, mut tx: mpsc::Sender<OutboundMessage>) -> Result<(), mpsc::error::SendError<OutboundMessage>> {
+    pub async fn send(self, tx: mpsc::Sender<OutboundMessage>) -> Result<(), mpsc::error::SendError<OutboundMessage>> {
         tx.send(self).await
     }
 }

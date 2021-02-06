@@ -1,7 +1,7 @@
 use thiserror::Error;
 use std::fmt::Display;
 use crate::gateway::outbound_message::OutboundMessage;
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use async_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 #[derive(Error, Debug)]
 pub enum GatewayError {
@@ -30,7 +30,10 @@ pub enum GatewayError {
     PoolError(#[from] deadpool::managed::PoolError<redis::RedisError>),
 
     #[error("error while operating on websocket: {0}")]
-    WebsocketError(#[from] tokio_tungstenite::tungstenite::Error),
+    WebsocketError(#[from] async_tungstenite::tungstenite::Error),
+
+    #[error("error while writing to websocket: {0}")]
+    WebsocketSendError(#[from] futures::channel::mpsc::SendError),
 
     #[error("error while reading oneshot channel: {0}")]
     RecvError(#[from] tokio::sync::oneshot::error::RecvError),
@@ -59,7 +62,7 @@ pub enum GatewayError {
     CacheError(#[from] cache::CacheError),
 
     #[error("error occurred while operating on database: {0}")]
-    DatabaseError(#[from] sqlx::Error),
+    DatabaseError(#[from] database::sqlx::Error),
 
     #[error("bot ID was missing on whitelabel identify")]
     MissingBotID(),

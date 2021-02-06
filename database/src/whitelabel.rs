@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::Table;
 
 use model::Snowflake;
-use tokio::stream::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct WhitelabelBot {

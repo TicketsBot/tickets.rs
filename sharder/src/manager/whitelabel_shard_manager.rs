@@ -13,9 +13,9 @@ use tokio::sync::RwLock;
 use model::Snowflake;
 use crate::{GatewayError, get_redis_uri, Config};
 use std::str;
-use tokio::stream::StreamExt;
+use futures::StreamExt;
 use common::token_change;
-use tokio::time::delay_for;
+use tokio::time::sleep;
 use std::time::Duration;
 use deadpool_redis::Pool;
 use crate::gateway::event_forwarding::EventForwarder;
@@ -65,7 +65,7 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
             // retrieve bot status
             let status = match self.database.whitelabel_status.get(bot_id).await {
                 Ok(status) => Some(status),
-                Err(sqlx::Error::RowNotFound) => None,
+                Err(database::sqlx::Error::RowNotFound) => None,
                 Err(e) => {
                     eprintln!("Error occurred while retrieving status for {}: {:?}", bot.bot_id, e);
                     None
@@ -123,7 +123,7 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                     shard.log("Shard still exists, restarting");
                 }
 
-                delay_for(Duration::from_millis(500)).await;
+                sleep(Duration::from_millis(500)).await;
             }
         });
     }

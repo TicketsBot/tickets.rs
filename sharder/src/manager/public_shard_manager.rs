@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use cache::PostgresCache;
 
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::delay_for;
+use tokio::time::sleep;
 use std::time::Duration;
 use deadpool_redis::Pool;
 use crate::config::Config;
@@ -70,7 +70,7 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
         for (_, shard) in self.shards.iter() {
             let shard_id = shard.get_shard_id();
             let shard = Arc::clone(&shard);
-            let (ready_tx, mut ready_rx) = oneshot::channel::<()>();
+            let (ready_tx, ready_rx) = oneshot::channel::<()>();
 
             tokio::spawn(async move {
                 let mut ready_tx = Some(ready_tx);
@@ -84,7 +84,7 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
                         Err(e) => shard.log_err("Exited with error", &e),
                     }
 
-                    delay_for(Duration::from_millis(500)).await;
+                    sleep(Duration::from_millis(500)).await;
                 }
             });
 

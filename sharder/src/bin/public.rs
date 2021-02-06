@@ -21,6 +21,7 @@ async fn main() {
         panic!("Started public binary with whitelabel feature flag");
     }
 
+    #[cfg(not(feature = "whitelabel"))]
     bootstrap().await;
 }
 

@@ -8,18 +8,15 @@ use std::time::Instant;
 use deadpool_redis::{cmd, Pool};
 #[cfg(feature = "compression")]
 use flate2::{Decompress, FlushDecompress, Status};
-use futures_util::{SinkExt, StreamExt};
 use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::SinkExt;
+use futures::{StreamExt, Stream};
 use serde::Serialize;
 use serde_json::value::RawValue;
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock};
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::delay_for;
-use tokio_tls::TlsStream;
-use tokio_tungstenite::{connect_async, tungstenite::Message};
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use tokio_tungstenite::WebSocketStream;
+use tokio::time::sleep;
 
 use cache::{Cache, PostgresCache};
 use common::event_forwarding;
@@ -38,9 +35,12 @@ use super::payloads;
 use super::payloads::{Dispatch, Opcode, Payload};
 use super::payloads::event::Event;
 use crate::gateway::event_forwarding::{EventForwarder, HttpEventForwarder, is_whitelisted};
-
-type WebSocketTx = SplitSink<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>, Message>;
-type WebSocketRx = SplitStream<WebSocketStream<tokio_tungstenite::stream::Stream<TcpStream, TlsStream<TcpStream>>>>;
+use futures::{AsyncWrite, AsyncRead};
+use async_tungstenite::{
+    tungstenite,
+    tungstenite::{Message, protocol::frame::coding::CloseCode},
+    tokio::connect_async,
+};
 
 pub struct Shard<T: EventForwarder> {
     pub(crate) config: Arc<Config>,
@@ -140,19 +140,27 @@ impl<T: EventForwarder> Shard<T> {
 
         let uri = url::Url::parse(uri).unwrap();
 
-        let (wss, _) = connect_async(uri).await?;
+        let (wss, _) = connect_async(uri).await.map_err(GatewayError::WebsocketError)?;
         let (ws_tx, ws_rx) = wss.split();
         *self.connect_time.write().await = Instant::now();
 
         // start writer
-        let (writer_tx, writer_rx) = mpsc::channel(1);
+        let (recv_broker_tx, recv_broker_rx) = futures::channel::mpsc::unbounded();
+        let (send_broker_tx, send_broker_rx) = futures::channel::mpsc::unbounded();
+        let (internal_tx, internal_rx) = mpsc::channel(1);
+        tokio::spawn(handle_writes(send_broker_tx, internal_rx));
+
+        let forward_outbound = send_broker_rx.map(Ok).forward(ws_tx);
+        let forward_inbound = ws_rx.map(Ok).forward(recv_broker_tx);
+
+        *self.writer.write().await = Some(internal_tx);
+
         tokio::spawn(async move {
-            handle_writes(ws_tx, writer_rx).await;
+            futures::future::select(forward_outbound, forward_inbound).await;
         });
-        *self.writer.write().await = Some(writer_tx);
 
         // start read loop
-        if let Err(e) = self.listen(ws_rx).await {
+        if let Err(e) = self.listen(recv_broker_rx).await {
             return Err(e);
         }
 
@@ -163,7 +171,7 @@ impl<T: EventForwarder> Shard<T> {
     async fn write<U: Serialize>(
         &self,
         msg: U,
-        tx: oneshot::Sender<Result<(), tokio_tungstenite::tungstenite::Error>>,
+        tx: oneshot::Sender<Result<(), futures::channel::mpsc::SendError>>,
     ) -> Result<(), GatewayError> {
         OutboundMessage::new(msg, tx)
             .map_err(GatewayError::JsonError)?
@@ -203,7 +211,7 @@ impl<T: EventForwarder> Shard<T> {
         });
     }
 
-    async fn listen(self: Arc<Self>, mut ws_rx: WebSocketRx) -> Result<(), GatewayError> {
+    async fn listen(self: Arc<Self>, mut rx: futures::channel::mpsc::UnboundedReceiver<Result<Message, async_tungstenite::tungstenite::Error>>) -> Result<(), GatewayError> {
         #[cfg(feature = "compression")]
             let mut decoder = Decompress::new(true);
 
@@ -220,7 +228,7 @@ impl<T: EventForwarder> Shard<T> {
                 }
 
                 // handle incoming payload
-                payload = ws_rx.next() => {
+                payload = rx.next() => {
                     match payload {
                         None => {
                             self.log("Payload was None, killing");
@@ -308,7 +316,7 @@ impl<T: EventForwarder> Shard<T> {
                             }
 
                             match rx.await {
-                                Ok(Err(e)) => shard.log_err("Error writing presence update payload", &GatewayError::WebsocketError(e)),
+                                Ok(Err(e)) => shard.log_err("Error writing presence update payload", &GatewayError::WebsocketSendError(e)),
                                 Err(e) => shard.log_err("Error writing presence update payload", &GatewayError::RecvError(e)),
                                 _ => {}
                             }
@@ -501,7 +509,7 @@ impl<T: EventForwarder> Shard<T> {
 
                 if !*self.is_ready.read().await {
                     *self.is_ready.write().await = true;
-                    if let Some(mut tx) = self.ready_tx.lock().await.take() {
+                    if let Some(tx) = self.ready_tx.lock().await.take() {
                         if let Err(_) = tx.send(()) {
                             self.log_err("Error sending ready notification to probe", &GatewayError::ReceiverHungUpError);
                         }
@@ -514,12 +522,10 @@ impl<T: EventForwarder> Shard<T> {
             Event::GuildCreate(g) => {
                 if !*self.is_ready.read().await {
                     let received = self.received_count.fetch_add(1, Ordering::Relaxed);
-                    if received % 100 == 0 {
-                        self.log(received);
-                    }
+
                     if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 { // Once we have 90% of the guilds, we're ok to load more shards
                         *self.is_ready.write().await = true;
-                        if let Some(mut tx) = self.ready_tx.lock().await.take() {
+                        if let Some(tx) = self.ready_tx.lock().await.take() {
                             self.log("Reporting readiness");
                             if let Err(_) = tx.send(()) {
                                 self.log_err("Error sending ready notification to probe", &GatewayError::ReceiverHungUpError);
@@ -530,7 +536,7 @@ impl<T: EventForwarder> Shard<T> {
                 }
 
                 #[cfg(feature = "whitelabel")]
-                self.store_whitelabel_guild(g.id).await;
+                    self.store_whitelabel_guild(g.id).await;
             }
 
             _ => {}
@@ -625,7 +631,7 @@ impl<T: EventForwarder> Shard<T> {
         let (cancel_tx, mut cancel_rx) = oneshot::channel();
 
         tokio::spawn(async move {
-            delay_for(interval).await;
+            sleep(interval).await;
 
             let mut has_done_heartbeat = false;
             while let Err(oneshot::error::TryRecvError::Empty) = cancel_rx.try_recv() {
@@ -652,7 +658,7 @@ impl<T: EventForwarder> Shard<T> {
 
                 has_done_heartbeat = true;
 
-                delay_for(interval).await;
+                sleep(interval).await;
             }
         });
 
@@ -665,7 +671,7 @@ impl<T: EventForwarder> Shard<T> {
         let (tx, rx) = oneshot::channel();
         self.write(payload, tx).await?;
 
-        rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketError)?;
+        rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketSendError)?;
 
         *self.last_heartbeat.write().await = Instant::now();
         Ok(())
@@ -675,7 +681,7 @@ impl<T: EventForwarder> Shard<T> {
         let (tx, rx) = oneshot::channel();
         self.write(&self.identify, tx).await?;
 
-        Ok(rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketError)?)
+        Ok(rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketSendError)?)
     }
 
     async fn wait_for_ratelimit(&self) -> Result<(), GatewayError> {
@@ -708,7 +714,7 @@ impl<T: EventForwarder> Shard<T> {
                     // -1 = no expire, -2 = doesn't exist
                     if ttl > 0 {
                         let ttl = Duration::from_millis(ttl as u64);
-                        delay_for(ttl).await
+                        sleep(ttl).await
                     }
                 }
             }
@@ -729,7 +735,7 @@ impl<T: EventForwarder> Shard<T> {
         let (tx, rx) = oneshot::channel();
         self.write(payload, tx).await?;
 
-        Ok(rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketError)?)
+        Ok(rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketSendError)?)
     }
 
     async fn save_session_id(&self) -> Result<(), GatewayError> {
@@ -896,10 +902,10 @@ impl<T: EventForwarder> Shard<T> {
     }
 }
 
-async fn handle_writes(mut ws_tx: WebSocketTx, mut rx: mpsc::Receiver<super::OutboundMessage>) {
+async fn handle_writes(mut tx: futures::channel::mpsc::UnboundedSender<tungstenite::Message>, mut rx: mpsc::Receiver<super::OutboundMessage>) {
     while let Some(msg) = rx.recv().await {
-        let payload = tokio_tungstenite::tungstenite::Message::text(msg.message);
-        let res = ws_tx.send(payload).await;
+        let payload = Message::text(msg.message);
+        let res = tx.send(payload).await;
 
         if let Err(e) = msg.tx.send(res) {
             eprintln!("Error while sending write result back to caller: {:?}", e);

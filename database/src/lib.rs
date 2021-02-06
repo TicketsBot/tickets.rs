@@ -18,3 +18,6 @@ pub use whitelabel_status::WhitelabelStatus;
 
 mod whitelabel_keys;
 pub use whitelabel_keys::WhitelabelKeys;
+
+// re-export sqlx for errors etc
+pub use sqlx;
