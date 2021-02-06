@@ -1,2 +1,4 @@
+# These flags are optimised for our target (which happens to be Xeon Golds)
+# You should change this to be optimised for your CPU, i.e. don't disable features that your CPU supports
 [build]
-rustflags = ["-C", "target-cpu=native"]
+rustflags = ["-C", "target-cpu=native", "-C", "target-feature", "-sha"]
