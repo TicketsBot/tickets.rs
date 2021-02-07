@@ -3,8 +3,7 @@ use std::sync::Arc;
 use sharder::{ShardManager, build_redis, WhitelabelShardManager, Config};
 
 use sharder::{var_or_panic, build_cache};
-use database::Database;
-use sqlx::postgres::PgPoolOptions;
+use database::{Database, sqlx::postgres::PgPoolOptions};
 
 use tokio::signal;
 

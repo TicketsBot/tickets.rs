@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::gateway::worker_response::WorkerResponse;
 use crate::gateway::payloads::event::Event;
 use model::Snowflake;
-use tokio::time::delay_for;
+use tokio::time::sleep;
 use tokio::sync::RwLock;
 use crate::event_forwarding::EventForwarder;
 
@@ -34,7 +34,7 @@ impl HttpEventForwarder {
     pub fn start_reset_cookie_loop(self: Arc<Self>) {
         tokio::spawn(async move {
             loop {
-                delay_for(Duration::from_secs(180)).await;
+                sleep(Duration::from_secs(180)).await;
                 *self.cookie.write().await = None;
             }
         });
