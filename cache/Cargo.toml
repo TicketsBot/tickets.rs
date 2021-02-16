@@ -17,3 +17,4 @@ tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_j
 async-trait = "0.1"
 postgres-native-tls = "0.3"
 native-tls = "0.2"
+backoff = { version = "0.3", features = ["tokio"] }

@@ -9,8 +9,11 @@ use model::guild::{Role, Guild, Member, Emoji, VoiceState};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use std::sync::Arc;
 use crate::postgres::payload::CachePayload;
-use crate::postgres::worker::Worker;
-use tokio_postgres::NoTls;
+use crate::postgres::worker::{Worker, PayloadReceiver};
+use tokio_postgres::{NoTls, Connection, Socket};
+use std::time::Duration;
+use backoff::ExponentialBackoff;
+use tokio_postgres::tls::NoTlsStream;
 
 pub struct PostgresCache {
     opts: Options,
@@ -19,29 +22,49 @@ pub struct PostgresCache {
 
 impl PostgresCache {
     /// panics if URI is invalid
-    pub async fn connect(uri: &str, opts: Options, workers: usize) -> Result<PostgresCache, CacheError> {
+    pub async fn connect(uri: String, opts: Options, workers: usize) -> Result<PostgresCache, CacheError> {
         let (worker_tx, worker_rx) = mpsc::channel(1); // TODO: Tweak
         let worker_rx = Arc::new(Mutex::new(worker_rx));
 
         // start workers
-        for _ in 0..workers {
-            let (client, conn) = tokio_postgres::connect(uri, NoTls).await.map_err(CacheError::DatabaseError)?;
+        for id in 0..workers {
+            let worker_rx = Arc::clone(&worker_rx);
+            let uri = uri.clone();
 
             // run executor in background
             tokio::spawn(async move {
-               if let Err(e) = conn.await {
-                   panic!(e); // TODO: should we panic or not?
-               }
-            });
+                let _: Result<(), CacheError> = backoff::future::retry(ExponentialBackoff::default(), || async {
+                    println!("[cache worker:{}] trying to connect", id);
+                    let (kill_tx, conn) = Self::spawn_worker(id, &uri[..], opts, Arc::clone(&worker_rx)).await?;
+                    println!("[cache worker:{}] connected!", id);
 
-            let worker = Worker::new(client, Arc::clone(&worker_rx));
-            worker.start();
+                    if let Err(e) = conn.await {
+                        eprintln!("[cache worker:{}] db connection error: {}", id, e);
+                        return Err(backoff::Error::Transient(CacheError::DatabaseError(e)));
+                    }
+
+                    println!("[cache worker:{}] connection died", id);
+
+                    kill_tx.send(());
+                    Err(backoff::Error::Transient(CacheError::Disconnected))
+                }).await;
+            });
         }
 
         Ok(PostgresCache {
             opts,
             tx: worker_tx,
         })
+    }
+
+    async fn spawn_worker(id: usize, uri: &str, opts: Options, payload_rx: PayloadReceiver) -> Result<(oneshot::Sender<()>, Connection<Socket, NoTlsStream>), CacheError> {
+        let (client, conn) = tokio_postgres::connect(uri, NoTls).await.map_err(CacheError::DatabaseError)?;
+        let (kill_tx, kill_rx) = oneshot::channel();
+
+        let worker = Worker::new(id, client, payload_rx, kill_rx);
+        worker.start();
+
+        Ok((kill_tx, conn))
     }
 
     pub async fn create_schema(&self) -> Result<(), CacheError> {
@@ -57,6 +80,7 @@ impl PostgresCache {
             r#"CREATE TABLE IF NOT EXISTS voice_states("guild_id" int8 NOT NULL, "user_id" INT8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("guild_id", "user_id"));"#,
 
             // create indexes
+            // TODO: Cannot create index concurrently in transaction block
             r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS channels_guild_id ON channels("guild_id");"#,
             r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS members_guild_id ON members("guild_id");"#,
             r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS member_user_id ON members("user_id");"#,
@@ -67,7 +91,7 @@ impl PostgresCache {
         ].iter().map(|s| s.to_string()).collect();
 
         let (tx, rx) = oneshot::channel();
-        self.tx.clone().send(CachePayload::Schema { queries, tx, }).await.map_err(CacheError::SendError)?;
+        self.tx.clone().send(CachePayload::Schema { queries, tx }).await.map_err(CacheError::SendError)?;
         rx.await.map_err(CacheError::RecvError)??;
 
         Ok(())
@@ -160,7 +184,7 @@ impl Cache for PostgresCache {
         }
 
         let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::StoreMembers{ members, guild_id, tx }).await
+        self.send_payload(rx, CachePayload::StoreMembers { members, guild_id, tx }).await
     }
 
     async fn get_member(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<Option<Member>, CacheError> {

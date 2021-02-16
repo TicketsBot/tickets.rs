@@ -887,17 +887,17 @@ impl<T: EventForwarder> Shard<T> {
 
     pub fn log(&self, msg: impl Display) {
         if is_whitelabel() {
-            println!("[{}] {}", self.user_id, msg);
+            println!("[shard:{}] {}", self.user_id, msg);
         } else {
-            println!("[{:0>2}] {}", self.get_shard_id(), msg);
+            println!("[shard:{:0>2}] {}", self.get_shard_id(), msg);
         }
     }
 
     pub fn log_err(&self, msg: impl Display, err: &GatewayError) {
         if is_whitelabel() {
-            eprintln!("[{}] {}: {}", self.user_id, msg, err);
+            eprintln!("[shard:{}] {}: {}", self.user_id, msg, err);
         } else {
-            eprintln!("[{:0>2}] {}: {}", self.get_shard_id(), msg, err);
+            eprintln!("[shard:{:0>2}] {}: {}", self.get_shard_id(), msg, err);
         }
     }
 }

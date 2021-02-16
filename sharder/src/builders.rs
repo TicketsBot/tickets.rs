@@ -7,7 +7,7 @@ use crate::var;
 
 /// panics on err
 pub async fn build_cache() -> PostgresCache {
-    let cache_uri = &var_or_panic("CACHE_URI");
+    let cache_uri = var("CACHE_URI").unwrap();
     let cache_opts = Options {
         users: false,
         guilds: true,
@@ -19,11 +19,6 @@ pub async fn build_cache() -> PostgresCache {
     };
 
     let cache_threads = var_or_panic("CACHE_THREADS").parse::<usize>().unwrap();
-
-    /*let pg_opts = PgPoolOptions::new()
-        .min_connections(cache_threads as u32)
-        .max_connections(cache_threads as u32);*/
-
     PostgresCache::connect(cache_uri, cache_opts, cache_threads).await.unwrap()
 }
 

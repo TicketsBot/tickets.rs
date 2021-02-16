@@ -1,3 +1,4 @@
+#[derive(Clone, Copy)]
 pub struct Options {
     pub users: bool,
     pub guilds: bool,
