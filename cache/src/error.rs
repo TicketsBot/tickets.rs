@@ -17,6 +17,9 @@ pub enum CacheError {
 
     #[error("Error receiving response from worker: {0}")]
     RecvError(#[from] tokio::sync::oneshot::error::RecvError),
+
+    #[error("Disconnected from database")]
+    Disconnected,
 }
 
 impl<T> Into<Result<T, Self>> for CacheError {

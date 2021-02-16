@@ -1,4 +1,4 @@
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, mpsc, oneshot};
 use std::sync::Arc;
 use crate::postgres::payload::CachePayload;
 use model::Snowflake;
@@ -8,71 +8,92 @@ use model::channel::Channel;
 use model::user::User;
 use std::cmp::Ordering::Equal;
 use tokio_postgres::Client;
+use std::fmt::Display;
 
 pub struct Worker {
+    id: usize,
     client: Client,
     rx: PayloadReceiver,
+    kill_rx: Mutex<oneshot::Receiver<()>>,
 }
 
-type PayloadReceiver = Arc<Mutex<mpsc::Receiver<CachePayload>>>;
+pub(crate) type PayloadReceiver = Arc<Mutex<mpsc::Receiver<CachePayload>>>;
 
 impl Worker {
-    pub fn new(client: Client, rx: PayloadReceiver) -> Worker {
-        Worker { client, rx }
+    pub fn new(id: usize, client: Client, rx: PayloadReceiver, kill_rx: oneshot::Receiver<()>) -> Worker {
+        Worker {
+            id,
+            client,
+            rx,
+            kill_rx: Mutex::new(kill_rx),
+        }
     }
 
     pub fn start(self) {
         tokio::spawn(async move {
             loop {
-                let mut rx = self.rx.lock().await;
-                let recv = rx.recv().await;
-                drop(rx);
+                let kill_rx = &mut *self.kill_rx.lock().await;
+                let rx = &mut *self.rx.lock().await;
 
-                let payload = match recv {
-                    Some(p) => p,
-                    None => { // should never happen
-                        eprintln!("Cache worker got None");
-                        break;
+                tokio::select! {
+                    _ = kill_rx => {
+                        self.log("got kill message");
+                        break
                     }
-                };
+                    recv = rx.recv() => {
+                        drop(rx);
 
-                // TODO: Handle result
-                match payload {
-                    CachePayload::Schema { queries, tx } => {
-                        let mut batch = String::new();
-                        for query in queries {
-                            batch.push_str(&query[..]);
-                        }
+                        let payload = match recv {
+                            Some(p) => p,
+                            None => { // Should never happen
+                                self.log("got None from payload channel");
+                                break;
+                            }
+                        };
 
-                        if let Err(e) = self.client.batch_execute(&batch[..]).await {
-                            let _ = tx.send(Err(CacheError::DatabaseError(e)));
-                            break;
-                        }
+                        self.handle_payload(payload).await;
                     }
-                    CachePayload::StoreGuilds { guilds, tx } => { let _ = tx.send(self.store_guilds(guilds).await); }
-                    CachePayload::GetGuild { id, tx } => { let _ = tx.send(self.get_guild(id).await); }
-                    CachePayload::DeleteGuild { id, tx } => { let _ = tx.send(self.delete_guild(id).await); }
-                    CachePayload::StoreChannels { channels, tx } => { let _ = tx.send(self.store_channels(channels).await); }
-                    CachePayload::GetChannel { id, tx } => { let _ = tx.send(self.get_channel(id).await); }
-                    CachePayload::DeleteChannel { id, tx } => { let _ = tx.send(self.delete_channel(id).await); }
-                    CachePayload::StoreUsers { users, tx } => { let _ = tx.send(self.store_users(users).await); }
-                    CachePayload::GetUser { id, tx } => { let _ = tx.send(self.get_user(id).await); }
-                    CachePayload::DeleteUser { id, tx } => { let _ = tx.send(self.delete_user(id).await); }
-                    CachePayload::StoreMembers { members, guild_id, tx } => { let _ = tx.send(self.store_members(members, guild_id).await); }
-                    CachePayload::GetMember { user_id, guild_id, tx } => { let _ = tx.send(self.get_member(user_id, guild_id).await); }
-                    CachePayload::DeleteMember { user_id, guild_id, tx } => { let _ = tx.send(self.delete_member(user_id, guild_id).await); }
-                    CachePayload::StoreRoles { roles, guild_id, tx } => { let _ = tx.send(self.store_roles(roles, guild_id).await); }
-                    CachePayload::GetRole { id, tx } => { let _ = tx.send(self.get_role(id).await); }
-                    CachePayload::DeleteRole { id, tx } => { let _ = tx.send(self.delete_role(id).await); }
-                    CachePayload::StoreEmojis { emojis, guild_id, tx } => { let _ = tx.send(self.store_emojis(emojis, guild_id).await); }
-                    CachePayload::GetEmoji { id, tx } => { let _ = tx.send(self.get_emoji(id).await); }
-                    CachePayload::DeleteEmoji { id, tx } => { let _ = tx.send(self.delete_emoji(id).await); }
-                    CachePayload::StoreVoiceState { voice_states, tx } => { let _ = tx.send(self.store_voice_states(voice_states).await); }
-                    CachePayload::GetVoiceState { user_id, guild_id, tx } => { let _ = tx.send(self.get_voice_state(user_id, guild_id).await); }
-                    CachePayload::DeleteVoiceState { user_id, guild_id, tx } => { let _ = tx.send(self.delete_voice_state(user_id, guild_id).await); }
-                };
+                }
             }
         });
+    }
+
+    async fn handle_payload(&self, payload: CachePayload) {
+        match payload {
+            CachePayload::Schema { queries, tx } => {
+                let mut batch = String::new();
+                for query in queries {
+                    batch.push_str(&query[..]);
+                }
+
+                tx.send(self.client.batch_execute(&batch[..]).await.map_err(CacheError::DatabaseError));
+            }
+            CachePayload::StoreGuilds { guilds, tx } => { let _ = tx.send(self.store_guilds(guilds).await); }
+            CachePayload::GetGuild { id, tx } => { let _ = tx.send(self.get_guild(id).await); }
+            CachePayload::DeleteGuild { id, tx } => { let _ = tx.send(self.delete_guild(id).await); }
+            CachePayload::StoreChannels { channels, tx } => { let _ = tx.send(self.store_channels(channels).await); }
+            CachePayload::GetChannel { id, tx } => { let _ = tx.send(self.get_channel(id).await); }
+            CachePayload::DeleteChannel { id, tx } => { let _ = tx.send(self.delete_channel(id).await); }
+            CachePayload::StoreUsers { users, tx } => { let _ = tx.send(self.store_users(users).await); }
+            CachePayload::GetUser { id, tx } => { let _ = tx.send(self.get_user(id).await); }
+            CachePayload::DeleteUser { id, tx } => { let _ = tx.send(self.delete_user(id).await); }
+            CachePayload::StoreMembers { members, guild_id, tx } => { let _ = tx.send(self.store_members(members, guild_id).await); }
+            CachePayload::GetMember { user_id, guild_id, tx } => { let _ = tx.send(self.get_member(user_id, guild_id).await); }
+            CachePayload::DeleteMember { user_id, guild_id, tx } => { let _ = tx.send(self.delete_member(user_id, guild_id).await); }
+            CachePayload::StoreRoles { roles, guild_id, tx } => { let _ = tx.send(self.store_roles(roles, guild_id).await); }
+            CachePayload::GetRole { id, tx } => { let _ = tx.send(self.get_role(id).await); }
+            CachePayload::DeleteRole { id, tx } => { let _ = tx.send(self.delete_role(id).await); }
+            CachePayload::StoreEmojis { emojis, guild_id, tx } => { let _ = tx.send(self.store_emojis(emojis, guild_id).await); }
+            CachePayload::GetEmoji { id, tx } => { let _ = tx.send(self.get_emoji(id).await); }
+            CachePayload::DeleteEmoji { id, tx } => { let _ = tx.send(self.delete_emoji(id).await); }
+            CachePayload::StoreVoiceState { voice_states, tx } => { let _ = tx.send(self.store_voice_states(voice_states).await); }
+            CachePayload::GetVoiceState { user_id, guild_id, tx } => { let _ = tx.send(self.get_voice_state(user_id, guild_id).await); }
+            CachePayload::DeleteVoiceState { user_id, guild_id, tx } => { let _ = tx.send(self.delete_voice_state(user_id, guild_id).await); }
+        };
+    }
+
+    fn log(&self, msg: impl Display) {
+        println!("[cache worker:{}] {}", self.id, msg);
     }
 }
 
