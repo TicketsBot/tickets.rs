@@ -13,10 +13,8 @@ pub struct InteractionResponse {
 #[repr(u8)]
 pub enum InteractionResponseType {
     Pong = 1,
-    Acknowledge = 2,
-    ChannelMessage = 3,
     ChannelMessageWithSource = 4,
-    ACKWithSource = 5,
+    DeferredChannelMessageWithSource = 5,
 }
 
 impl InteractionResponse {
@@ -26,17 +24,10 @@ impl InteractionResponse {
             data: None
         }
     }
-    
-    pub fn new_ack() -> InteractionResponse {
-        InteractionResponse {
-            r#type: InteractionResponseType::Acknowledge,
-            data: None
-        }
-    }
 
-    pub fn new_ack_with_source() -> InteractionResponse {
+    pub fn new_deferred_message_with_source() -> InteractionResponse {
         InteractionResponse {
-            r#type: InteractionResponseType::ACKWithSource,
+            r#type: InteractionResponseType::DeferredChannelMessageWithSource,
             data: None
         }
     }

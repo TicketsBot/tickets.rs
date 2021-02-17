@@ -44,7 +44,7 @@ pub async fn handle(
             match interaction.guild_id { // Should never be None
                 Some(guild_id) => match forward(server, bot_id, guild_id, body).await {
                     Ok(_) => {
-                        let response = InteractionResponse::new_ack_with_source();
+                        let response = InteractionResponse::new_deferred_message_with_source();
                         Ok(warp::reply::json(&response))
                     }
                     Err(e) => {
