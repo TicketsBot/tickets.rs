@@ -8,24 +8,30 @@ use crate::http::response::ErrorResponse;
 use warp::reply::Json;
 use database::Database;
 use std::time::Duration;
+
+#[cfg(feature = "sticky-cookie")]
 use tokio::sync::RwLock;
+#[cfg(feature = "sticky-cookie")]
 use std::collections::HashMap;
 
 pub struct Server {
     pub config: Config,
     pub database: Database,
     pub http_client: reqwest::Client,
+    #[cfg(feature = "sticky-cookie")]
     pub cookies: RwLock<HashMap<u16, Box<str>>>,
 }
 
 impl Server {
     pub fn new(config: Config, database: Database) -> Server {
+        #[cfg(feature = "sticky-cookie")]
         let shard_count = config.shard_count;
 
         Server {
             config,
             database,
             http_client: Server::build_http_client(),
+            #[cfg(feature = "sticky-cookie")]
             cookies: RwLock::new(HashMap::with_capacity(shard_count as usize)),
         }
     }

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::Table;
 
 use model::Snowflake;
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 
 pub struct WhitelabelGuilds {
     db: Arc<PgPool>,

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::Table;
 
 use model::Snowflake;
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use chrono::{DateTime, Utc};
 
 #[derive(sqlx::FromRow)]

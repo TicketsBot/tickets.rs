@@ -8,6 +8,7 @@ pub struct Config {
     pub main_bot_token: Box<str>,
     pub main_public_key: ed25519_dalek::PublicKey,
     pub database: DatabaseConfig,
+    #[cfg(feature = "sticky-cookie")]
     pub worker_sticky_cookie: Box<str>,
     pub worker_svc_uri: Box<str>,
     pub shard_count: u16,
@@ -29,6 +30,7 @@ impl Config {
                 uri: Config::get_envvar("DATABASE_URI"),
                 threads: Config::get_envvar("DATABASE_THREADS").parse().unwrap(),
             },
+            #[cfg(feature = "sticky-cookie")]
             worker_sticky_cookie: Config::get_envvar("WORKER_STICKY_COOKIE"),
             worker_svc_uri: Config::get_svc_uri(),
             shard_count: Config::get_envvar("SHARD_COUNT").parse().unwrap(),
