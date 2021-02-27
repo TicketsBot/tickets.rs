@@ -1,10 +1,14 @@
 mod shard_manager;
 pub use shard_manager::ShardManager;
 
+#[cfg(not(feature = "whitelabel"))]
 mod public_shard_manager;
+#[cfg(not(feature = "whitelabel"))]
 pub use public_shard_manager::PublicShardManager;
 
+#[cfg(feature = "whitelabel")]
 mod whitelabel_shard_manager;
+#[cfg(feature = "whitelabel")]
 pub use whitelabel_shard_manager::WhitelabelShardManager;
 
 mod options;

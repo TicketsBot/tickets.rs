@@ -1,9 +1,7 @@
 use async_trait::async_trait;
 use model::Snowflake;
-use crate::gateway::payloads::event::Event;
-use crate::{GatewayError, Shard, Config};
+use crate::{GatewayError, Config};
 use common::event_forwarding;
-use std::sync::Arc;
 
 #[async_trait]
 pub trait EventForwarder: Sync + Send + 'static {

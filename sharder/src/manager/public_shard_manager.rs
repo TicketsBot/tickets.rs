@@ -13,14 +13,12 @@ use std::collections::HashMap;
 
 use cache::PostgresCache;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use tokio::time::sleep;
 use std::time::Duration;
 use deadpool_redis::Pool;
 use crate::config::Config;
-use crate::event_forwarding::HttpEventForwarder;
 use crate::gateway::event_forwarding::EventForwarder;
-use crate::GatewayError;
 use tokio::fs::File;
 
 pub struct PublicShardManager<T: EventForwarder> {

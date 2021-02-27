@@ -13,6 +13,12 @@ use sharder::event_forwarding::HttpEventForwarder;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
+#[cfg(not(feature = "whitelabel"))]
+fn main() {
+    panic!("Started whitelabel sharder without whitelabel feature flag")
+}
+
+#[cfg(feature = "whitelabel")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Arc::new(Config::from_envvar());

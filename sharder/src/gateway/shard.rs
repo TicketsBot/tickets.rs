@@ -8,18 +8,17 @@ use std::time::Instant;
 use deadpool_redis::{cmd, Pool};
 #[cfg(feature = "compression")]
 use flate2::{Decompress, FlushDecompress, Status};
-use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::SinkExt;
-use futures::{StreamExt, Stream};
+use futures::StreamExt;
 use serde::Serialize;
 use serde_json::value::RawValue;
-use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 
 use cache::{Cache, PostgresCache};
 use common::event_forwarding;
+#[cfg(feature = "whitelabel")]
 use database::Database;
 use model::guild::{Guild, Member};
 use model::Snowflake;
@@ -34,8 +33,7 @@ use super::OutboundMessage;
 use super::payloads;
 use super::payloads::{Dispatch, Opcode, Payload};
 use super::payloads::event::Event;
-use crate::gateway::event_forwarding::{EventForwarder, HttpEventForwarder, is_whitelisted};
-use futures::{AsyncWrite, AsyncRead};
+use crate::gateway::event_forwarding::{EventForwarder, is_whitelisted};
 use async_tungstenite::{
     tungstenite,
     tungstenite::{Message, protocol::frame::coding::CloseCode},
@@ -519,24 +517,19 @@ impl<T: EventForwarder> Shard<T> {
                 return Ok(());
             }
 
-            Event::GuildCreate(g) => {
-                if !*self.is_ready.read().await {
-                    let received = self.received_count.fetch_add(1, Ordering::Relaxed);
+            #[cfg(not(feature = "whitelabel"))]
+            Event::GuildCreate(_) => {
+                self.update_count().await;
+            }
 
-                    if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 { // Once we have 90% of the guilds, we're ok to load more shards
-                        *self.is_ready.write().await = true;
-                        if let Some(tx) = self.ready_tx.lock().await.take() {
-                            self.log("Reporting readiness");
-                            if let Err(_) = tx.send(()) {
-                                self.log_err("Error sending ready notification to probe", &GatewayError::ReceiverHungUpError);
-                            }
-                            self.log("Reported readiness");
-                        }
-                    }
-                }
+            #[cfg(feature = "whitelabel")]
+            Event::GuildCreate(g) => {
+                self.update_count().await;
 
                 #[cfg(feature = "whitelabel")]
-                    self.store_whitelabel_guild(g.id).await;
+                if let Err(e) = self.store_whitelabel_guild(g.id).await {
+                    self.log_err("Error while storing whitelabel guild data", &e);
+                }
             }
 
             _ => {}
@@ -610,6 +603,23 @@ impl<T: EventForwarder> Shard<T> {
         });
 
         Ok(())
+    }
+
+    async fn update_count(&self) {
+        if !*self.is_ready.read().await {
+            let received = self.received_count.fetch_add(1, Ordering::Relaxed);
+
+            if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 { // Once we have 90% of the guilds, we're ok to load more shards
+                *self.is_ready.write().await = true;
+                if let Some(tx) = self.ready_tx.lock().await.take() {
+                    self.log("Reporting readiness");
+                    if let Err(_) = tx.send(()) {
+                        self.log_err("Error sending ready notification to probe", &GatewayError::ReceiverHungUpError);
+                    }
+                    self.log("Reported readiness");
+                }
+            }
+        }
     }
 
     async fn meets_forward_threshold(&self, event: &Event) -> bool {

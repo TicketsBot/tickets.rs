@@ -1,6 +1,8 @@
+#[cfg(feature = "whitelabel")]
 use crate::{Shard, GatewayError};
-use std::sync::Arc;
+#[cfg(feature = "whitelabel")]
 use model::Snowflake;
+#[cfg(feature = "whitelabel")]
 use crate::gateway::event_forwarding::EventForwarder;
 
 #[cfg(feature = "whitelabel")]

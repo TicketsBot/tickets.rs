@@ -1,10 +1,9 @@
 use async_trait::async_trait;
-use crate::{Shard, GatewayError, Config};
+use crate::{GatewayError, Config};
 use common::event_forwarding;
 use std::sync::Arc;
 use std::time::Duration;
 use crate::gateway::worker_response::WorkerResponse;
-use crate::gateway::payloads::event::Event;
 use model::Snowflake;
 use tokio::time::sleep;
 use tokio::sync::RwLock;

@@ -2,7 +2,13 @@ mod gateway;
 pub use gateway::*;
 
 mod manager;
-pub use manager::{ShardManager, PublicShardManager, WhitelabelShardManager, Options, ShardCount};
+pub use manager::{ShardManager, Options, ShardCount};
+
+#[cfg(not(feature = "whitelabel"))]
+pub use manager::PublicShardManager;
+
+#[cfg(feature = "whitelabel")]
+pub use manager::WhitelabelShardManager;
 
 mod builders;
 pub use builders::{build_cache, build_redis, get_redis_uri, get_worker_svc_uri};

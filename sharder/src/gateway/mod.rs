@@ -19,6 +19,5 @@ pub use intents::Intents;
 mod worker_response;
 
 mod whitelabel_utils;
-use whitelabel_utils::*;
 
 pub mod event_forwarding;

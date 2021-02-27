@@ -15,18 +15,14 @@ use deadpool_redis::cmd;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[tokio::main]
-async fn main() {
-    if cfg!(feature = "whitelabel") {
-        panic!("Started public binary with whitelabel feature flag");
-    }
-
-    #[cfg(not(feature = "whitelabel"))]
-    bootstrap().await;
+#[cfg(feature = "whitelabel")]
+fn main() {
+    panic!("Started public sharder with whitelabel feature flag")
 }
 
 #[cfg(not(feature = "whitelabel"))]
-async fn bootstrap() {
+#[tokio::main]
+async fn main() {
     // init sharder options
     let config = Arc::new(Config::from_envvar());
     let shard_count = get_shard_count();
@@ -67,6 +63,7 @@ async fn bootstrap() {
     signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
 }
 
+#[cfg(not(feature = "whitelabel"))]
 fn get_shard_count() -> ShardCount {
     let cluster_size: u16 = var_or_panic("SHARDER_CLUSTER_SIZE").parse().unwrap();
     let sharder_count: u16 = var_or_panic("SHARDER_TOTAL").parse().unwrap();
