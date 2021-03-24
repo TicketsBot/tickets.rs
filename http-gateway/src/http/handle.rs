@@ -5,7 +5,7 @@ use ed25519_dalek::{Verifier, Signature, PublicKey};
 use warp::hyper::body::Bytes;
 use crate::Error;
 use warp::Rejection;
-use model::interaction::{Interaction, InteractionType, InteractionResponse};
+use model::interaction::{Interaction, InteractionType, InteractionResponse, InteractionResponseType, InteractionApplicationCommandCallbackData};
 use common::event_forwarding::Command;
 use serde_json::value::RawValue;
 use std::str;
@@ -20,9 +20,9 @@ pub async fn handle(
     body: Bytes,
 ) -> Result<Json, Rejection> {
     let timestamp = (&timestamp[..]).as_bytes();
-    let body = &body[..];
+    let body_slice = &body[..];
 
-    let body_with_timestamp: Vec<u8> = timestamp.iter().copied().chain(body.iter().copied()).collect();
+    let body_with_timestamp: Vec<u8> = timestamp.iter().copied().chain(body_slice.iter().copied()).collect();
 
     let public_key = get_public_key(server.clone(), bot_id).await.map_err(warp::reject::custom)?;
 
@@ -31,7 +31,7 @@ pub async fn handle(
     }
 
     // TODO: Log errors
-    let interaction: Interaction = serde_json::from_slice(&body)
+    let interaction: Interaction = serde_json::from_slice(&body[..])
         .map_err(Error::JsonError)
         .map_err(warp::reject::custom)?;
 
@@ -43,21 +43,33 @@ pub async fn handle(
 
         _ => {
             match interaction.guild_id { // Should never be None
-                Some(guild_id) => match forward(server, bot_id, guild_id, body).await {
-                    Ok(_) => {
-                        let response = InteractionResponse::new_deferred_message_with_source();
-                        Ok(warp::reply::json(&response))
-                    }
-                    Err(e) => {
-                        // TODO: Proper logging
-                        eprintln!("Error occurred while forwarding command: {}", e);
-                        Err(warp::reject::custom(e))
-                    }
+                Some(guild_id) => {
+                    tokio::spawn(async move {
+                        if let Err(e) = forward(server, bot_id, guild_id, &body[..]).await {
+                            eprintln!("Error occurred while forwarding command: {}", e);
+                        }
+                    });
+
+                    let response = InteractionResponse::new_deferred_message_with_source();
+                    Ok(warp::reply::json(&response))
                 }
-                None => Err(warp::reject::custom(Error::MissingGuildId)),
+                None => Ok(warp::reply::json(&get_missing_guild_id_response())),
             }
         }
     }
+}
+
+fn get_missing_guild_id_response() -> InteractionResponse {
+    return InteractionResponse {
+        r#type: InteractionResponseType::ChannelMessageWithSource,
+        data: Some(InteractionApplicationCommandCallbackData {
+            tts: None,
+            content: Box::from("Commands in DMs are not currently supported. Please run this command in a server."),
+            embeds: None,
+            allowed_mentions: None,
+            flags: 0,
+        }),
+    };
 }
 
 async fn get_public_key(server: Arc<Server>, bot_id: Snowflake) -> Result<PublicKey, Error> {
@@ -91,10 +103,10 @@ pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake
 
 
     #[cfg(feature = "sticky-cookie")]
-    let mut req: RequestBuilder;
+        let mut req: RequestBuilder;
 
     #[cfg(not(feature = "sticky-cookie"))]
-    let req: RequestBuilder;
+        let req: RequestBuilder;
 
     req = server.http_client.clone()
         .post(&server.config.worker_svc_uri[..])
@@ -102,36 +114,36 @@ pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake
         .json(&wrapped);
 
     #[cfg(feature = "sticky-cookie")]
-    {
+        {
 
-        // apply sticky cookie header
-        // although whitelabel bots run on shard 0 only, we still treat them in the regular fashion to
-        // ensure a good spread of events across all workers, to prevent all events going to the worker
-        // assigned to shard 0 only.
-        let shard_id = calculate_shard_id(guild_id, server.config.shard_count);
+            // apply sticky cookie header
+            // although whitelabel bots run on shard 0 only, we still treat them in the regular fashion to
+            // ensure a good spread of events across all workers, to prevent all events going to the worker
+            // assigned to shard 0 only.
+            let shard_id = calculate_shard_id(guild_id, server.config.shard_count);
 
-        let cookie = server.cookies.read().await;
-        if let Some(cookie) = cookie.get(&shard_id) {
-            let value = format!("{}={}", server.config.worker_sticky_cookie, cookie);
-            req = req.header(reqwest::header::COOKIE, value);
+            let cookie = server.cookies.read().await;
+            if let Some(cookie) = cookie.get(&shard_id) {
+                let value = format!("{}={}", server.config.worker_sticky_cookie, cookie);
+                req = req.header(reqwest::header::COOKIE, value);
+            }
+            drop(cookie); // drop here so we can write safely later
+
+            let res = req.send()
+                .await
+                .map_err(Error::ReqwestError)?;
+
+            if let Some(cookie) = res.cookies().find(|c| c.name() == &*server.config.worker_sticky_cookie) {
+                let mut cookies = server.cookies.write().await;
+                cookies.insert(shard_id, Box::from(cookie.value()));
+            };
         }
-        drop(cookie); // drop here so we can write safely later
-
-        let res = req.send()
-            .await
-            .map_err(Error::ReqwestError)?;
-
-        if let Some(cookie) = res.cookies().find(|c| c.name() == &*server.config.worker_sticky_cookie) {
-            let mut cookies = server.cookies.write().await;
-            cookies.insert(shard_id, Box::from(cookie.value()));
-        };
-    }
 
     #[cfg(not(feature = "sticky-cookie"))]
-    {
-        req.send()
-            .await.map_err(Error::ReqwestError)?;
-    }
+        {
+            req.send()
+                .await.map_err(Error::ReqwestError)?;
+        }
 
     Ok(())
 }

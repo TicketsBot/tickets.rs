@@ -1,5 +1,4 @@
 use warp::reject::Reject;
-use warp::Rejection;
 use serde::Serializer;
 use std::fmt::Debug;
 use model::Snowflake;
@@ -35,12 +34,6 @@ pub enum Error {
 }
 
 impl Reject for Error {}
-
-impl Into<warp::Rejection> for Error {
-    fn into(self) -> Rejection {
-        warp::reject::custom(self)
-    }
-}
 
 impl<T> Into<Result<T, Self>> for Error {
     fn into(self) -> Result<T, Self> {
