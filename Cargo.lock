@@ -3340,7 +3340,6 @@ dependencies = [
  "parking_lot",
  "percent-encoding",
  "rand 0.7.3",
- "rustls 0.19.0",
  "serde",
  "serde_json",
  "sha-1",
@@ -3352,8 +3351,6 @@ dependencies = [
  "thiserror",
  "tokio-stream",
  "url",
- "webpki",
- "webpki-roots 0.21.0",
  "whoami",
 ]
 
@@ -3382,9 +3379,10 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ce2e16b6774c671cc183e1d202386fdf9cde1e8468c1894a7f2a63eb671c4f4"
 dependencies = [
+ "native-tls",
  "once_cell",
  "tokio 1.4.0",
- "tokio-rustls 0.22.0",
+ "tokio-native-tls",
 ]
 
 [[package]]
