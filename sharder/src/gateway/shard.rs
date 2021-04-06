@@ -555,6 +555,7 @@ impl<T: EventForwarder> Shard<T> {
                 }
                 Event::GuildDelete(guild) => {
                     if guild.unavailable.is_none() { // we were kicked
+                        // TODO: don't delete if this is main bot & whitelabel bot is in guild
                         self.cache.delete_guild(guild.id).await
                     } else {
                         Ok(())
