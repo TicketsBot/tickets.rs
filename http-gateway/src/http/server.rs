@@ -57,6 +57,7 @@ impl Server {
             .and(warp::header("x-signature-timestamp"))
             .and(warp::body::bytes())
             .and_then(super::handle)
+            .map(|reply| warp::reply::with_header(reply, "Content-Type", "application/json"))
             .with(warp::log("warp"))
             .recover(|error: Rejection| async move {
                 eprintln!("Rejecting with {:?}", error);
