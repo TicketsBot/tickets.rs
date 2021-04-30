@@ -26,3 +26,8 @@ pub fn to_unexpected<'a>(value: Value) -> Unexpected<'a> {
         //_ => Unexpected::Other(std::any::type_name::<Value>()),
     }
 }
+
+// Does not allocate
+pub fn empty_vec<T>() -> Vec<T> {
+    Vec::with_capacity(0)
+}

@@ -31,6 +31,9 @@ pub enum Error {
 
     #[error("guild_id was missing from request")]
     MissingGuildId,
+
+    #[error("interaction type is unsupported")]
+    UnsupportedInteractionType,
 }
 
 impl Reject for Error {}

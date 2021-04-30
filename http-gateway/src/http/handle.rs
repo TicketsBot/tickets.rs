@@ -5,7 +5,7 @@ use ed25519_dalek::{Verifier, Signature, PublicKey};
 use warp::hyper::body::Bytes;
 use crate::Error;
 use warp::Rejection;
-use model::interaction::{Interaction, InteractionType, InteractionResponse, InteractionResponseType, InteractionApplicationCommandCallbackData};
+use model::interaction::{Interaction, InteractionResponse, InteractionApplicationCommandCallbackData};
 use common::event_forwarding::Command;
 use serde_json::value::RawValue;
 use std::str;
@@ -35,14 +35,14 @@ pub async fn handle(
         .map_err(Error::JsonError)
         .map_err(warp::reject::custom)?;
 
-    match interaction.r#type {
-        InteractionType::Ping => {
+    match interaction {
+        Interaction::Ping(_) => {
             let response = InteractionResponse::new_pong();
             Ok(warp::reply::json(&response))
         }
 
-        _ => {
-            match interaction.guild_id { // Should never be None
+        Interaction::ApplicationCommand(data) => {
+            match data.guild_id { // Should never be None
                 Some(guild_id) => {
                     tokio::spawn(async move {
                         if let Err(e) = forward(server, bot_id, guild_id, &body[..]).await {
@@ -56,20 +56,21 @@ pub async fn handle(
                 None => Ok(warp::reply::json(&get_missing_guild_id_response())),
             }
         }
+
+        _ => Err(warp::reject::custom(Error::UnsupportedInteractionType))
     }
 }
 
 fn get_missing_guild_id_response() -> InteractionResponse {
-    return InteractionResponse {
-        r#type: InteractionResponseType::ChannelMessageWithSource,
-        data: Some(InteractionApplicationCommandCallbackData {
-            tts: None,
-            content: Box::from("Commands in DMs are not currently supported. Please run this command in a server."),
-            embeds: None,
-            allowed_mentions: None,
-            flags: 0,
-        }),
+    let data = InteractionApplicationCommandCallbackData {
+        tts: None,
+        content: Box::from("Commands in DMs are not currently supported. Please run this command in a server."),
+        embeds: None,
+        allowed_mentions: None,
+        flags: 0,
     };
+
+    InteractionResponse::new_channel_message_with_source(data)
 }
 
 async fn get_public_key(server: Arc<Server>, bot_id: Snowflake) -> Result<PublicKey, Error> {
