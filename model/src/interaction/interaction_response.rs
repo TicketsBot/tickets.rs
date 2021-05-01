@@ -12,7 +12,7 @@ use serde::de::Error;
 pub enum InteractionResponse {
     PongResponse(SimpleInteractionResponse),
     ChannelMessageWithSource(ApplicationCommandResponse),
-    DeferredChannelMessageWithSource(SimpleInteractionResponse),
+    DeferredChannelMessageWithSource(DeferredApplicationCommandResponse),
     DeferredMessageUpdate(SimpleInteractionResponse),
     // UpdateMessage is not yet supported
 }
@@ -26,6 +26,17 @@ pub struct SimpleInteractionResponse {
 pub struct ApplicationCommandResponse {
     r#type: InteractionResponseType,
     data: InteractionApplicationCommandCallbackData,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DeferredApplicationCommandResponse {
+    r#type: InteractionResponseType,
+    data: DeferredApplicationCommandResponseData,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DeferredApplicationCommandResponseData {
+    pub flags: usize,
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy)]
@@ -68,8 +79,11 @@ impl InteractionResponse {
     }
 
     pub fn new_deferred_message_with_source() -> InteractionResponse {
-        InteractionResponse::DeferredChannelMessageWithSource(SimpleInteractionResponse {
+        InteractionResponse::DeferredChannelMessageWithSource(DeferredApplicationCommandResponse {
             r#type: InteractionResponseType::DeferredChannelMessageWithSource,
+            data: DeferredApplicationCommandResponseData {
+                flags: 64,
+            }
         })
     }
 

@@ -255,7 +255,6 @@ impl Worker {
     async fn get_user(&self, id: Snowflake) -> Result<Option<User>, CacheError> {
         let row = self.client.query_one(r#"SELECT "data" FROM users WHERE "user_id" = $1;"#, &[&(id.0 as i64)]).await.map_err(CacheError::DatabaseError)?;
         let data: &str = row.get(0);
-        println!("{}", data);
 
         Ok(None)
     }

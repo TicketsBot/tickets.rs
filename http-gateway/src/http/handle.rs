@@ -1,16 +1,16 @@
-use warp::reply::Json;
 use crate::http::Server;
 use std::sync::Arc;
 use ed25519_dalek::{Verifier, Signature, PublicKey};
 use warp::hyper::body::Bytes;
 use crate::Error;
-use warp::Rejection;
+use warp::{Rejection, Reply, reply::Response};
 use model::interaction::{Interaction, InteractionResponse, InteractionApplicationCommandCallbackData};
 use common::event_forwarding::Command;
 use serde_json::value::RawValue;
 use std::str;
 use model::Snowflake;
 use reqwest::RequestBuilder;
+use warp::hyper::Body;
 
 pub async fn handle(
     bot_id: Snowflake,
@@ -18,7 +18,7 @@ pub async fn handle(
     signature: Signature,
     timestamp: String,
     body: Bytes,
-) -> Result<Json, Rejection> {
+) -> Result<Response, Rejection> {
     let timestamp = (&timestamp[..]).as_bytes();
     let body_slice = &body[..];
 
@@ -30,7 +30,6 @@ pub async fn handle(
         return Err(Error::InvalidSignature(e).into());
     }
 
-    // TODO: Log errors
     let interaction: Interaction = serde_json::from_slice(&body[..])
         .map_err(Error::JsonError)
         .map_err(warp::reject::custom)?;
@@ -38,22 +37,17 @@ pub async fn handle(
     match interaction {
         Interaction::Ping(_) => {
             let response = InteractionResponse::new_pong();
-            Ok(warp::reply::json(&response))
+            Ok(warp::reply::json(&response).into_response())
         }
 
         Interaction::ApplicationCommand(data) => {
             match data.guild_id { // Should never be None
                 Some(guild_id) => {
-                    tokio::spawn(async move {
-                        if let Err(e) = forward(server, bot_id, guild_id, &body[..]).await {
-                            eprintln!("Error occurred while forwarding command: {}", e);
-                        }
-                    });
-
-                    let response = InteractionResponse::new_deferred_message_with_source();
-                    Ok(warp::reply::json(&response))
+                    let res_body = forward(server, bot_id, guild_id, &body[..]).await.map_err(warp::reject::custom)?;
+                    println!("{:?}", res_body);
+                    Ok(Response::new(Body::from(res_body)))
                 }
-                None => Ok(warp::reply::json(&get_missing_guild_id_response())),
+                None => Ok(warp::reply::json(&get_missing_guild_id_response()).into_response()),
             }
         }
 
@@ -89,7 +83,7 @@ async fn get_public_key(server: Arc<Server>, bot_id: Snowflake) -> Result<Public
     }
 }
 
-pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake, data: &[u8]) -> Result<(), Error> {
+pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake, data: &[u8]) -> Result<Bytes, Error> {
     let json = str::from_utf8(data).map_err(Error::Utf8Error)?.to_owned();
 
     let token = get_token(server.clone(), bot_id).await?;
@@ -102,7 +96,6 @@ pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake
         data: RawValue::from_string(json).map_err(Error::JsonError)?,
     };
 
-
     #[cfg(feature = "sticky-cookie")]
         let mut req: RequestBuilder;
 
@@ -114,6 +107,7 @@ pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake
         .header("x-guild-id", guild_id.0.to_string())
         .json(&wrapped);
 
+    let res_body: Bytes;
     #[cfg(feature = "sticky-cookie")]
         {
 
@@ -138,15 +132,19 @@ pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake
                 let mut cookies = server.cookies.write().await;
                 cookies.insert(shard_id, Box::from(cookie.value()));
             };
+
+            res_body = res.bytes().await.map_err(Error::ReqwestError)?;
         }
 
     #[cfg(not(feature = "sticky-cookie"))]
         {
-            req.send()
+            let res = req.send()
                 .await.map_err(Error::ReqwestError)?;
+
+            res_body = res.bytes().await.map_err(Error::ReqwestError)?;
         }
 
-    Ok(())
+    Ok(res_body)
 }
 
 // Returns tuple of (token,is_whitelabel)
