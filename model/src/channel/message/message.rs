@@ -7,6 +7,8 @@ use crate::guild::Member;
 use chrono::{DateTime, Utc};
 use crate::channel::{ChannelType, Reaction};
 use super::embed::Embed;
+use crate::interaction::Component;
+use crate::util::empty_vec;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Message {
@@ -47,6 +49,8 @@ pub struct Message {
     #[serde(default)]
     pub flags: u32,
     pub referenced_message: Box<Option<Message>>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default = "empty_vec")]
+    pub components: Vec<Component>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

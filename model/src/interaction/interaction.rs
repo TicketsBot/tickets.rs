@@ -1,18 +1,20 @@
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, Deserializer};
 use serde_repr::{Serialize_repr, Deserialize_repr};
 use crate::Snowflake;
 use crate::guild::Member;
-use crate::interaction::ApplicationCommandInteractionData;
+use crate::interaction::{ApplicationCommandInteractionData, ComponentType};
+use crate::user::User;
+use crate::channel::message::Message;
+use std::convert::TryFrom;
+use serde_json::Value;
+use serde::de::Error;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Interaction {
-    pub id: Snowflake,
-    pub r#type: InteractionType,
-    pub data: Option<ApplicationCommandInteractionData>,
-    pub guild_id: Option<Snowflake>,
-    pub channel_id: Option<Snowflake>,
-    pub member: Option<Member>,
-    pub token: Box<str>,
+#[derive(Serialize, Debug)]
+#[serde(untagged)]
+pub enum Interaction {
+    Ping(PingInteraction),
+    ApplicationCommand(ApplicationCommandInteraction),
+    Button(ButtonInteraction),
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy)]
@@ -20,4 +22,77 @@ pub struct Interaction {
 pub enum InteractionType {
     Ping = 1,
     ApplicationCommand = 2,
+    Button = 3,
+}
+
+impl TryFrom<u64> for InteractionType {
+    type Error = Box<str>;
+
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        Ok(match value {
+            1 => Self::Ping,
+            2 => Self::ApplicationCommand,
+            3 => Self::Button,
+            _ => Err(format!("invalid interaction type \"{}\"", value).into_boxed_str())?
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PingInteraction {
+    pub r#type: InteractionType,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ApplicationCommandInteraction {
+    pub id: Snowflake,
+    pub application_id: Snowflake,
+    pub r#type: InteractionType,
+    pub data: ApplicationCommandInteractionData,
+    pub guild_id: Option<Snowflake>,
+    pub channel_id: Snowflake,
+    pub member: Option<Member>,
+    pub user: Option<User>,
+    pub token: Box<str>,
+    pub version: u8,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ButtonInteraction {
+    pub id: Snowflake,
+    pub application_id: Snowflake,
+    pub r#type: InteractionType,
+    pub message: Message,
+    pub data: ButtonInteractionData,
+    pub guild_id: Option<Snowflake>,
+    pub channel_id: Snowflake,
+    pub member: Option<Member>,
+    pub user: Option<User>,
+    pub token: Box<str>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ButtonInteractionData {
+    pub custom_id: Box<str>,
+    pub component_type: ComponentType,
+}
+
+impl<'de> Deserialize<'de> for Interaction {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+
+        let interaction_type = value.get("type")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| Box::from("interaction type was not an integer"))
+            .and_then(InteractionType::try_from)
+            .map_err(D::Error::custom)?;
+
+        let component = match interaction_type {
+            InteractionType::Ping => serde_json::from_value(value).map(Interaction::Ping),
+            InteractionType::ApplicationCommand => serde_json::from_value(value).map(Interaction::ApplicationCommand),
+            InteractionType::Button => serde_json::from_value(value).map(Interaction::Button),
+        }.map_err(D::Error::custom)?;
+
+        Ok(component)
+    }
 }
