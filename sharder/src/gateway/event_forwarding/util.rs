@@ -49,6 +49,7 @@ pub fn get_guild_id(event: &Event) -> Option<Snowflake> {
 pub fn is_whitelisted(event: &Event) -> bool {
     match event {
         Event::ChannelDelete(_) |
+        Event::ThreadDelete(_) |
         Event::GuildCreate(_) |
         Event::GuildDelete(_) |
         Event::GuildMemberRemove(_) |
