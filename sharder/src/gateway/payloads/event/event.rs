@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 
-use model::channel::Channel;
+use model::channel::{Channel, ThreadMember};
 use model::guild::{Guild, UnavailableGuild, VoiceState};
 use model::channel::message::Message;
 use model::user::{PresenceUpdate, User};
@@ -15,6 +15,12 @@ pub enum Event {
     ChannelUpdate(Channel),
     ChannelDelete(Channel),
     ChannelPinsUpdate(super::ChannelPinsUpdate),
+    ThreadCreate(Channel),
+    ThreadUpdate(Channel),
+    ThreadDelete(super::ThreadDelete),
+    ThreadListSync(super::ThreadListSync),
+    ThreadMemberUpdate(ThreadMember),
+    ThreadMembersUpdate(super::ThreadMembersUpdate),
     GuildCreate(Guild),
     GuildUpdate(Guild),
     GuildDelete(UnavailableGuild),

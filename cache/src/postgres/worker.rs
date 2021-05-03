@@ -134,6 +134,11 @@ impl Worker {
                     res = Err(e);
                 }
             }
+            if let Some(threads) = guild.threads {
+                if let Err(e) = self.store_channels(threads).await {
+                    res = Err(e);
+                }
+            }
 
             if let Some(members) = guild.members {
                 let users = members

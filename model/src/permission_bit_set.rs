@@ -2,9 +2,17 @@ use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde::de::Error;
 use std::fmt;
 use std::fmt::Formatter;
+use crate::channel::Permission;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PermissionBitSet(pub u64);
+
+impl PermissionBitSet {
+    pub fn has_permission(&self, permission: Permission) -> bool {
+        let perm = permission as u64;
+        return self.0 & perm == perm;
+    }
+}
 
 impl Serialize for PermissionBitSet {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

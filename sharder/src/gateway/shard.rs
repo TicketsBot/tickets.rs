@@ -132,8 +132,8 @@ impl<T: EventForwarder> Shard<T> {
         // rst
 
         let uri = match cfg!(feature = "compression") {
-            true => "wss://gateway.discord.gg/?v=8&encoding=json&compress=zlib-stream",
-            false => "wss://gateway.discord.gg/?v=8&encoding=json",
+            true => "wss://gateway.discord.gg/?v=9&encoding=json&compress=zlib-stream",
+            false => "wss://gateway.discord.gg/?v=9&encoding=json",
         };
 
         let uri = url::Url::parse(uri).unwrap();
@@ -545,6 +545,9 @@ impl<T: EventForwarder> Shard<T> {
                 Event::ChannelCreate(channel) => self.cache.store_channel(channel).await,
                 Event::ChannelUpdate(channel) => self.cache.store_channel(channel).await,
                 Event::ChannelDelete(channel) => self.cache.delete_channel(channel.id).await,
+                Event::ThreadCreate(thread) => self.cache.store_channel(thread).await,
+                Event::ThreadUpdate(thread) => self.cache.store_channel(thread).await,
+                Event::ThreadDelete(thread) => self.cache.delete_channel(thread.id).await,
                 Event::GuildCreate(mut guild) => {
                     apply_guild_id_to_channels(&mut guild);
                     self.cache.store_guild(guild).await
@@ -928,6 +931,12 @@ fn apply_guild_id_to_channels(guild: &mut Guild) {
     if let Some(channels) = &mut guild.channels {
         for channel in channels {
             channel.guild_id = Some(guild.id)
+        }
+    }
+
+    if let Some(threads) = &mut guild.threads {
+        for thread in threads {
+            thread.guild_id = Some(guild.id)
         }
     }
 }

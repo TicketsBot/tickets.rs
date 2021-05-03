@@ -4,6 +4,7 @@ use crate::Snowflake;
 use crate::user::User;
 use super::{ChannelType, PermissionOverwrite};
 use chrono::{DateTime, Utc};
+use crate::channel::{VideoQualityMode, ThreadMetadata, ThreadMember};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Channel {
@@ -42,7 +43,19 @@ pub struct Channel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<Snowflake>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_pin_timestamp: Option<DateTime<Utc>>
+    pub last_pin_timestamp: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rtc_region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_quality_mode: Option<VideoQualityMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_count: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_count: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_metadata: Option<ThreadMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_member: Option<ThreadMember>,
 }
 
 impl PartialEq for Channel {
