@@ -1,5 +1,5 @@
 mod event;
 pub use event::*;
 
-mod command;
-pub use command::*;
+mod interaction;
+pub use interaction::*;

@@ -40,6 +40,8 @@ use async_tungstenite::{
     tokio::connect_async,
 };
 
+const GATEWAY_VERSION: u8 = 9;
+
 pub struct Shard<T: EventForwarder> {
     pub(crate) config: Arc<Config>,
     pub(crate) identify: payloads::Identify,
@@ -132,11 +134,11 @@ impl<T: EventForwarder> Shard<T> {
         // rst
 
         let uri = match cfg!(feature = "compression") {
-            true => "wss://gateway.discord.gg/?v=9&encoding=json&compress=zlib-stream",
-            false => "wss://gateway.discord.gg/?v=9&encoding=json",
+            true => format!("wss://gateway.discord.gg/?v={}&encoding=json&compress=zlib-stream", GATEWAY_VERSION),
+            false => format!("wss://gateway.discord.gg/?v={}&encoding=json", GATEWAY_VERSION),
         };
 
-        let uri = url::Url::parse(uri).unwrap();
+        let uri = url::Url::parse(&uri[..]).unwrap();
 
         let (wss, _) = connect_async(uri).await.map_err(GatewayError::WebsocketError)?;
         let (ws_tx, ws_rx) = wss.split();

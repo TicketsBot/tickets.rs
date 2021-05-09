@@ -4,8 +4,8 @@ use ed25519_dalek::{Verifier, Signature, PublicKey};
 use warp::hyper::body::Bytes;
 use crate::Error;
 use warp::{Rejection, Reply, reply::Response};
-use model::interaction::{Interaction, InteractionResponse, InteractionApplicationCommandCallbackData};
-use common::event_forwarding::Command;
+use model::interaction::{Interaction, InteractionResponse, InteractionApplicationCommandCallbackData, InteractionType};
+use common::event_forwarding::ForwardedInteraction;
 use serde_json::value::RawValue;
 use std::str;
 use model::Snowflake;
@@ -41,17 +41,26 @@ pub async fn handle(
         }
 
         Interaction::ApplicationCommand(data) => {
-            match data.guild_id { // Should never be None
+            match data.guild_id {
                 Some(guild_id) => {
-                    let res_body = forward(server, bot_id, guild_id, &body[..]).await.map_err(warp::reject::custom)?;
-                    println!("{:?}", res_body);
+                    let res_body = forward(server, bot_id, guild_id, data.r#type, &body[..]).await.map_err(warp::reject::custom)?;
                     Ok(Response::new(Body::from(res_body)))
                 }
                 None => Ok(warp::reply::json(&get_missing_guild_id_response()).into_response()),
             }
         }
 
-        _ => Err(warp::reject::custom(Error::UnsupportedInteractionType))
+        Interaction::Button(data) => {
+            match data.guild_id {
+                Some(guild_id) => {
+                    let res_body = forward(server, bot_id, guild_id, data.r#type, &body[..]).await.map_err(warp::reject::custom)?;
+                    Ok(Response::new(Body::from(res_body)))
+                }
+                None => Ok(warp::reply::json(&get_missing_guild_id_response()).into_response()),
+            }
+        }
+
+        //_ => Err(warp::reject::custom(Error::UnsupportedInteractionType))
     }
 }
 
@@ -83,16 +92,17 @@ async fn get_public_key(server: Arc<Server>, bot_id: Snowflake) -> Result<Public
     }
 }
 
-pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake, data: &[u8]) -> Result<Bytes, Error> {
+pub async fn forward(server: Arc<Server>, bot_id: Snowflake, guild_id: Snowflake, interaction_type: InteractionType, data: &[u8]) -> Result<Bytes, Error> {
     let json = str::from_utf8(data).map_err(Error::Utf8Error)?.to_owned();
 
     let token = get_token(server.clone(), bot_id).await?;
     let is_whitelabel = bot_id == server.config.main_bot_id;
 
-    let wrapped = Command {
+    let wrapped = ForwardedInteraction {
         bot_token: &token,
         bot_id: bot_id.0,
         is_whitelabel,
+        interaction_type,
         data: RawValue::from_string(json).map_err(Error::JsonError)?,
     };
 
