@@ -71,7 +71,7 @@ pub struct ChannelMention {
     #[serde(rename = "type")]
     pub channel_type: ChannelType,
     pub name: String,
-}
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Attachment {
