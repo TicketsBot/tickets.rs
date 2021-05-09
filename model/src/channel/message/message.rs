@@ -5,9 +5,9 @@ use crate::Snowflake;
 use crate::user::User;
 use crate::guild::Member;
 use chrono::{DateTime, Utc};
-use crate::channel::{ChannelType, Reaction};
+use crate::channel::{ChannelType, Reaction, Channel};
 use super::embed::Embed;
-use crate::interaction::Component;
+use crate::interaction::{Component, InteractionType};
 use crate::util::empty_vec;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -51,6 +51,10 @@ pub struct Message {
     pub referenced_message: Box<Option<Message>>,
     #[serde(skip_serializing_if = "Vec::is_empty", default = "empty_vec")]
     pub components: Vec<Component>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interaction: Option<MessageInteraction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread: Option<Channel>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -67,7 +71,7 @@ pub struct ChannelMention {
     #[serde(rename = "type")]
     pub channel_type: ChannelType,
     pub name: String,
-}
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Attachment {
@@ -98,8 +102,13 @@ pub enum MessageType {
     ChannelFollowAdd = 12,
     GuildDiscoveryDisqualified = 14,
     GuildDiscoveryRequalified = 15,
+    GuildDiscoveryGracePeriodInitialWarning = 16,
+    GuildDiscoveryGracePeriodFinalWarning = 17,
+    ThreadCreated = 18,
     Reply = 19,
     ApplicationCommand = 20,
+    ThreadStarterMessage = 21,
+    GuildInviteReminder = 22,
 }
 
 impl Default for MessageType {
@@ -138,4 +147,12 @@ pub struct MessageReference {
     pub message_id: Option<Snowflake>,
     pub channel_id: Snowflake,
     pub guild_id: Option<Snowflake>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MessageInteraction {
+    pub id: Snowflake,
+    pub r#type: InteractionType,
+    pub name: Box<str>,
+    pub user: User,
 }

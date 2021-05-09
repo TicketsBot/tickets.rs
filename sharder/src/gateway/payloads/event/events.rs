@@ -7,6 +7,7 @@ use model::user::{User, PresenceUpdate};
 use model::guild::{UnavailableGuild, Emoji, Member, Role};
 use crate::gateway::ShardInfo;
 use model::Snowflake;
+use model::channel::{ChannelType, Channel, ThreadMember};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Ready {
@@ -16,6 +17,31 @@ pub struct Ready {
     pub guilds: Vec<UnavailableGuild>,
     pub session_id: String,
     pub shard: ShardInfo,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ThreadDelete {
+    pub id: Snowflake,
+    pub guild_id: Snowflake,
+    pub parent_id: Snowflake,
+    pub r#type: ChannelType,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ThreadListSync {
+    pub guild_id: Snowflake,
+    pub channel_ids: Option<Vec<Snowflake>>,
+    pub threads: Vec<Channel>,
+    pub members: Vec<ThreadMember>
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ThreadMembersUpdate {
+    pub id: Snowflake,
+    pub guild_id: Snowflake,
+    pub member_count: u16,
+    pub added_members: Option<Vec<ThreadMember>>,
+    pub removed_member_ids: Option<Vec<Snowflake>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

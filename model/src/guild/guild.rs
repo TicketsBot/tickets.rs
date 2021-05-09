@@ -56,6 +56,8 @@ pub struct Guild {
     #[serde(skip_serializing)]
     pub channels: Option<Vec<Channel>>,
     #[serde(skip_serializing)]
+    pub threads: Option<Vec<Channel>>,
+    #[serde(skip_serializing)]
     pub presences: Option<Vec<PresenceUpdate>>,
     pub max_presences: Option<u32>,
     pub max_members: Option<u32>,
@@ -73,6 +75,9 @@ pub struct Guild {
     pub max_video_channel_users: Option<u8>,
     pub approximate_member_count: Option<u32>,
     pub approximate_presence_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub welcome_screen: Option<WelcomeScreen>,
+    pub nsfw: bool,
 }
 
 impl PartialEq for Guild {
@@ -145,4 +150,20 @@ pub enum Features {
     PreviewEnabled,
     MemberVerificationGateEnabled,
     DiscoverableDisabled,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct WelcomeScreen {
+    pub description: Option<String>,
+    pub welcome_channels: Vec<WelcomeScreenChannel>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct WelcomeScreenChannel {
+    pub channel_id: Snowflake,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
+    pub emoji_id: Option<Snowflake>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emoji_name: Option<String>,
 }

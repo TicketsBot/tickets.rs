@@ -6,12 +6,9 @@ use crate::{Snowflake, PermissionBitSet};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PermissionOverwrite {
     pub id: Snowflake,
-
     #[serde(rename = "type")]
     pub overwrite_type: PermissionOverwriteType,
-
     pub allow: PermissionBitSet,
-
     pub deny: PermissionBitSet,
 }
 

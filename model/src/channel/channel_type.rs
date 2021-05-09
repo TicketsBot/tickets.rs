@@ -10,5 +10,8 @@ pub enum ChannelType {
     GuildCategory = 4,
     GuildNews = 5,
     GuildStore = 6,
+    GuildNewsThread = 10,
+    GuildPublicThread = 11,
+    GuildPrivateThread = 12,
     GuildStageVoice = 13,
 }

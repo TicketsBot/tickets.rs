@@ -6,6 +6,11 @@ pub fn get_guild_id(event: &Event) -> Option<Snowflake> {
         Event::ChannelCreate(data) => data.guild_id,
         Event::ChannelUpdate(data) => data.guild_id,
         Event::ChannelDelete(data) => data.guild_id,
+        Event::ThreadCreate(data) => data.guild_id,
+        Event::ThreadUpdate(data) => data.guild_id,
+        Event::ThreadDelete(data) => Some(data.guild_id),
+        Event::ThreadListSync(data) => Some(data.guild_id),
+        Event::ThreadMembersUpdate(data) => Some(data.guild_id),
         Event::ChannelPinsUpdate(data) => data.guild_id,
         Event::GuildCreate(data) => Some(data.id),
         Event::GuildUpdate(data) => Some(data.id),
@@ -44,6 +49,7 @@ pub fn get_guild_id(event: &Event) -> Option<Snowflake> {
 pub fn is_whitelisted(event: &Event) -> bool {
     match event {
         Event::ChannelDelete(_) |
+        Event::ThreadDelete(_) |
         Event::GuildCreate(_) |
         Event::GuildDelete(_) |
         Event::GuildMemberRemove(_) |
