@@ -77,7 +77,8 @@ pub struct Guild {
     pub approximate_presence_count: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub welcome_screen: Option<WelcomeScreen>,
-    pub nsfw: bool,
+    #[serde(default = "NsfwLevel::default")]
+    pub nsfw_level: NsfwLevel,
 }
 
 impl PartialEq for Guild {
@@ -85,7 +86,6 @@ impl PartialEq for Guild {
         self.id == other.id
     }
 }
-
 
 #[derive(Serialize_repr, Deserialize_repr, Debug)]
 #[repr(u8)]
@@ -166,4 +166,19 @@ pub struct WelcomeScreenChannel {
     pub emoji_id: Option<Snowflake>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emoji_name: Option<String>,
+}
+
+#[derive(Serialize_repr, Deserialize_repr, Debug)]
+#[repr(u8)]
+pub enum NsfwLevel {
+    Default = 0,
+    Explicit = 1,
+    Safe = 2,
+    AgeRestricted = 3,
+}
+
+impl Default for NsfwLevel {
+    fn default() -> Self {
+        NsfwLevel::Default
+    }
 }
