@@ -43,7 +43,8 @@ pub struct Button {
     pub label: Box<str>,
     pub custom_id: Box<str>,
     pub style: ButtonStyle,
-    pub emoji: Emoji,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emoji: Option<Emoji>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<Box<str>>,
     #[serde(default = "bool::default")]
