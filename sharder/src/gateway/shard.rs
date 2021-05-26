@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::str;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicU16, Ordering, AtomicBool};
 use std::time::Duration;
 use std::time::Instant;
 
@@ -64,7 +64,7 @@ pub struct Shard<T: EventForwarder> {
     ready_tx: Mutex<Option<oneshot::Sender<()>>>,
     ready_guild_count: AtomicU16,
     received_count: AtomicU16,
-    is_ready: RwLock<bool>,
+    is_ready: AtomicBool,
     pub(crate) event_forwarder: Arc<T>,
 
     #[cfg(feature = "whitelabel")]
@@ -110,7 +110,7 @@ impl<T: EventForwarder> Shard<T> {
             ready_tx: Mutex::new(None),
             ready_guild_count: AtomicU16::new(0),
             received_count: AtomicU16::new(0),
-            is_ready: RwLock::new(false),
+            is_ready: AtomicBool::new(false),
             event_forwarder,
             #[cfg(feature = "whitelabel")] database,
         })
@@ -127,7 +127,7 @@ impl<T: EventForwarder> Shard<T> {
         *self.total_rx.lock().await = 0;
         self.ready_guild_count.store(0, Ordering::Relaxed);
         self.received_count.store(0, Ordering::Relaxed);
-        *self.is_ready.write().await = false;
+        self.is_ready.store(false, Ordering::Relaxed);
 
         *self.last_heartbeat.write().await = Instant::now();
         *self.last_ack.write().await = Instant::now();
@@ -507,8 +507,7 @@ impl<T: EventForwarder> Shard<T> {
             Event::Resumed(_) => {
                 self.log("Received resumed acknowledgement");
 
-                if !*self.is_ready.read().await {
-                    *self.is_ready.write().await = true;
+                if !self.is_ready.compare_and_swap(false, true, Ordering::Relaxed) {
                     if let Some(tx) = self.ready_tx.lock().await.take() {
                         if let Err(_) = tx.send(()) {
                             self.log_err("Error sending ready notification to probe", &GatewayError::ReceiverHungUpError);
@@ -612,17 +611,19 @@ impl<T: EventForwarder> Shard<T> {
     }
 
     async fn update_count(&self) {
-        if !*self.is_ready.read().await {
+        if !self.is_ready.load(Ordering::Relaxed) {
             let received = self.received_count.fetch_add(1, Ordering::Relaxed);
 
             if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 { // Once we have 90% of the guilds, we're ok to load more shards
-                *self.is_ready.write().await = true;
-                if let Some(tx) = self.ready_tx.lock().await.take() {
-                    self.log("Reporting readiness");
-                    if let Err(_) = tx.send(()) {
-                        self.log_err("Error sending ready notification to probe", &GatewayError::ReceiverHungUpError);
+                // CAS in case value was updated since read
+                if !self.is_ready.compare_and_swap(false, true, Ordering::Relaxed) {
+                    if let Some(tx) = self.ready_tx.lock().await.take() {
+                        self.log("Reporting readiness");
+                        if let Err(_) = tx.send(()) {
+                            self.log_err("Error sending ready notification to probe", &GatewayError::ReceiverHungUpError);
+                        }
+                        self.log("Reported readiness");
                     }
-                    self.log("Reported readiness");
                 }
             }
         }
@@ -632,7 +633,7 @@ impl<T: EventForwarder> Shard<T> {
         if cfg!(feature = "skip-initial-guild-creates") {
             if let Event::GuildCreate(_) = event {
                 // if not ready, don't forward event
-                return *self.is_ready.read().await;
+                return self.is_ready.load(Ordering::Relaxed);
             }
         }
 
