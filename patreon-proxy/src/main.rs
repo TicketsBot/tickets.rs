@@ -73,7 +73,7 @@ async fn handle_refresh(tokens: &database::Tokens, config: &Config, db_client: &
     Ok(tokens)
 }
 
-fn start_server(config: Arc<Config>, patrons: Arc<RwLock<HashMap<String, patreon::Tier>>>) {
+fn  start_server(config: Arc<Config>, patrons: Arc<RwLock<HashMap<String, patreon::Tier>>>) {
     tokio::spawn(async move {
         println!("Starting server...");
         http::listen(config, patrons).await;

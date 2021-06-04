@@ -1,3 +1,5 @@
+use crate::patreon::tier::Tier::{Premium, Whitelabel};
+
 #[derive(Debug)]
 pub enum Tier {
     Premium,
@@ -22,5 +24,9 @@ impl Tier {
             Tier::Premium => 0,
             Tier::Whitelabel => 1,
         }
+    }
+
+    pub fn values<'a>() -> &'a [Tier] {
+        return &[Premium, Whitelabel]
     }
 }

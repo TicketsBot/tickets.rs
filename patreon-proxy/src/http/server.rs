@@ -27,7 +27,7 @@ struct PremiumResponse {
     tier: Option<i32>,
 }
 
-macro_rules! map(
+macro_rules! map (
     { $($key:expr => $value:expr),+ } => {
         {
             let mut m = ::std::collections::HashMap::new();
@@ -62,7 +62,7 @@ async fn ping() -> Result<Json, warp::Rejection> {
 
 async fn is_premium(
     config: Arc<Config>,
-    data: Arc<RwLock<HashMap<String, Tier>>>,
+    patrons: Arc<RwLock<HashMap<String, Tier>>>,
     query: HashMap<String, String>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     if query.get("key") != Some(&config.server_key) {
@@ -72,20 +72,42 @@ async fn is_premium(
         ));
     }
 
-    let id = query.get("id");
-    if id.is_none() {
-        return Ok(warp::reply::with_status(
+    let mut ids = match query.get("id") {
+        Some(joined) => joined.split(","),
+        None => return Ok(warp::reply::with_status(
             warp::reply::json(&map! { "error" => "User ID is missing" }),
             StatusCode::BAD_REQUEST,
-        ));
-    }
+        )),
+    };
 
-    let data = data.read().await;
-    let tier = data.get(id.unwrap()); // safe to unwrap, we've checked if it's None
+    let tiers = Tier::values();
+    let highest_tier_id = tiers.last().unwrap().tier_id();
+    let mut guild_highest_tier: Option<&Tier> = None;
+
+    let patrons = patrons.read().await;
+
+    // any so we stop at the first true
+    // we need to find the highest tier, so we need to only break at
+    ids.any(|id| {
+        if let Some(tier) = patrons.get(id) {
+            match guild_highest_tier {
+                None => guild_highest_tier = Some(tier),
+                Some(current_tier) => {
+                    if tier.tier_id() > current_tier.tier_id() {
+                        guild_highest_tier = Some(tier);
+                    }
+                },
+            }
+
+            tier.tier_id() == highest_tier_id
+        } else {
+            false
+        }
+    });
 
     let response = PremiumResponse {
-        premium: tier.is_some(),
-        tier: tier.map(|tier| tier.tier_id()),
+        premium: guild_highest_tier.is_some(),
+        tier: guild_highest_tier.map(|tier| tier.tier_id()),
     };
 
     Ok(warp::reply::with_status(
