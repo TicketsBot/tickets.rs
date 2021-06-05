@@ -13,6 +13,7 @@ pub use permission_bit_set::PermissionBitSet;
 pub mod channel;
 pub mod guild;
 pub mod interaction;
+pub mod stage;
 pub mod user;
 
 mod util;

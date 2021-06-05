@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use model::channel::message::Message;
 use model::channel::{Channel, ThreadMember};
 use model::guild::{Guild, UnavailableGuild, VoiceState};
-use model::user::{PresenceUpdate, User};
 use model::interaction::ApplicationCommand;
+use model::stage::StageInstance;
+use model::user::{PresenceUpdate, User};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "t", content = "d")]
@@ -51,6 +52,9 @@ pub enum Event {
     MessageReactionRemoveAll(super::MessageReactionRemoveAll),
     MessageReactionRemoveEmoji(super::MessageReactionRemoveEmoji),
     PresenceUpdate(PresenceUpdate),
+    StageInstanceCreate(StageInstance),
+    StageInstanceUpdate(StageInstance),
+    StageInstanceDelete(StageInstance),
     TypingStart(super::TypingStart),
     UserUpdate(User),
     VoiceStateUpdate(VoiceState),
