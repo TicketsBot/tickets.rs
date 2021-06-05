@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::{Snowflake, PermissionBitSet};
+use crate::{PermissionBitSet, Snowflake};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Role {

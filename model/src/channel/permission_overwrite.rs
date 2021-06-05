@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
-use serde_repr::{Serialize_repr, Deserialize_repr};
+use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::{Snowflake, PermissionBitSet};
+use crate::{PermissionBitSet, Snowflake};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PermissionOverwrite {

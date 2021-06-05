@@ -1,9 +1,9 @@
 use super::var_or_panic;
 
-use cache::{PostgresCache, Options};
-use deadpool_redis::{Config, Pool};
-use deadpool::managed::PoolConfig;
 use crate::var;
+use cache::{Options, PostgresCache};
+use deadpool::managed::PoolConfig;
+use deadpool_redis::{Config, Pool};
 
 /// panics on err
 pub async fn build_cache() -> PostgresCache {
@@ -19,14 +19,18 @@ pub async fn build_cache() -> PostgresCache {
     };
 
     let cache_threads = var_or_panic("CACHE_THREADS").parse::<usize>().unwrap();
-    PostgresCache::connect(cache_uri, cache_opts, cache_threads).await.unwrap()
+    PostgresCache::connect(cache_uri, cache_opts, cache_threads)
+        .await
+        .unwrap()
 }
 
 /// panics on err
 pub fn build_redis() -> Pool {
     let mut cfg = Config::default();
     cfg.url = Some(get_redis_uri());
-    cfg.pool = Some(PoolConfig::new(var_or_panic("REDIS_THREADS").parse().unwrap()));
+    cfg.pool = Some(PoolConfig::new(
+        var_or_panic("REDIS_THREADS").parse().unwrap(),
+    ));
 
     cfg.create_pool().unwrap()
 }

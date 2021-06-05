@@ -1,8 +1,8 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
+use model::channel::message::Message;
 use model::channel::{Channel, ThreadMember};
 use model::guild::{Guild, UnavailableGuild, VoiceState};
-use model::channel::message::Message;
 use model::user::{PresenceUpdate, User};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -28,6 +28,7 @@ pub enum Event {
     GuildBanRemove(super::GuildBanRemove),
     GuildEmojisUpdate(super::GuildEmojisUpdate),
     GuildIntegrationsUpdate(super::GuildIntegrationsUpdate),
+    GuildJoinRequestDelete(super::GuildJoinRequestDelete),
     GuildMemberAdd(super::GuildMemberAdd),
     GuildMemberRemove(super::GuildMemberRemove),
     GuildMemberUpdate(super::GuildMemberUpdate),

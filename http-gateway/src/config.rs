@@ -1,6 +1,6 @@
-use std::env;
-use model::Snowflake;
 use ed25519_dalek::PublicKey;
+use model::Snowflake;
+use std::env;
 
 pub struct Config {
     pub server_addr: Box<str>,
@@ -70,6 +70,10 @@ impl Config {
     }
 
     fn get_svc_uri() -> Box<str> {
-        format!("http://{}/interaction", Config::get_envvar("WORKER_SVC_URI")).into_boxed_str()
+        format!(
+            "http://{}/interaction",
+            Config::get_envvar("WORKER_SVC_URI")
+        )
+        .into_boxed_str()
     }
 }

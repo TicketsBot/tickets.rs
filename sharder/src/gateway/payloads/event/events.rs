@@ -1,13 +1,13 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_repr::Deserialize_repr;
 
 use chrono::{DateTime, Utc};
 
-use model::user::{User, PresenceUpdate};
-use model::guild::{UnavailableGuild, Emoji, Member, Role};
 use crate::gateway::ShardInfo;
+use model::channel::{Channel, ChannelType, ThreadMember};
+use model::guild::{Emoji, Member, Role, UnavailableGuild};
+use model::user::{PresenceUpdate, User};
 use model::Snowflake;
-use model::channel::{ChannelType, Channel, ThreadMember};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Ready {
@@ -32,7 +32,7 @@ pub struct ThreadListSync {
     pub guild_id: Snowflake,
     pub channel_ids: Option<Vec<Snowflake>>,
     pub threads: Vec<Channel>,
-    pub members: Vec<ThreadMember>
+    pub members: Vec<ThreadMember>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -71,6 +71,12 @@ pub struct GuildEmojisUpdate {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GuildIntegrationsUpdate {
+    pub guild_id: Snowflake,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GuildJoinRequestDelete {
+    pub user_id: Snowflake,
     pub guild_id: Snowflake,
 }
 

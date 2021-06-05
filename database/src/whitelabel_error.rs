@@ -1,13 +1,13 @@
 use async_trait::async_trait;
 
-use sqlx::{PgPool, Error};
+use sqlx::{Error, PgPool};
 use std::sync::Arc;
 
 use crate::Table;
 
-use model::Snowflake;
-use futures::TryStreamExt;
 use chrono::{DateTime, Utc};
+use futures::TryStreamExt;
+use model::Snowflake;
 
 #[derive(sqlx::FromRow)]
 pub struct WhitelabelError {
@@ -22,7 +22,8 @@ pub struct WhitelabelErrorTable {
 #[async_trait]
 impl Table for WhitelabelErrorTable {
     async fn create_schema(&self) -> Result<(), Error> {
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
 CREATE TABLE IF NOT EXISTS whitelabel_errors(
 	"error_id" serial,
 	"user_id" int8 NOT NULL,
@@ -30,7 +31,10 @@ CREATE TABLE IF NOT EXISTS whitelabel_errors(
 	"error_time" timestamptz NOT NULL,
 	PRIMARY KEY("error_id")
 );
-"#).execute(&*self.db).await?;
+"#,
+        )
+        .execute(&*self.db)
+        .await?;
 
         Ok(())
     }
@@ -41,7 +45,11 @@ impl WhitelabelErrorTable {
         WhitelabelErrorTable { db }
     }
 
-    pub async fn get_recent(&self, user_id: Snowflake, limit: i32) -> Result<Vec<WhitelabelError>, Error> {
+    pub async fn get_recent(
+        &self,
+        user_id: Snowflake,
+        limit: i32,
+    ) -> Result<Vec<WhitelabelError>, Error> {
         let query = r#"SELECT "error", "error_time" as "time" FROM whitelabel_errors WHERE "user_id" = $1 ORDER BY "error_id" DESC LIMIT $2;"#;
 
         let mut rows = sqlx::query_as::<_, WhitelabelError>(query)

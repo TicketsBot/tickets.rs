@@ -1,13 +1,13 @@
-use serde::{Serialize, Deserialize, Deserializer};
-use serde_repr::{Serialize_repr, Deserialize_repr};
-use crate::Snowflake;
+use crate::channel::message::Message;
 use crate::guild::Member;
 use crate::interaction::{ApplicationCommandInteractionData, ComponentType};
 use crate::user::User;
-use crate::channel::message::Message;
-use std::convert::TryFrom;
-use serde_json::Value;
+use crate::Snowflake;
 use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
+use serde_repr::{Deserialize_repr, Serialize_repr};
+use std::convert::TryFrom;
 
 #[derive(Serialize, Debug)]
 #[serde(untagged)]
@@ -33,7 +33,7 @@ impl TryFrom<u64> for InteractionType {
             1 => Self::Ping,
             2 => Self::ApplicationCommand,
             3 => Self::Button,
-            _ => Err(format!("invalid interaction type \"{}\"", value).into_boxed_str())?
+            _ => Err(format!("invalid interaction type \"{}\"", value).into_boxed_str())?,
         })
     }
 }
@@ -81,7 +81,8 @@ impl<'de> Deserialize<'de> for Interaction {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = Value::deserialize(deserializer)?;
 
-        let interaction_type = value.get("type")
+        let interaction_type = value
+            .get("type")
             .and_then(Value::as_u64)
             .ok_or_else(|| Box::from("interaction type was not an integer"))
             .and_then(InteractionType::try_from)
@@ -89,9 +90,12 @@ impl<'de> Deserialize<'de> for Interaction {
 
         let component = match interaction_type {
             InteractionType::Ping => serde_json::from_value(value).map(Interaction::Ping),
-            InteractionType::ApplicationCommand => serde_json::from_value(value).map(Interaction::ApplicationCommand),
+            InteractionType::ApplicationCommand => {
+                serde_json::from_value(value).map(Interaction::ApplicationCommand)
+            }
             InteractionType::Button => serde_json::from_value(value).map(Interaction::Button),
-        }.map_err(D::Error::custom)?;
+        }
+        .map_err(D::Error::custom)?;
 
         Ok(component)
     }

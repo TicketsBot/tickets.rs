@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
-use serde_repr::{Serialize_repr, Deserialize_repr};
 use crate::interaction::ApplicationCommandOptionChoice;
+use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ApplicationCommandOption {

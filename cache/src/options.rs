@@ -20,7 +20,13 @@ impl Options {
         voice_states: bool,
     ) -> Options {
         Options {
-            users, guilds, members, channels, roles, emojis, voice_states,
+            users,
+            guilds,
+            members,
+            channels,
+            roles,
+            emojis,
+            voice_states,
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::{var_or_panic, get_worker_svc_uri};
+use crate::{get_worker_svc_uri, var_or_panic};
 
 pub struct Config {
     pub sticky_cookie: Box<str>,

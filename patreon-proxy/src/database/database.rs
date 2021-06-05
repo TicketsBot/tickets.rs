@@ -4,10 +4,10 @@ use crate::config::Config;
 use crate::error::PatreonError;
 use tokio_postgres::{Client, NoTls};
 
-use chrono::{DateTime, Utc, NaiveDateTime};
+use chrono::{DateTime, NaiveDateTime, Utc};
 
 pub struct Database {
-    client: Client
+    client: Client,
 }
 
 impl Database {
@@ -20,9 +20,7 @@ impl Database {
             }
         });
 
-        Ok(Database {
-            client
-        })
+        Ok(Database { client })
     }
 
     pub async fn create_schema(&self) -> Result<(), tokio_postgres::Error> {
@@ -40,7 +38,10 @@ CREATE TABLE IF NOT EXISTS patreon_keys(
         Ok(())
     }
 
-    pub async fn get_tokens(&self, client_id: String) -> Result<Tokens, Box<dyn std::error::Error>> {
+    pub async fn get_tokens(
+        &self,
+        client_id: String,
+    ) -> Result<Tokens, Box<dyn std::error::Error>> {
         let query = "
 SELECT
     \"access_token\", \"refresh_token\", \"expires\"
@@ -60,11 +61,19 @@ WHERE
         let access_token: String = row.get(0);
         let refresh_token: String = row.get(1);
         let expires: DateTime<Utc> = row.get(2);
-        
-        Ok(Tokens::new(access_token, refresh_token, expires.timestamp()))
+
+        Ok(Tokens::new(
+            access_token,
+            refresh_token,
+            expires.timestamp(),
+        ))
     }
 
-    pub async fn update_tokens(&self, client_id: String, tokens: &Tokens) -> Result<(), tokio_postgres::Error> {
+    pub async fn update_tokens(
+        &self,
+        client_id: String,
+        tokens: &Tokens,
+    ) -> Result<(), tokio_postgres::Error> {
         let query = "
 INSERT INTO
     patreon_keys
@@ -77,8 +86,19 @@ UPDATE
         \"expires\" = EXCLUDED.expires
         ";
 
-        let date_time = DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(tokens.expires, 0), Utc);
-        self.client.query(query, &[&client_id, &tokens.access_token, &tokens.refresh_token, &date_time]).await?;
+        let date_time =
+            DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(tokens.expires, 0), Utc);
+        self.client
+            .query(
+                query,
+                &[
+                    &client_id,
+                    &tokens.access_token,
+                    &tokens.refresh_token,
+                    &date_time,
+                ],
+            )
+            .await?;
 
         Ok(())
     }

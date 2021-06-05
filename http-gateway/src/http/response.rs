@@ -1,5 +1,5 @@
-use serde::Serialize;
 use crate::Error;
+use serde::Serialize;
 use warp::reply::Json;
 
 #[derive(Serialize, Debug)]

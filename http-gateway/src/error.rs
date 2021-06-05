@@ -1,7 +1,7 @@
-use warp::reject::Reject;
+use model::Snowflake;
 use serde::Serializer;
 use std::fmt::Debug;
-use model::Snowflake;
+use warp::reject::Reject;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

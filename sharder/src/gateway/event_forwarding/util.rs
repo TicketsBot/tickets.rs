@@ -41,21 +41,21 @@ pub fn get_guild_id(event: &Event) -> Option<Snowflake> {
         Event::VoiceStateUpdate(data) => data.guild_id,
         Event::VoiceServerUpdate(data) => Some(data.guild_id),
         Event::WebhookUpdate(data) => Some(data.guild_id),
-        _ => None
+        _ => None,
     }
 }
 
 // TODO: Don't hardcode, use feature flags or something
 pub fn is_whitelisted(event: &Event) -> bool {
     match event {
-        Event::ChannelDelete(_) |
-        Event::ThreadDelete(_) |
-        Event::GuildCreate(_) |
-        Event::GuildDelete(_) |
-        Event::GuildMemberRemove(_) |
-        Event::MessageCreate(_) |
-        Event::MessageReactionAdd(_) |
-        Event::MessageReactionRemoveAll(_) => true,
-        _ => false
+        Event::ChannelDelete(_)
+        | Event::ThreadDelete(_)
+        | Event::GuildCreate(_)
+        | Event::GuildDelete(_)
+        | Event::GuildMemberRemove(_)
+        | Event::MessageCreate(_)
+        | Event::MessageReactionAdd(_)
+        | Event::MessageReactionRemoveAll(_) => true,
+        _ => false,
     }
 }

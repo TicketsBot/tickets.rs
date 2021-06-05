@@ -1,7 +1,9 @@
-use std::sync::Arc;
 use sqlx::postgres::PgPoolOptions;
+use std::sync::Arc;
 
-use crate::{Table, Whitelabel, WhitelabelErrorTable, WhitelabelGuilds, WhitelabelStatus, WhitelabelKeys};
+use crate::{
+    Table, Whitelabel, WhitelabelErrorTable, WhitelabelGuilds, WhitelabelKeys, WhitelabelStatus,
+};
 
 pub struct Database {
     pub whitelabel: Whitelabel,

@@ -1,11 +1,11 @@
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
-use serde::de::Error;
-use std::fmt;
-use serde_json::Value;
 use super::util;
-use std::str::FromStr;
-use std::num::ParseIntError;
+use serde::de::Error;
 use serde::ser::SerializeSeq;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
+use std::fmt;
+use std::num::ParseIntError;
+use std::str::FromStr;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct Snowflake(pub u64);
@@ -15,7 +15,10 @@ impl Snowflake {
         serializer.serialize_u64(self.0)
     }
 
-    pub fn serialize_vec_to_ints<S: Serializer>(vec: &[Snowflake], serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize_vec_to_ints<S: Serializer>(
+        vec: &[Snowflake],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(vec.len()))?;
 
         for snowflake in vec {
@@ -25,10 +28,13 @@ impl Snowflake {
         seq.end()
     }
 
-    pub fn serialize_option_to_int<S: Serializer>(op: &Option<Snowflake>, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize_option_to_int<S: Serializer>(
+        op: &Option<Snowflake>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
         match op {
             Some(s) => s.serialize_to_int(serializer),
-            None => serializer.serialize_none()
+            None => serializer.serialize_none(),
         }
     }
 }
@@ -48,10 +54,13 @@ impl<'de> Deserialize<'de> for Snowflake {
         }
 
         if let Some(s) = value.as_str() {
-            return Ok(Snowflake(s.parse().map_err(Error::custom)?))
+            return Ok(Snowflake(s.parse().map_err(Error::custom)?));
         }
 
-        Err(Error::invalid_type(util::to_unexpected(value), &"a string or u64"))
+        Err(Error::invalid_type(
+            util::to_unexpected(value),
+            &"a string or u64",
+        ))
     }
 }
 

@@ -1,6 +1,6 @@
+use model::interaction::InteractionType;
 use serde::Serialize;
 use serde_json::value::RawValue;
-use model::interaction::InteractionType;
 
 pub const COMMAND_KEY: &str = "tickets:commands";
 

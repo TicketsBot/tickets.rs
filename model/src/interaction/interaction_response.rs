@@ -1,9 +1,9 @@
-use serde::{Serialize, Deserialize, Deserializer};
-use serde_repr::{Serialize_repr, Deserialize_repr};
 use crate::interaction::InteractionApplicationCommandCallbackData;
-use std::convert::TryFrom;
-use serde_json::Value;
 use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
+use serde_repr::{Deserialize_repr, Serialize_repr};
+use std::convert::TryFrom;
 
 // TODO: Reduce redundant code
 
@@ -59,7 +59,7 @@ impl TryFrom<u64> for InteractionResponseType {
             5 => Self::DeferredChannelMessageWithSource,
             6 => Self::DeferredMessageUpdate,
             7 => Self::UpdateMessage,
-            _ => Err(format!("invalid interaction response type \"{}\"", value).into_boxed_str())?
+            _ => Err(format!("invalid interaction response type \"{}\"", value).into_boxed_str())?,
         })
     }
 }
@@ -71,7 +71,9 @@ impl InteractionResponse {
         })
     }
 
-    pub fn new_channel_message_with_source(data: InteractionApplicationCommandCallbackData) -> InteractionResponse {
+    pub fn new_channel_message_with_source(
+        data: InteractionApplicationCommandCallbackData,
+    ) -> InteractionResponse {
         InteractionResponse::ChannelMessageWithSource(ApplicationCommandResponse {
             r#type: InteractionResponseType::ChannelMessageWithSource,
             data,
@@ -81,9 +83,7 @@ impl InteractionResponse {
     pub fn new_deferred_message_with_source() -> InteractionResponse {
         InteractionResponse::DeferredChannelMessageWithSource(DeferredApplicationCommandResponse {
             r#type: InteractionResponseType::DeferredChannelMessageWithSource,
-            data: DeferredApplicationCommandResponseData {
-                flags: 64,
-            }
+            data: DeferredApplicationCommandResponseData { flags: 64 },
         })
     }
 
@@ -98,19 +98,32 @@ impl<'de> Deserialize<'de> for InteractionResponse {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = Value::deserialize(deserializer)?;
 
-        let response_type = value.get("type")
+        let response_type = value
+            .get("type")
             .and_then(Value::as_u64)
             .ok_or_else(|| Box::from("interaction response type was not an integer"))
             .and_then(InteractionResponseType::try_from)
             .map_err(D::Error::custom)?;
 
         let response = match response_type {
-            InteractionResponseType::Pong => serde_json::from_value(value).map(InteractionResponse::PongResponse),
-            InteractionResponseType::ChannelMessageWithSource => serde_json::from_value(value).map(InteractionResponse::ChannelMessageWithSource),
-            InteractionResponseType::DeferredChannelMessageWithSource => serde_json::from_value(value).map(InteractionResponse::DeferredChannelMessageWithSource),
-            InteractionResponseType::DeferredMessageUpdate => serde_json::from_value(value).map(InteractionResponse::DeferredMessageUpdate),
-            InteractionResponseType::UpdateMessage => Err(Error::custom("UpdateMessage is not yet supported")),
-        }.map_err(D::Error::custom)?;
+            InteractionResponseType::Pong => {
+                serde_json::from_value(value).map(InteractionResponse::PongResponse)
+            }
+            InteractionResponseType::ChannelMessageWithSource => {
+                serde_json::from_value(value).map(InteractionResponse::ChannelMessageWithSource)
+            }
+            InteractionResponseType::DeferredChannelMessageWithSource => {
+                serde_json::from_value(value)
+                    .map(InteractionResponse::DeferredChannelMessageWithSource)
+            }
+            InteractionResponseType::DeferredMessageUpdate => {
+                serde_json::from_value(value).map(InteractionResponse::DeferredMessageUpdate)
+            }
+            InteractionResponseType::UpdateMessage => {
+                Err(Error::custom("UpdateMessage is not yet supported"))
+            }
+        }
+        .map_err(D::Error::custom)?;
 
         Ok(response)
     }

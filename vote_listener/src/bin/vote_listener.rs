@@ -1,5 +1,5 @@
-use vote_listener::{http::Server, Error, Config, Database};
 use std::sync::Arc;
+use vote_listener::{http::Server, Config, Database, Error};
 
 #[actix_web::main]
 async fn main() -> Result<(), Error> {

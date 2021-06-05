@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use sharder::{ShardManager, build_redis, WhitelabelShardManager, Config};
+use sharder::{build_redis, Config, ShardManager, WhitelabelShardManager};
 
-use sharder::{var_or_panic, build_cache};
-use database::{Database, sqlx::postgres::PgPoolOptions};
+use database::{sqlx::postgres::PgPoolOptions, Database};
+use sharder::{build_cache, var_or_panic};
 
 use tokio::signal;
 
@@ -39,7 +39,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // init redis
     let redis = Arc::new(build_redis());
 
-    let event_forwarder = Arc::new(HttpEventForwarder::new(HttpEventForwarder::build_http_client()));
+    let event_forwarder = Arc::new(HttpEventForwarder::new(
+        HttpEventForwarder::build_http_client(),
+    ));
     Arc::clone(&event_forwarder).start_reset_cookie_loop();
 
     let sm = Arc::new(WhitelabelShardManager::new(

@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
 use crate::Snowflake;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AllowedMentions {

@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use super::{Activity, ActivityType, StatusType};
 
@@ -11,7 +11,11 @@ pub struct StatusUpdate {
 }
 
 impl StatusUpdate {
-    pub fn new(activity_type: ActivityType, status: String, status_type: StatusType) -> StatusUpdate {
+    pub fn new(
+        activity_type: ActivityType,
+        status: String,
+        status_type: StatusType,
+    ) -> StatusUpdate {
         StatusUpdate {
             since: Some(0),
             game: Some(Activity::new(status, activity_type)),

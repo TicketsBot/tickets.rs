@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::Snowflake;
 
@@ -24,7 +24,7 @@ impl ActivityEmoji {
         ActivityEmoji {
             name,
             id: Some(id),
-            animated: Some(animated)
+            animated: Some(animated),
         }
     }
 }

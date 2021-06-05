@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
-use serde_repr::{Serialize_repr, Deserialize_repr};
 use crate::Snowflake;
+use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ThreadMetadata {
@@ -20,4 +20,3 @@ pub enum ThreadArchiveDuration {
     ThreeDays = 4320,
     Week = 10080,
 }
-

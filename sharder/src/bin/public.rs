@@ -1,16 +1,16 @@
 use std::sync::Arc;
 use tokio::signal;
 
-use sharder::{PublicShardManager, ShardCount, ShardManager, Config};
-use model::user::{StatusUpdate, ActivityType, StatusType};
+use model::user::{ActivityType, StatusType, StatusUpdate};
+use sharder::{Config, PublicShardManager, ShardCount, ShardManager};
 
-use sharder::{var_or_panic, build_cache, build_redis};
+use sharder::{build_cache, build_redis, var_or_panic};
 
+use deadpool_redis::cmd;
 use jemallocator::Jemalloc;
 use model::Snowflake;
-use std::str::FromStr;
 use sharder::event_forwarding::HttpEventForwarder;
-use deadpool_redis::cmd;
+use std::str::FromStr;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
@@ -27,7 +27,11 @@ async fn main() {
     let config = Arc::new(Config::from_envvar());
     let shard_count = get_shard_count();
 
-    let presence = StatusUpdate::new(ActivityType::Listening, "/help".to_owned(), StatusType::Online);
+    let presence = StatusUpdate::new(
+        ActivityType::Listening,
+        "/help".to_owned(),
+        StatusType::Online,
+    );
     let options = sharder::Options {
         token: var_or_panic("SHARDER_TOKEN"),
         shard_count,
@@ -44,8 +48,7 @@ async fn main() {
     let redis = Arc::new(build_redis());
 
     // test redis connection
-    let mut conn = redis.get().await
-        .expect("Failed to get redis conn");
+    let mut conn = redis.get().await.expect("Failed to get redis conn");
 
     let res: String = cmd("PING")
         .query_async(&mut conn)
@@ -54,7 +57,9 @@ async fn main() {
 
     assert_eq!(res, "PONG");
 
-    let event_forwarder = Arc::new(HttpEventForwarder::new(HttpEventForwarder::build_http_client()));
+    let event_forwarder = Arc::new(HttpEventForwarder::new(
+        HttpEventForwarder::build_http_client(),
+    ));
     Arc::clone(&event_forwarder).start_reset_cookie_loop();
 
     let sm = PublicShardManager::new(config, options, cache, redis, event_forwarder).await;

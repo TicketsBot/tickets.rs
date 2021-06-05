@@ -1,8 +1,8 @@
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
+use crate::channel::Permission;
 use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::fmt::Formatter;
-use crate::channel::Permission;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PermissionBitSet(pub u64);
@@ -22,7 +22,11 @@ impl Serialize for PermissionBitSet {
 
 impl<'de> Deserialize<'de> for PermissionBitSet {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(PermissionBitSet(String::deserialize(deserializer)?.parse().map_err(Error::custom)?))
+        Ok(PermissionBitSet(
+            String::deserialize(deserializer)?
+                .parse()
+                .map_err(Error::custom)?,
+        ))
     }
 }
 

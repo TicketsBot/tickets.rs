@@ -74,10 +74,12 @@ async fn is_premium(
 
     let mut ids = match query.get("id") {
         Some(joined) => joined.split(","),
-        None => return Ok(warp::reply::with_status(
-            warp::reply::json(&map! { "error" => "User ID is missing" }),
-            StatusCode::BAD_REQUEST,
-        )),
+        None => {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&map! { "error" => "User ID is missing" }),
+                StatusCode::BAD_REQUEST,
+            ))
+        }
     };
 
     let tiers = Tier::values();
@@ -96,7 +98,7 @@ async fn is_premium(
                     if tier.tier_id() > current_tier.tier_id() {
                         guild_highest_tier = Some(tier);
                     }
-                },
+                }
             }
 
             tier.tier_id() == highest_tier_id

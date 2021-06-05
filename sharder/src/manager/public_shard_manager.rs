@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 
-use super::ShardManager;
 use super::Options;
+use super::ShardManager;
 
-use crate::gateway::{Shard, Identify, ShardInfo};
+use crate::gateway::{Identify, Shard, ShardInfo};
 
-use model::user::{StatusUpdate, ActivityType, StatusType};
+use model::user::{ActivityType, StatusType, StatusUpdate};
 
 use std::sync::Arc;
 
@@ -13,13 +13,13 @@ use std::collections::HashMap;
 
 use cache::PostgresCache;
 
-use tokio::sync::oneshot;
-use tokio::time::sleep;
-use std::time::Duration;
-use deadpool_redis::Pool;
 use crate::config::Config;
 use crate::gateway::event_forwarding::EventForwarder;
+use deadpool_redis::Pool;
+use std::time::Duration;
 use tokio::fs::File;
+use tokio::sync::oneshot;
+use tokio::time::sleep;
 
 pub struct PublicShardManager<T: EventForwarder> {
     config: Arc<Config>,
@@ -42,8 +42,18 @@ impl<T: EventForwarder> PublicShardManager<T> {
 
         for i in options.shard_count.lowest..options.shard_count.highest {
             let shard_info = ShardInfo::new(i, options.shard_count.total);
-            let status = StatusUpdate::new(ActivityType::Listening, "/help | /setup".to_owned(), StatusType::Online);
-            let identify = Identify::new(options.token.clone().into_string(), None, shard_info, Some(status), super::get_intents());
+            let status = StatusUpdate::new(
+                ActivityType::Listening,
+                "/help | /setup".to_owned(),
+                StatusType::Online,
+            );
+            let identify = Identify::new(
+                options.token.clone().into_string(),
+                None,
+                shard_info,
+                Some(status),
+                super::get_intents(),
+            );
 
             let shard = Shard::new(
                 sm.config.clone(),

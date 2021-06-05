@@ -1,4 +1,4 @@
-use serde_repr::{Serialize_repr, Deserialize_repr};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Copy, Clone)]
 #[repr(u64)]
@@ -44,7 +44,10 @@ pub enum Permission {
 impl Permission {
     pub fn sum(permissions: &Vec<Permission>) -> u64 {
         let mut sum = 0;
-        permissions.iter().copied().for_each(|perm| sum |= perm as u64);
+        permissions
+            .iter()
+            .copied()
+            .for_each(|perm| sum |= perm as u64);
         sum
     }
 }

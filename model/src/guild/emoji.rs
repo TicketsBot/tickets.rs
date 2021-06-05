@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::Snowflake;
 use crate::user::User;
+use crate::Snowflake;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Emoji {

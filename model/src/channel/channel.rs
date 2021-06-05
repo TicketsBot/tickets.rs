@@ -1,10 +1,10 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::Snowflake;
-use crate::user::User;
 use super::{ChannelType, PermissionOverwrite};
+use crate::channel::{ThreadMember, ThreadMetadata, VideoQualityMode};
+use crate::user::User;
+use crate::Snowflake;
 use chrono::{DateTime, Utc};
-use crate::channel::{VideoQualityMode, ThreadMetadata, ThreadMember};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Channel {
@@ -24,7 +24,10 @@ pub struct Channel {
     pub topic: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nsfw: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "Snowflake::serialize_option_to_int"
+    )]
     pub last_message_id: Option<Snowflake>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bitrate: Option<u32>,

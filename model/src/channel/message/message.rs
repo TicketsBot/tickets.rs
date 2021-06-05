@@ -1,14 +1,14 @@
-use serde::{Serialize, Deserialize};
-use serde_repr::{Serialize_repr, Deserialize_repr};
+use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::Snowflake;
-use crate::user::User;
-use crate::guild::Member;
-use chrono::{DateTime, Utc};
-use crate::channel::{ChannelType, Reaction, Channel};
 use super::embed::Embed;
+use crate::channel::{Channel, ChannelType, Reaction};
+use crate::guild::Member;
 use crate::interaction::{Component, InteractionType};
+use crate::user::User;
 use crate::util::empty_vec;
+use crate::Snowflake;
+use chrono::{DateTime, Utc};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Message {

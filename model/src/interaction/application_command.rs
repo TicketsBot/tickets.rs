@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
-use crate::Snowflake;
 use crate::interaction::ApplicationCommandOption;
+use crate::Snowflake;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ApplicationCommand {

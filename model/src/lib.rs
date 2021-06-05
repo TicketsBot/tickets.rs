@@ -10,9 +10,9 @@ pub use image_hash::ImageHash;
 mod permission_bit_set;
 pub use permission_bit_set::PermissionBitSet;
 
-pub mod user;
-pub mod guild;
 pub mod channel;
+pub mod guild;
 pub mod interaction;
+pub mod user;
 
 mod util;

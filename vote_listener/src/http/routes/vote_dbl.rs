@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use actix_web::{post, HttpResponse, http::HeaderValue, web::Data, web::Json, HttpRequest};
+use actix_web::{http::HeaderValue, post, web::Data, web::Json, HttpRequest, HttpResponse};
 
-use crate::http::server::Server;
 use crate::http::response::ErrorResponse;
+use crate::http::server::Server;
 
-use serde::{Serialize, Deserialize};
 use model::Snowflake;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Body {
@@ -17,7 +17,11 @@ pub struct Body {
 }
 
 #[post("/vote/dbl")]
-pub async fn vote_dbl_handler(req: HttpRequest, body: Json<Body>, server: Data<Arc<Server>>) -> HttpResponse {
+pub async fn vote_dbl_handler(
+    req: HttpRequest,
+    body: Json<Body>,
+    server: Data<Arc<Server>>,
+) -> HttpResponse {
     match req.headers().get("Authorization").map(&HeaderValue::to_str) {
         Some(Ok(header)) => {
             if header != &*server.config.dbl_signature {
@@ -39,9 +43,7 @@ pub async fn vote_dbl_handler(req: HttpRequest, body: Json<Body>, server: Data<A
             .into_body();
     }
 
-    HttpResponse::Ok()
-        .finish()
-        .into_body()
+    HttpResponse::Ok().finish().into_body()
 }
 
 fn generate_invalid_signature() -> HttpResponse {

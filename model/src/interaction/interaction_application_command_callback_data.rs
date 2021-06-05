@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
 use crate::channel::message::embed::Embed;
 use crate::channel::message::AllowedMentions;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct InteractionApplicationCommandCallbackData {

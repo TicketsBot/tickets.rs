@@ -47,7 +47,7 @@ struct Reward {
 
 #[derive(Debug, Deserialize)]
 struct RewardData {
-    id: String // tier ID
+    id: String, // tier ID
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,12 +79,23 @@ pub struct Links {
 impl PledgeResponse {
     // returns user ID -> tier
     pub fn convert(&self) -> HashMap<String, super::Tier> {
-        self.data.iter()
-            .filter(| pledge | pledge.attributes.declined_since.is_none() && pledge.relationships.reward.is_some())
-            .map(| pledge | -> Option<(String, super::Tier)> {
+        self.data
+            .iter()
+            .filter(|pledge| {
+                pledge.attributes.declined_since.is_none() && pledge.relationships.reward.is_some()
+            })
+            .map(|pledge| -> Option<(String, super::Tier)> {
                 let meta = self.get_meta_by_id(&pledge.relationships.patron.data.id)?;
-                let discord_id = &meta.attributes.social_connections.as_ref()?.discord.as_ref()?.user_id;
-                let tier = super::Tier::get_by_patreon_id(&pledge.relationships.reward.as_ref()?.data.as_ref()?.id)?;
+                let discord_id = &meta
+                    .attributes
+                    .social_connections
+                    .as_ref()?
+                    .discord
+                    .as_ref()?
+                    .user_id;
+                let tier = super::Tier::get_by_patreon_id(
+                    &pledge.relationships.reward.as_ref()?.data.as_ref()?.id,
+                )?;
 
                 Some((discord_id.to_string(), tier))
             })
@@ -94,8 +105,6 @@ impl PledgeResponse {
     }
 
     fn get_meta_by_id(&self, id: &str) -> Option<&PatronMetadata> {
-        self.included.iter().find(| metadata | {
-            metadata.id == id
-        })
+        self.included.iter().find(|metadata| metadata.id == id)
     }
 }

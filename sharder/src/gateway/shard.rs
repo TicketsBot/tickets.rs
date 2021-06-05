@@ -1,19 +1,19 @@
 use std::fmt::Display;
 use std::str;
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU16, Ordering, AtomicBool};
 use std::time::Duration;
 use std::time::Instant;
 
 use deadpool_redis::{cmd, Pool};
 #[cfg(feature = "compression")]
 use flate2::{Decompress, FlushDecompress, Status};
-use futures_util::SinkExt;
 use futures::StreamExt;
+use futures_util::SinkExt;
 use serde::Serialize;
 use serde_json::value::RawValue;
-use tokio::sync::{Mutex, RwLock};
 use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::sleep;
 
 use cache::{Cache, PostgresCache};
@@ -21,23 +21,23 @@ use common::event_forwarding;
 #[cfg(feature = "whitelabel")]
 use database::Database;
 use model::guild::{Guild, Member};
-use model::Snowflake;
 use model::user::StatusUpdate;
+use model::Snowflake;
 
 use crate::config::Config;
-use crate::gateway::GatewayError;
 use crate::gateway::payloads::PresenceUpdate;
 use crate::gateway::whitelabel_utils::is_whitelabel;
+use crate::gateway::GatewayError;
 
-use super::OutboundMessage;
 use super::payloads;
-use super::payloads::{Dispatch, Opcode, Payload};
 use super::payloads::event::Event;
-use crate::gateway::event_forwarding::{EventForwarder, is_whitelisted};
+use super::payloads::{Dispatch, Opcode, Payload};
+use super::OutboundMessage;
+use crate::gateway::event_forwarding::{is_whitelisted, EventForwarder};
 use async_tungstenite::{
-    tungstenite,
-    tungstenite::{Message, protocol::frame::coding::CloseCode},
     tokio::connect_async,
+    tungstenite,
+    tungstenite::{protocol::frame::coding::CloseCode, Message},
 };
 
 const GATEWAY_VERSION: u8 = 9;
@@ -112,11 +112,15 @@ impl<T: EventForwarder> Shard<T> {
             received_count: AtomicU16::new(0),
             is_ready: AtomicBool::new(false),
             event_forwarder,
-            #[cfg(feature = "whitelabel")] database,
+            #[cfg(feature = "whitelabel")]
+            database,
         })
     }
 
-    pub async fn connect(self: Arc<Self>, ready_tx: Option<oneshot::Sender<()>>) -> Result<(), GatewayError> {
+    pub async fn connect(
+        self: Arc<Self>,
+        ready_tx: Option<oneshot::Sender<()>>,
+    ) -> Result<(), GatewayError> {
         //rst
         *self.ready_tx.lock().await = ready_tx;
 
@@ -134,13 +138,21 @@ impl<T: EventForwarder> Shard<T> {
         // rst
 
         let uri = match cfg!(feature = "compression") {
-            true => format!("wss://gateway.discord.gg/?v={}&encoding=json&compress=zlib-stream", GATEWAY_VERSION),
-            false => format!("wss://gateway.discord.gg/?v={}&encoding=json", GATEWAY_VERSION),
+            true => format!(
+                "wss://gateway.discord.gg/?v={}&encoding=json&compress=zlib-stream",
+                GATEWAY_VERSION
+            ),
+            false => format!(
+                "wss://gateway.discord.gg/?v={}&encoding=json",
+                GATEWAY_VERSION
+            ),
         };
 
         let uri = url::Url::parse(&uri[..]).unwrap();
 
-        let (wss, _) = connect_async(uri).await.map_err(GatewayError::WebsocketError)?;
+        let (wss, _) = connect_async(uri)
+            .await
+            .map_err(GatewayError::WebsocketError)?;
         let (ws_tx, ws_rx) = wss.split();
         *self.connect_time.write().await = Instant::now();
 
@@ -194,26 +206,37 @@ impl<T: EventForwarder> Shard<T> {
             match kill_shard_tx {
                 Some(kill_shard_tx) => {
                     if kill_shard_tx.send(()).is_err() {
-                        self.log_err("Failed to kill", &GatewayError::custom("Receiver already unallocated"));
+                        self.log_err(
+                            "Failed to kill",
+                            &GatewayError::custom("Receiver already unallocated"),
+                        );
                     }
                 }
-                None => self.log("Tried to kill but kill_shard_tx was None")
+                None => self.log("Tried to kill but kill_shard_tx was None"),
             }
 
             match kill_heartbeat_tx {
                 Some(kill_heartbeat_tx) => {
                     if kill_heartbeat_tx.send(()).is_err() {
-                        self.log_err("Failed to kill heartbeat", &GatewayError::custom("Receiver already unallocated"));
+                        self.log_err(
+                            "Failed to kill heartbeat",
+                            &GatewayError::custom("Receiver already unallocated"),
+                        );
                     }
                 }
-                None => self.log("Tried to kill but kill_heartbeat_tx was None")
+                None => self.log("Tried to kill but kill_heartbeat_tx was None"),
             }
         });
     }
 
-    async fn listen(self: Arc<Self>, mut rx: futures::channel::mpsc::UnboundedReceiver<Result<Message, async_tungstenite::tungstenite::Error>>) -> Result<(), GatewayError> {
+    async fn listen(
+        self: Arc<Self>,
+        mut rx: futures::channel::mpsc::UnboundedReceiver<
+            Result<Message, async_tungstenite::tungstenite::Error>,
+        >,
+    ) -> Result<(), GatewayError> {
         #[cfg(feature = "compression")]
-            let mut decoder = Decompress::new(true);
+        let mut decoder = Decompress::new(true);
 
         loop {
             let shard = Arc::clone(&self);
@@ -330,7 +353,11 @@ impl<T: EventForwarder> Shard<T> {
     }
 
     #[cfg(feature = "compression")]
-    async fn decompress(self: Arc<Self>, data: Vec<u8>, decoder: &mut Decompress) -> Result<Vec<u8>, GatewayError> {
+    async fn decompress(
+        self: Arc<Self>,
+        data: Vec<u8>,
+        decoder: &mut Decompress,
+    ) -> Result<Vec<u8>, GatewayError> {
         let mut total_rx = self.total_rx.lock().await;
 
         let mut output: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
@@ -340,7 +367,10 @@ impl<T: EventForwarder> Shard<T> {
         while ((decoder.total_in() - *total_rx) as usize) < data.len() {
             let mut temp: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
 
-            match decoder.decompress_vec(&data[offset..], &mut temp, FlushDecompress::Sync).map_err(GatewayError::DecompressError) {
+            match decoder
+                .decompress_vec(&data[offset..], &mut temp, FlushDecompress::Sync)
+                .map_err(GatewayError::DecompressError)
+            {
                 Ok(Status::StreamEnd) => break,
                 Ok(Status::Ok) | Ok(Status::BufError) => {
                     output.append(&mut temp);
@@ -367,7 +397,11 @@ impl<T: EventForwarder> Shard<T> {
         serde_json::from_slice(&data[..]).map_err(GatewayError::JsonError)
     }
 
-    async fn process_payload(self: Arc<Self>, payload: Payload, raw: &[u8]) -> Result<(), GatewayError> {
+    async fn process_payload(
+        self: Arc<Self>,
+        payload: Payload,
+        raw: &[u8],
+    ) -> Result<(), GatewayError> {
         if let Some(seq) = payload.seq {
             *self.seq.write().await = Some(seq);
 
@@ -381,7 +415,13 @@ impl<T: EventForwarder> Shard<T> {
                 let payload = serde_json::from_slice(&raw[..])?;
 
                 if let Err(e) = Arc::clone(&self).handle_event(payload).await {
-                    self.log_err(format!("Error processing dispatch (full payload: {:?})", str::from_utf8(&raw[..])), &e);
+                    self.log_err(
+                        format!(
+                            "Error processing dispatch (full payload: {:?})",
+                            str::from_utf8(&raw[..])
+                        ),
+                        &e,
+                    );
                 }
             }
 
@@ -438,7 +478,9 @@ impl<T: EventForwarder> Shard<T> {
                         self.wait_for_ratelimit().await?;
 
                         if self.connect_time.read().await.elapsed() > interval {
-                            self.log("Connected over 45s ago, Discord will kick us off. Reconnecting.");
+                            self.log(
+                                "Connected over 45s ago, Discord will kick us off. Reconnecting.",
+                            );
                             Arc::clone(&self).kill();
                             return Ok(());
                         } else {
@@ -488,7 +530,8 @@ impl<T: EventForwarder> Shard<T> {
     }
 
     async fn handle_event(self: Arc<Self>, data: Box<RawValue>) -> Result<(), GatewayError> {
-        let payload: Dispatch = serde_json::from_str(data.get()).map_err(GatewayError::JsonError)?;
+        let payload: Dispatch =
+            serde_json::from_str(data.get()).map_err(GatewayError::JsonError)?;
 
         // Gateway events
         match &payload.data {
@@ -498,19 +541,29 @@ impl<T: EventForwarder> Shard<T> {
                     self.log_err("Error saving session ID to Redis", &e);
                 }
 
-                self.ready_guild_count.store(ready.guilds.len() as u16, Ordering::Relaxed);
+                self.ready_guild_count
+                    .store(ready.guilds.len() as u16, Ordering::Relaxed);
 
-                self.log(format!("Ready on {}#{} ({})", ready.user.username, ready.user.discriminator, ready.user.id));
+                self.log(format!(
+                    "Ready on {}#{} ({})",
+                    ready.user.username, ready.user.discriminator, ready.user.id
+                ));
                 return Ok(());
             }
 
             Event::Resumed(_) => {
                 self.log("Received resumed acknowledgement");
 
-                if !self.is_ready.compare_and_swap(false, true, Ordering::Relaxed) {
+                if !self
+                    .is_ready
+                    .compare_and_swap(false, true, Ordering::Relaxed)
+                {
                     if let Some(tx) = self.ready_tx.lock().await.take() {
                         if let Err(_) = tx.send(()) {
-                            self.log_err("Error sending ready notification to probe", &GatewayError::ReceiverHungUpError);
+                            self.log_err(
+                                "Error sending ready notification to probe",
+                                &GatewayError::ReceiverHungUpError,
+                            );
                         }
                     }
                 }
@@ -539,7 +592,8 @@ impl<T: EventForwarder> Shard<T> {
         // cache + push to redis
         tokio::spawn(async move {
             let guild_id = super::event_forwarding::get_guild_id(&payload.data);
-            let should_forward = is_whitelisted(&payload.data) && self.meets_forward_threshold(&payload.data).await;
+            let should_forward =
+                is_whitelisted(&payload.data) && self.meets_forward_threshold(&payload.data).await;
 
             // cache
             let res = match payload.data {
@@ -558,7 +612,8 @@ impl<T: EventForwarder> Shard<T> {
                     self.cache.store_guild(guild).await
                 }
                 Event::GuildDelete(guild) => {
-                    if guild.unavailable.is_none() { // we were kicked
+                    if guild.unavailable.is_none() {
+                        // we were kicked
                         // TODO: don't delete if this is main bot & whitelabel bot is in guild
                         self.cache.delete_guild(guild.id).await
                     } else {
@@ -566,19 +621,32 @@ impl<T: EventForwarder> Shard<T> {
                     }
                 }
                 Event::GuildBanAdd(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await,
-                Event::GuildEmojisUpdate(ev) => self.cache.store_emojis(ev.emojis, ev.guild_id).await,
+                Event::GuildEmojisUpdate(ev) => {
+                    self.cache.store_emojis(ev.emojis, ev.guild_id).await
+                }
                 Event::GuildMemberAdd(ev) => self.cache.store_member(ev.member, ev.guild_id).await,
-                Event::GuildMemberRemove(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await,
-                Event::GuildMemberUpdate(ev) => self.cache.store_member(Member {
-                    user: Some(ev.user),
-                    nick: ev.nick,
-                    roles: ev.roles,
-                    joined_at: ev.joined_at,
-                    premium_since: ev.premium_since,
-                    deaf: false, // TODO: Don't update these fields somehow?
-                    mute: false, // TODO: Don't update these fields somehow?
-                }, ev.guild_id).await,
-                Event::GuildMembersChunk(ev) => self.cache.store_members(ev.members, ev.guild_id).await,
+                Event::GuildMemberRemove(ev) => {
+                    self.cache.delete_member(ev.user.id, ev.guild_id).await
+                }
+                Event::GuildMemberUpdate(ev) => {
+                    self.cache
+                        .store_member(
+                            Member {
+                                user: Some(ev.user),
+                                nick: ev.nick,
+                                roles: ev.roles,
+                                joined_at: ev.joined_at,
+                                premium_since: ev.premium_since,
+                                deaf: false, // TODO: Don't update these fields somehow?
+                                mute: false, // TODO: Don't update these fields somehow?
+                            },
+                            ev.guild_id,
+                        )
+                        .await
+                }
+                Event::GuildMembersChunk(ev) => {
+                    self.cache.store_members(ev.members, ev.guild_id).await
+                }
                 Event::GuildRoleCreate(ev) => self.cache.store_role(ev.role, ev.guild_id).await,
                 Event::GuildRoleUpdate(ev) => self.cache.store_role(ev.role, ev.guild_id).await,
                 Event::GuildRoleDelete(ev) => self.cache.delete_role(ev.role_id).await,
@@ -601,7 +669,11 @@ impl<T: EventForwarder> Shard<T> {
                     event: &data,
                 };
 
-                if let Err(e) = self.event_forwarder.forward_event(&*self.config, wrapped, guild_id).await {
+                if let Err(e) = self
+                    .event_forwarder
+                    .forward_event(&*self.config, wrapped, guild_id)
+                    .await
+                {
                     self.log_err("Error while executing worker HTTP request", &e);
                 }
             }
@@ -614,13 +686,20 @@ impl<T: EventForwarder> Shard<T> {
         if !self.is_ready.load(Ordering::Relaxed) {
             let received = self.received_count.fetch_add(1, Ordering::Relaxed);
 
-            if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 { // Once we have 90% of the guilds, we're ok to load more shards
+            if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 {
+                // Once we have 90% of the guilds, we're ok to load more shards
                 // CAS in case value was updated since read
-                if !self.is_ready.compare_and_swap(false, true, Ordering::Relaxed) {
+                if !self
+                    .is_ready
+                    .compare_and_swap(false, true, Ordering::Relaxed)
+                {
                     if let Some(tx) = self.ready_tx.lock().await.take() {
                         self.log("Reporting readiness");
                         if let Err(_) = tx.send(()) {
-                            self.log_err("Error sending ready notification to probe", &GatewayError::ReceiverHungUpError);
+                            self.log_err(
+                                "Error sending ready notification to probe",
+                                &GatewayError::ReceiverHungUpError,
+                            );
                         }
                         self.log("Reported readiness");
                     }
@@ -641,10 +720,7 @@ impl<T: EventForwarder> Shard<T> {
     }
 
     // returns cancellation channel
-    async fn start_heartbeat(
-        self: Arc<Self>,
-        interval: Duration,
-    ) -> oneshot::Sender<()> {
+    async fn start_heartbeat(self: Arc<Self>, interval: Duration) -> oneshot::Sender<()> {
         let (cancel_tx, mut cancel_rx) = oneshot::channel();
 
         tokio::spawn(async move {
@@ -688,7 +764,9 @@ impl<T: EventForwarder> Shard<T> {
         let (tx, rx) = oneshot::channel();
         self.write(payload, tx).await?;
 
-        rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketSendError)?;
+        rx.await
+            .map_err(GatewayError::RecvError)?
+            .map_err(GatewayError::WebsocketSendError)?;
 
         *self.last_heartbeat.write().await = Instant::now();
         Ok(())
@@ -698,14 +776,20 @@ impl<T: EventForwarder> Shard<T> {
         let (tx, rx) = oneshot::channel();
         self.write(&self.identify, tx).await?;
 
-        Ok(rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketSendError)?)
+        Ok(rx
+            .await
+            .map_err(GatewayError::RecvError)?
+            .map_err(GatewayError::WebsocketSendError)?)
     }
 
     async fn wait_for_ratelimit(&self) -> Result<(), GatewayError> {
         let key = if is_whitelabel() {
             format!("ratelimiter:whitelabel:identify:{}", self.user_id)
         } else {
-            format!("ratelimiter:public:identify:{}", self.get_shard_id() % self.large_sharding_buckets)
+            format!(
+                "ratelimiter:public:identify:{}",
+                self.get_shard_id() % self.large_sharding_buckets
+            )
         };
 
         let mut res = redis::Value::Nil;
@@ -742,17 +826,20 @@ impl<T: EventForwarder> Shard<T> {
 
     /// Shard.session_id & Shard.seq should not be None when calling this function
     /// if they are, the function will panic
-    async fn do_resume(self: Arc<Self>, session_id: String, seq: usize) -> Result<(), GatewayError> {
-        let payload = payloads::Resume::new(
-            self.identify.data.token.clone(),
-            session_id,
-            seq,
-        );
+    async fn do_resume(
+        self: Arc<Self>,
+        session_id: String,
+        seq: usize,
+    ) -> Result<(), GatewayError> {
+        let payload = payloads::Resume::new(self.identify.data.token.clone(), session_id, seq);
 
         let (tx, rx) = oneshot::channel();
         self.write(payload, tx).await?;
 
-        Ok(rx.await.map_err(GatewayError::RecvError)?.map_err(GatewayError::WebsocketSendError)?)
+        Ok(rx
+            .await
+            .map_err(GatewayError::RecvError)?
+            .map_err(GatewayError::WebsocketSendError)?)
     }
 
     async fn save_session_id(&self) -> Result<(), GatewayError> {
@@ -793,10 +880,12 @@ impl<T: EventForwarder> Shard<T> {
 
         match res {
             redis::Value::Data(data) => {
-                let session_id = str::from_utf8(&data[..]).map_err(GatewayError::Utf8Error)?.to_owned();
+                let session_id = str::from_utf8(&data[..])
+                    .map_err(GatewayError::Utf8Error)?
+                    .to_owned();
                 Ok(Some(session_id))
             }
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
@@ -838,12 +927,15 @@ impl<T: EventForwarder> Shard<T> {
 
         match res {
             redis::Value::Data(data) => {
-                match str::from_utf8(&data[..]).map_err(GatewayError::Utf8Error)?.parse() {
+                match str::from_utf8(&data[..])
+                    .map_err(GatewayError::Utf8Error)?
+                    .parse()
+                {
                     Ok(seq) => Ok(Some(seq)),
                     Err(_) => Ok(None),
                 }
             }
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
@@ -883,17 +975,33 @@ impl<T: EventForwarder> Shard<T> {
 
     async fn get_resume_key(&self) -> Option<String> {
         if is_whitelabel() {
-            Some(format!("tickets:resume:{}:{}", self.user_id, self.get_shard_id()))
+            Some(format!(
+                "tickets:resume:{}:{}",
+                self.user_id,
+                self.get_shard_id()
+            ))
         } else {
-            Some(format!("tickets:resume:public:{}-{}", self.get_shard_id(), self.identify.data.shard_info.num_shards))
+            Some(format!(
+                "tickets:resume:public:{}-{}",
+                self.get_shard_id(),
+                self.identify.data.shard_info.num_shards
+            ))
         }
     }
 
     async fn get_seq_key(&self) -> Option<String> {
         if is_whitelabel() {
-            Some(format!("tickets:seq:{}:{}", self.user_id, self.get_shard_id()))
+            Some(format!(
+                "tickets:seq:{}:{}",
+                self.user_id,
+                self.get_shard_id()
+            ))
         } else {
-            Some(format!("tickets:seq:public:{}-{}", self.get_shard_id(), self.identify.data.shard_info.num_shards))
+            Some(format!(
+                "tickets:seq:public:{}-{}",
+                self.get_shard_id(),
+                self.identify.data.shard_info.num_shards
+            ))
         }
     }
 
@@ -919,7 +1027,10 @@ impl<T: EventForwarder> Shard<T> {
     }
 }
 
-async fn handle_writes(mut tx: futures::channel::mpsc::UnboundedSender<tungstenite::Message>, mut rx: mpsc::Receiver<super::OutboundMessage>) {
+async fn handle_writes(
+    mut tx: futures::channel::mpsc::UnboundedSender<tungstenite::Message>,
+    mut rx: mpsc::Receiver<super::OutboundMessage>,
+) {
     while let Some(msg) = rx.recv().await {
         let payload = Message::text(msg.message);
         let res = tx.send(payload).await;

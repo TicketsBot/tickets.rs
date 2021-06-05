@@ -1,6 +1,6 @@
-use actix_web::{get, http, HttpResponse, Responder, web::Data};
-use std::sync::Arc;
 use crate::http::Server;
+use actix_web::{get, http, web::Data, HttpResponse, Responder};
+use std::sync::Arc;
 
 #[get("/")]
 pub async fn index_handler(server: Data<Arc<Server>>) -> impl Responder {

@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 
-use sqlx::{PgPool, Error};
+use sqlx::{Error, PgPool};
 use std::sync::Arc;
 
 use crate::Table;
 
-use model::Snowflake;
 use futures::TryStreamExt;
+use model::Snowflake;
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct WhitelabelBot {
@@ -22,7 +22,8 @@ pub struct Whitelabel {
 #[async_trait]
 impl Table for Whitelabel {
     async fn create_schema(&self) -> Result<(), Error> {
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
 CREATE TABLE IF NOT EXISTS whitelabel(
 	"user_id" int8 UNIQUE NOT NULL,
 	"bot_id" int8 UNIQUE NOT NULL,
@@ -30,7 +31,10 @@ CREATE TABLE IF NOT EXISTS whitelabel(
 	PRIMARY KEY("user_id")
 );
 CREATE INDEX IF NOT EXISTS whitelabel_bot_id ON whitelabel("bot_id");
-        "#).execute(&*self.db).await?;
+        "#,
+        )
+        .execute(&*self.db)
+        .await?;
 
         Ok(())
     }
@@ -44,7 +48,11 @@ impl Whitelabel {
     pub async fn get_user_by_id(&self, user_id: Snowflake) -> Result<Option<WhitelabelBot>, Error> {
         let query = r#"SELECT * FROM whitelabel WHERE "user_id" = $1"#;
 
-        match sqlx::query_as::<_, WhitelabelBot>(query).bind(user_id.0 as i64).fetch_one(&*self.db).await {
+        match sqlx::query_as::<_, WhitelabelBot>(query)
+            .bind(user_id.0 as i64)
+            .fetch_one(&*self.db)
+            .await
+        {
             Ok(bot) => Ok(Some(bot)),
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(e),
@@ -54,7 +62,11 @@ impl Whitelabel {
     pub async fn get_bot_by_id(&self, bot_id: Snowflake) -> Result<Option<WhitelabelBot>, Error> {
         let query = r#"SELECT * FROM whitelabel WHERE "bot_id" = $1"#;
 
-        match sqlx::query_as::<_, WhitelabelBot>(query).bind(bot_id.0 as i64).fetch_one(&*self.db).await {
+        match sqlx::query_as::<_, WhitelabelBot>(query)
+            .bind(bot_id.0 as i64)
+            .fetch_one(&*self.db)
+            .await
+        {
             Ok(bot) => Ok(Some(bot)),
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(e),
@@ -64,14 +76,22 @@ impl Whitelabel {
     pub async fn get_bot_by_token(&self, token: &str) -> Result<Option<WhitelabelBot>, Error> {
         let query = r#"SELECT * FROM whitelabel WHERE "token" = $1"#;
 
-        match sqlx::query_as::<_, WhitelabelBot>(query).bind(token).fetch_one(&*self.db).await {
+        match sqlx::query_as::<_, WhitelabelBot>(query)
+            .bind(token)
+            .fetch_one(&*self.db)
+            .await
+        {
             Ok(bot) => Ok(Some(bot)),
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(e),
         }
     }
 
-    pub async fn get_bots_by_sharder(&self, sharder_count: u16, sharder_id: u16) -> Result<Vec<WhitelabelBot>, Error> {
+    pub async fn get_bots_by_sharder(
+        &self,
+        sharder_count: u16,
+        sharder_id: u16,
+    ) -> Result<Vec<WhitelabelBot>, Error> {
         let query = r#"SELECT * FROM whitelabel WHERE "bot_id" % $1 = $2"#;
 
         let mut rows = sqlx::query_as::<_, WhitelabelBot>(query)
@@ -123,10 +143,7 @@ ON CONFLICT("user_id") DO
     pub async fn delete_by_token(&self, token: &str) -> Result<(), Error> {
         let query = r#"DELETE FROM whitelabel WHERE "token" = $1;"#;
 
-        sqlx::query(query)
-            .bind(token)
-            .execute(&*self.db)
-            .await?;
+        sqlx::query(query).bind(token).execute(&*self.db).await?;
 
         Ok(())
     }

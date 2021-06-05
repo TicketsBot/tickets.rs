@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use sqlx::{PgPool, Error};
+use sqlx::{Error, PgPool};
 use std::sync::Arc;
 
 use crate::Table;
@@ -14,14 +14,18 @@ pub struct WhitelabelKeys {
 #[async_trait]
 impl Table for WhitelabelKeys {
     async fn create_schema(&self) -> Result<(), Error> {
-        sqlx::query(r#"
+        sqlx::query(
+            r#"
 CREATE TABLE IF NOT EXISTS whitelabel_keys(
 	"bot_id" int8 UNIQUE NOT NULL,
 	"key" varchar(64) NOT NULL,
 	FOREIGN KEY("bot_id") REFERENCES whitelabel("bot_id") ON DELETE CASCADE ON UPDATE CASCADE,
 	PRIMARY KEY("bot_id")
 );
-"#).execute(&*self.db).await?;
+"#,
+        )
+        .execute(&*self.db)
+        .await?;
 
         Ok(())
     }

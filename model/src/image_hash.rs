@@ -1,5 +1,5 @@
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Clone)]
 pub struct ImageHash {

@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use super::{ActivityType, Timestamps, ActivityEmoji, Party, Assets, Secrets};
+use super::{ActivityEmoji, ActivityType, Assets, Party, Secrets, Timestamps};
 use crate::Snowflake;
 
 #[derive(Serialize, Deserialize, Debug)]

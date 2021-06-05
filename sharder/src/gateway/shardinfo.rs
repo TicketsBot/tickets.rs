@@ -1,5 +1,5 @@
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde::ser::SerializeSeq;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug)]
 pub struct ShardInfo {
@@ -9,7 +9,10 @@ pub struct ShardInfo {
 
 impl ShardInfo {
     pub fn new(shard_id: u16, num_shards: u16) -> ShardInfo {
-        ShardInfo { shard_id, num_shards }
+        ShardInfo {
+            shard_id,
+            num_shards,
+        }
     }
 }
 

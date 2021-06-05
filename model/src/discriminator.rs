@@ -1,5 +1,5 @@
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::fmt::Formatter;
 
@@ -20,7 +20,11 @@ impl Serialize for Discriminator {
 
 impl<'de> Deserialize<'de> for Discriminator {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(Discriminator(String::deserialize(deserializer)?.parse().map_err(Error::custom)?))
+        Ok(Discriminator(
+            String::deserialize(deserializer)?
+                .parse()
+                .map_err(Error::custom)?,
+        ))
     }
 }
 

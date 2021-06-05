@@ -1,18 +1,18 @@
-use std::sync::Arc;
-use crate::{Config, Error};
-use std::net::SocketAddr;
-use warp::{Filter, Rejection};
-use ed25519_dalek::Signature;
-use warp::http::StatusCode;
 use crate::http::response::ErrorResponse;
-use warp::reply::Json;
+use crate::{Config, Error};
 use database::Database;
+use ed25519_dalek::Signature;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
+use warp::http::StatusCode;
+use warp::reply::Json;
+use warp::{Filter, Rejection};
 
 #[cfg(feature = "sticky-cookie")]
-use tokio::sync::RwLock;
-#[cfg(feature = "sticky-cookie")]
 use std::collections::HashMap;
+#[cfg(feature = "sticky-cookie")]
+use tokio::sync::RwLock;
 
 pub struct Server {
     pub config: Config,
@@ -41,14 +41,14 @@ impl Server {
 
         let filter = Arc::new(self).filter_handle();
 
-        warp::serve(filter)
-            .run(address)
-            .await;
+        warp::serve(filter).run(address).await;
 
         Ok(())
     }
 
-    fn filter_handle(self: Arc<Self>) -> impl Filter<Extract=impl warp::Reply, Error=warp::Rejection> + Clone {
+    fn filter_handle(
+        self: Arc<Self>,
+    ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         warp::post()
             .and(warp::path("handle"))
             .and(warp::path::param())
@@ -66,11 +66,11 @@ impl Server {
                     let json: Json = ErrorResponse::from(&err).into();
 
                     let status_code = match err {
-                        Error::InvalidSignature(..) |
-                        Error::InvalidSignatureLength |
-                        Error::InvalidSignatureFormat(..) => StatusCode::UNAUTHORIZED,
+                        Error::InvalidSignature(..)
+                        | Error::InvalidSignatureLength
+                        | Error::InvalidSignatureFormat(..) => StatusCode::UNAUTHORIZED,
                         Error::MissingGuildId => StatusCode::BAD_REQUEST,
-                        _ => StatusCode::INTERNAL_SERVER_ERROR
+                        _ => StatusCode::INTERNAL_SERVER_ERROR,
                     };
 
                     Ok(warp::reply::with_status(json, status_code))
@@ -80,7 +80,7 @@ impl Server {
             })
     }
 
-    fn parse_signature() -> impl Filter<Extract=(Signature, ), Error=warp::Rejection> + Clone {
+    fn parse_signature() -> impl Filter<Extract = (Signature,), Error = warp::Rejection> + Clone {
         warp::header("x-signature-ed25519").and_then(|signature: String| async move {
             let mut bytes = [0u8; 64];
             if let Err(e) = hex::decode_to_slice(signature, &mut bytes) {

@@ -1,5 +1,5 @@
-use thiserror::Error;
 use crate::CachePayload;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum CacheError {

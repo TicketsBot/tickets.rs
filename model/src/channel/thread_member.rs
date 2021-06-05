@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
-use chrono::{DateTime, Utc};
 use crate::Snowflake;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ThreadMember {

@@ -1,6 +1,6 @@
-use actix_web::{App, HttpServer};
-use crate::{Error, Config, Database};
 use super::routes;
+use crate::{Config, Database, Error};
+use actix_web::{App, HttpServer};
 use std::sync::Arc;
 
 pub struct Server {
@@ -10,10 +10,7 @@ pub struct Server {
 
 impl Server {
     pub fn new(config: Config, database: Database) -> Server {
-        Server {
-            config,
-            database,
-        }
+        Server { config, database }
     }
 
     pub async fn start(self: Arc<Self>) -> Result<(), Error> {
@@ -32,4 +29,3 @@ impl Server {
         server.run().await.map_err(Error::IOError)
     }
 }
-

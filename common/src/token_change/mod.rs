@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
 use model::Snowflake;
+use serde::{Deserialize, Serialize};
 
 pub const KEY: &str = "tickets:tokenchange";
 

@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::Snowflake;
 use super::Member;
+use crate::Snowflake;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct VoiceState {

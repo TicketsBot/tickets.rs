@@ -1,5 +1,5 @@
-use serde::Serialize;
 use super::Opcode;
+use serde::Serialize;
 
 #[derive(Serialize, Debug)]
 pub struct Resume {
@@ -14,7 +14,11 @@ impl Resume {
     pub fn new(token: String, session_id: String, seq: usize) -> Resume {
         Resume {
             opcode: Opcode::Resume,
-            data: ResumeData { token, session_id, seq },
+            data: ResumeData {
+                token,
+                session_id,
+                seq,
+            },
         }
     }
 }

@@ -2,7 +2,7 @@ mod gateway;
 pub use gateway::*;
 
 mod manager;
-pub use manager::{ShardManager, Options, ShardCount};
+pub use manager::{Options, ShardCount, ShardManager};
 
 #[cfg(not(feature = "whitelabel"))]
 pub use manager::PublicShardManager;

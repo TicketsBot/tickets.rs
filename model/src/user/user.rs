@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::{Snowflake, Discriminator, ImageHash};
 use super::PremiumType;
+use crate::{Discriminator, ImageHash, Snowflake};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct User {
@@ -52,7 +52,7 @@ impl User {
             email: None,
             flags: None,
             premium_type: None,
-            public_flags: None
+            public_flags: None,
         }
     }
 }

@@ -1,6 +1,6 @@
 use crate::{Config, Error};
-use tokio_postgres::{Client, NoTls};
 use model::Snowflake;
+use tokio_postgres::{Client, NoTls};
 
 pub struct Database {
     client: Client,
@@ -8,8 +8,9 @@ pub struct Database {
 
 impl Database {
     pub async fn connect(config: &Config) -> Result<Database, Error> {
-        let (client, connection) =
-            tokio_postgres::connect(&*config.database_uri, NoTls).await.map_err(Error::DatabaseError)?;
+        let (client, connection) = tokio_postgres::connect(&*config.database_uri, NoTls)
+            .await
+            .map_err(Error::DatabaseError)?;
 
         actix_rt::spawn(async move {
             if let Err(e) = connection.await {
@@ -17,9 +18,7 @@ impl Database {
             }
         });
 
-        Ok(Database {
-            client,
-        })
+        Ok(Database { client })
     }
 
     pub async fn add_vote(&self, user_id: Snowflake) -> Result<(), Error> {
@@ -32,7 +31,10 @@ ON CONFLICT("user_id") DO
     UPDATE SET "vote_time" = NOW()
 ;"#;
 
-        self.client.execute(query, &[&(user_id.0 as i64)]).await.map_err(Error::DatabaseError)?;
+        self.client
+            .execute(query, &[&(user_id.0 as i64)])
+            .await
+            .map_err(Error::DatabaseError)?;
 
         Ok(())
     }

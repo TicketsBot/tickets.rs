@@ -1,9 +1,9 @@
-use std::convert::TryFrom;
-use serde::{Serialize, Deserialize, Deserializer};
-use serde_repr::{Serialize_repr, Deserialize_repr};
-use serde_json::Value;
-use serde::de::Error;
 use crate::guild::Emoji;
+use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
+use serde_repr::{Deserialize_repr, Serialize_repr};
+use std::convert::TryFrom;
 
 #[derive(Serialize, Debug)]
 #[serde(untagged)]
@@ -26,7 +26,7 @@ impl TryFrom<u64> for ComponentType {
         Ok(match value {
             1 => Self::ActionRow,
             2 => Self::Button,
-            _ => Err(format!("invalid component type \"{}\"", value).into_boxed_str())?
+            _ => Err(format!("invalid component type \"{}\"", value).into_boxed_str())?,
         })
     }
 }
@@ -67,7 +67,8 @@ impl<'de> Deserialize<'de> for Component {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = Value::deserialize(deserializer)?;
 
-        let component_type = value.get("type")
+        let component_type = value
+            .get("type")
             .and_then(Value::as_u64)
             .ok_or_else(|| Box::from("component type was not an integer"))
             .and_then(ComponentType::try_from)
@@ -76,7 +77,8 @@ impl<'de> Deserialize<'de> for Component {
         let component = match component_type {
             ComponentType::ActionRow => serde_json::from_value(value).map(Component::ActionRow),
             ComponentType::Button => serde_json::from_value(value).map(Component::Button),
-        }.map_err(D::Error::custom)?;
+        }
+        .map_err(D::Error::custom)?;
 
         Ok(component)
     }

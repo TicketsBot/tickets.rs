@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
 use super::Opcode;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Heartbeat {

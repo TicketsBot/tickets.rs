@@ -1,13 +1,13 @@
+use crate::event_forwarding::EventForwarder;
+use crate::gateway::worker_response::WorkerResponse;
+use crate::{Config, GatewayError};
 use async_trait::async_trait;
-use crate::{GatewayError, Config};
 use common::event_forwarding;
+use model::Snowflake;
 use std::sync::Arc;
 use std::time::Duration;
-use crate::gateway::worker_response::WorkerResponse;
-use model::Snowflake;
-use tokio::time::sleep;
 use tokio::sync::RwLock;
-use crate::event_forwarding::EventForwarder;
+use tokio::time::sleep;
 
 pub struct HttpEventForwarder {
     client: reqwest::Client,
@@ -42,14 +42,17 @@ impl HttpEventForwarder {
 
 #[async_trait]
 impl EventForwarder for HttpEventForwarder {
-    async fn forward_event(&self, config: &Config, event: event_forwarding::Event<'_>, guild_id: Option<Snowflake>) -> Result<(), GatewayError> {
+    async fn forward_event(
+        &self,
+        config: &Config,
+        event: event_forwarding::Event<'_>,
+        guild_id: Option<Snowflake>,
+    ) -> Result<(), GatewayError> {
         let uri = &*config.worker_svc_uri;
 
         // reqwest::Client uses Arcs internally, meaning this method clones the same client but
         // allows us to make use of connection pooling
-        let mut req = self.client.clone()
-            .post(uri)
-            .json(&event);
+        let mut req = self.client.clone().post(uri).json(&event);
 
         if let Some(guild_id) = guild_id {
             let header_name = &*config.sticky_cookie;
@@ -63,9 +66,7 @@ impl EventForwarder for HttpEventForwarder {
         }
         drop(cookie); // drop here so we can write later
 
-        let res = req.send()
-            .await
-            .map_err(GatewayError::ReqwestError)?;
+        let res = req.send().await.map_err(GatewayError::ReqwestError)?;
 
         if let Some(cookie) = res.cookies().find(|c| c.name() == &*config.sticky_cookie) {
             // TODO: LOG
@@ -84,7 +85,11 @@ impl EventForwarder for HttpEventForwarder {
 
         match res.success {
             true => Ok(()),
-            false => GatewayError::WorkerError(Box::from(res.error.unwrap_or(std::str::from_utf8(&*bytes).map_err(GatewayError::Utf8Error)?))).into()
+            false => GatewayError::WorkerError(Box::from(
+                res.error
+                    .unwrap_or(std::str::from_utf8(&*bytes).map_err(GatewayError::Utf8Error)?),
+            ))
+            .into(),
         }
     }
 }

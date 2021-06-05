@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
 #[derive(Serialize, Deserialize, Debug)]

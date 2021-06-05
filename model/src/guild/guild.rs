@@ -1,11 +1,11 @@
-use serde::{Serialize, Deserialize};
-use serde_repr::{Serialize_repr, Deserialize_repr};
+use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::{Snowflake, ImageHash, PermissionBitSet};
-use super::{Role, Emoji, VoiceState, Member};
-use chrono::{DateTime, Utc};
+use super::{Emoji, Member, Role, VoiceState};
 use crate::channel::Channel;
 use crate::user::PresenceUpdate;
+use crate::{ImageHash, PermissionBitSet, Snowflake};
+use chrono::{DateTime, Utc};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Guild {
@@ -23,7 +23,10 @@ pub struct Guild {
     pub owner_id: Snowflake,
     pub permissions: Option<PermissionBitSet>,
     pub region: String,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "Snowflake::serialize_option_to_int"
+    )]
     pub afk_channel_id: Option<Snowflake>,
     pub afk_timeout: u16,
     pub verification_level: VerificationLevel,
@@ -38,9 +41,15 @@ pub struct Guild {
     pub mfa_level: MFALevel,
     pub application_id: Option<Snowflake>,
     pub widget_enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "Snowflake::serialize_option_to_int"
+    )]
     pub widget_channel_id: Option<Snowflake>,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "Snowflake::serialize_option_to_int"
+    )]
     pub system_channel_id: Option<Snowflake>,
     pub system_channels_flags: Option<u8>,
     pub rules_channel_id: Option<Snowflake>,
@@ -70,7 +79,10 @@ pub struct Guild {
     pub premium_tier: PremiumTier,
     pub premium_subscription_count: Option<u16>,
     pub preferred_locale: String,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "Snowflake::serialize_option_to_int"
+    )]
     pub public_updates_channel_id: Option<Snowflake>,
     pub max_video_channel_users: Option<u8>,
     pub approximate_member_count: Option<u32>,
@@ -162,7 +174,10 @@ pub struct WelcomeScreen {
 pub struct WelcomeScreenChannel {
     pub channel_id: Snowflake,
     pub description: String,
-    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "Snowflake::serialize_option_to_int")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "Snowflake::serialize_option_to_int"
+    )]
     pub emoji_id: Option<Snowflake>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emoji_name: Option<String>,

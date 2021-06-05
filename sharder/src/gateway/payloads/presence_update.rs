@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
 use super::Opcode;
 use model::user::StatusUpdate;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PresenceUpdate {
