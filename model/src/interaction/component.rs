@@ -40,8 +40,10 @@ pub struct ActionRow {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Button {
     pub r#type: ComponentType,
-    pub label: Box<str>,
-    pub custom_id: Box<str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<Box<str>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_id: Option<Box<str>>,
     pub style: ButtonStyle,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emoji: Option<Emoji>,

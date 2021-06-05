@@ -381,7 +381,7 @@ impl<T: EventForwarder> Shard<T> {
                 let payload = serde_json::from_slice(&raw[..])?;
 
                 if let Err(e) = Arc::clone(&self).handle_event(payload).await {
-                    self.log_err("Error processing dispatch", &e);
+                    self.log_err(format!("Error processing dispatch (full payload: {:?})", str::from_utf8(&raw[..])), &e);
                 }
             }
 
