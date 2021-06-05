@@ -4,6 +4,7 @@ use model::channel::message::Message;
 use model::channel::{Channel, ThreadMember};
 use model::guild::{Guild, UnavailableGuild, VoiceState};
 use model::user::{PresenceUpdate, User};
+use model::interaction::ApplicationCommand;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "t", content = "d")]
@@ -11,6 +12,9 @@ use model::user::{PresenceUpdate, User};
 pub enum Event {
     Ready(super::Ready),
     Resumed(serde_json::Value),
+    ApplicationCommandCreate(ApplicationCommand),
+    ApplicationCommandUpdate(ApplicationCommand),
+    ApplicationCommandDelete(ApplicationCommand),
     ChannelCreate(Channel),
     ChannelUpdate(Channel),
     ChannelDelete(Channel),
