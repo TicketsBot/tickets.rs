@@ -14,7 +14,7 @@ pub struct StageInstance {
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy)]
 #[repr(u8)]
-pub enum Privacylevel {
+pub enum PrivacyLevel {
     Public = 1,
     GuildOnly = 2,
 }
