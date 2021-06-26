@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
 
+use log::debug;
+
 pub struct Poller {
     config: Arc<Config>,
     pub tokens: Arc<Tokens>,
@@ -33,10 +35,13 @@ impl Poller {
     }
 
     async fn poll_page(&self, uri: String) -> Result<PledgeResponse, Box<dyn Error>> {
+        debug!("Polling {}", uri);
+
         let client = reqwest::ClientBuilder::new()
             .use_rustls_tls()
             .build()
             .unwrap();
+
         let res: PledgeResponse = client
             .get(&uri)
             .header(

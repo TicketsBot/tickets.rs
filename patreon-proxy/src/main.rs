@@ -19,12 +19,18 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::time::delay_for;
 
+use log::{debug, error, info};
+
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::init();
+
     let config = Arc::new(Config::new().unwrap());
 
+    info!("Connecting to database...");
     let db_client = Database::new(&config).await?;
     db_client.create_schema().await?;
+    info!("Database connection established");
 
     let mut tokens = Arc::new(
         db_client
@@ -40,24 +46,35 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     let data = Arc::new(RwLock::new(HashMap::<String, patreon::Tier>::new()));
 
     loop {
+        info!("Starting loop");
         if (current_time_seconds() - 86400) > tokens.expires {
+            info!("Needs new credentials");
             tokens = Arc::new(handle_refresh(&tokens, &config, &db_client).await?);
             poller.tokens = Arc::clone(&tokens);
+            info!("Retrieved new credentials");
         }
 
+        info!("Polling");
         match poller.poll().await {
             Ok(patrons) => {
+                info!("Poll successful, retrieved {} patrons", patrons.len());
+
                 {
+                    debug!("Acquiring lock");
                     let mut map = data.write().await;
+                    debug!("Lock acquired");
                     *map = patrons;
+                    debug!("Overridden data");
                 }
+
+                debug!("Data updated");
 
                 if !server_started {
                     start_server(Arc::clone(&config), Arc::clone(&data));
                     server_started = true;
                 }
             }
-            Err(e) => eprintln!("An error occured whilst polling Patreon: {}", e),
+            Err(e) => error!("An error occured whilst polling Patreon: {}", e),
         };
 
         delay_for(Duration::from_secs(30)).await;
@@ -73,6 +90,7 @@ async fn handle_refresh(
     config: &Config,
     db_client: &Database,
 ) -> Result<database::Tokens, Box<dyn Error>> {
+    info!("handle_refresh called");
     let new_tokens = oauth::refresh_tokens(
         tokens.refresh_token.clone(),
         config.patreon_client_id.clone(),

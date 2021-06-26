@@ -162,6 +162,9 @@ pub enum Features {
     PreviewEnabled,
     MemberVerificationGateEnabled,
     DiscoverableDisabled,
+    PrivateThreads,
+    ThreeDayThreadArchive,
+    SevenDayThreadArchive,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
