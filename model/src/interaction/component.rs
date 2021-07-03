@@ -1,4 +1,4 @@
-use crate::guild::Emoji;
+use super::{ActionRow, Button, SelectMenu};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -10,6 +10,7 @@ use std::convert::TryFrom;
 pub enum Component {
     ActionRow(ActionRow),
     Button(Button),
+    SelectMenu(SelectMenu),
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Copy, Clone)]
@@ -17,6 +18,7 @@ pub enum Component {
 pub enum ComponentType {
     ActionRow = 1,
     Button = 2,
+    SelectMenu = 3,
 }
 
 impl TryFrom<u64> for ComponentType {
@@ -26,41 +28,10 @@ impl TryFrom<u64> for ComponentType {
         Ok(match value {
             1 => Self::ActionRow,
             2 => Self::Button,
+            3 => Self::SelectMenu,
             _ => Err(format!("invalid component type \"{}\"", value).into_boxed_str())?,
         })
     }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ActionRow {
-    pub r#type: ComponentType,
-    pub components: Vec<Component>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Button {
-    pub r#type: ComponentType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<Box<str>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub custom_id: Option<Box<str>>,
-    pub style: ButtonStyle,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub emoji: Option<Emoji>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<Box<str>>,
-    #[serde(default = "bool::default")]
-    pub disabled: bool,
-}
-
-#[derive(Serialize_repr, Deserialize_repr, Debug, Copy, Clone)]
-#[repr(u8)]
-pub enum ButtonStyle {
-    Primary = 1,
-    Secondary = 2,
-    Success = 3,
-    Danger = 4,
-    Link = 5,
 }
 
 impl<'de> Deserialize<'de> for Component {
@@ -77,8 +48,9 @@ impl<'de> Deserialize<'de> for Component {
         let component = match component_type {
             ComponentType::ActionRow => serde_json::from_value(value).map(Component::ActionRow),
             ComponentType::Button => serde_json::from_value(value).map(Component::Button),
+            ComponentType::SelectMenu => serde_json::from_value(value).map(Component::SelectMenu),
         }
-        .map_err(D::Error::custom)?;
+            .map_err(D::Error::custom)?;
 
         Ok(component)
     }

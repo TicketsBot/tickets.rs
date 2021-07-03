@@ -27,4 +27,13 @@ mod interaction_application_command_callback_data;
 pub use interaction_application_command_callback_data::InteractionApplicationCommandCallbackData;
 
 mod component;
-pub use component::{ActionRow, Button, ButtonStyle, Component, ComponentType};
+pub use component::{Component, ComponentType};
+
+mod action_row;
+pub use action_row::ActionRow;
+
+mod button;
+pub use button::{Button, ButtonStyle};
+
+mod select_menu;
+pub use select_menu::{SelectMenu, SelectOption};
