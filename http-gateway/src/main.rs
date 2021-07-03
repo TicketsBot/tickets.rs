@@ -1,3 +1,4 @@
+use cache::PostgresCache;
 use database::Database;
 use http_gateway::http;
 use http_gateway::{Config, Error};
@@ -9,12 +10,26 @@ async fn main() -> Result<(), Error> {
 
     let db_opts = PgPoolOptions::new()
         .min_connections(1)
-        .max_connections(config.database.threads);
+        .max_connections(config.database_threads);
 
-    let db = Database::connect(&*config.database.uri, db_opts)
+    let db = Database::connect(&*config.database_uri, db_opts)
         .await
         .map_err(Error::DatabaseError)?;
 
-    let server = http::Server::new(config, db);
+    let cache_opts = cache::Options {
+        users: true,
+        guilds: false,
+        members: true,
+        channels: false,
+        roles: true,
+        emojis: false,
+        voice_states: false,
+    };
+
+    let cache = PostgresCache::connect(config.cache_uri.clone(), cache_opts, config.cache_threads)
+        .await
+        .map_err(Error::CacheError)?;
+
+    let server = http::Server::new(config, db, cache);
     server.start().await
 }

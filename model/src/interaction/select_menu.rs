@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
 use crate::guild::Emoji;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SelectMenu {
@@ -28,5 +28,5 @@ pub struct SelectOption {
 }
 
 fn one() -> u8 {
-    return 1
+    return 1;
 }

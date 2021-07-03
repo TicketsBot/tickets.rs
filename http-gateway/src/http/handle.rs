@@ -1,12 +1,15 @@
 use crate::http::Server;
 use crate::Error;
+use cache::Cache;
 use common::event_forwarding::ForwardedInteraction;
 use ed25519_dalek::{PublicKey, Signature, Verifier};
+use model::guild::{Member, Role};
 use model::interaction::{
-    Interaction, InteractionApplicationCommandCallbackData, InteractionResponse, InteractionType,
+    ApplicationCommandInteraction, Interaction, InteractionApplicationCommandCallbackData,
+    InteractionResponse, InteractionType,
 };
+use model::user::User;
 use model::Snowflake;
-use reqwest::RequestBuilder;
 use serde_json::value::RawValue;
 use std::str;
 use std::sync::Arc;
@@ -14,9 +17,9 @@ use warp::hyper::body::Bytes;
 use warp::hyper::Body;
 use warp::{reply::Response, Rejection, Reply};
 
-pub async fn handle(
+pub async fn handle<T: Cache>(
     bot_id: Snowflake,
-    server: Arc<Server>,
+    server: Arc<Server<T>>,
     signature: Signature,
     timestamp: String,
     body: Bytes,
@@ -50,7 +53,18 @@ pub async fn handle(
 
         Interaction::ApplicationCommand(data) => match data.guild_id {
             Some(guild_id) => {
-                let res_body = forward(server, bot_id, guild_id, data.r#type, &body[..])
+                let interaction_type = data.r#type;
+
+                {
+                    let server = Arc::clone(&server);
+                    tokio::spawn(async move {
+                        if let Err(e) = cache_resolved(server, data, guild_id).await {
+                            eprintln!("error caching resolved: {}", e);
+                        }
+                    });
+                }
+
+                let res_body = forward(server, bot_id, guild_id, interaction_type, &body[..])
                     .await
                     .map_err(warp::reject::custom)?;
                 Ok(Response::new(Body::from(res_body)))
@@ -84,9 +98,12 @@ fn get_missing_guild_id_response() -> InteractionResponse {
     InteractionResponse::new_channel_message_with_source(data)
 }
 
-async fn get_public_key(server: Arc<Server>, bot_id: Snowflake) -> Result<PublicKey, Error> {
-    if bot_id == server.config.main_bot_id {
-        Ok(server.config.main_public_key)
+async fn get_public_key<T: Cache>(
+    server: Arc<Server<T>>,
+    bot_id: Snowflake,
+) -> Result<PublicKey, Error> {
+    if bot_id == server.config.public_bot_id {
+        Ok(server.config.public_public_key)
     } else {
         match server.database.whitelabel_keys.get(bot_id).await {
             Ok(raw) => {
@@ -101,8 +118,8 @@ async fn get_public_key(server: Arc<Server>, bot_id: Snowflake) -> Result<Public
     }
 }
 
-pub async fn forward(
-    server: Arc<Server>,
+pub async fn forward<T: Cache>(
+    server: Arc<Server<T>>,
     bot_id: Snowflake,
     guild_id: Snowflake,
     interaction_type: InteractionType,
@@ -111,7 +128,7 @@ pub async fn forward(
     let json = str::from_utf8(data).map_err(Error::Utf8Error)?.to_owned();
 
     let token = get_token(server.clone(), bot_id).await?;
-    let is_whitelabel = bot_id == server.config.main_bot_id;
+    let is_whitelabel = bot_id == server.config.public_bot_id;
 
     let wrapped = ForwardedInteraction {
         bot_token: &token,
@@ -121,63 +138,24 @@ pub async fn forward(
         data: RawValue::from_string(json).map_err(Error::JsonError)?,
     };
 
-    #[cfg(feature = "sticky-cookie")]
-    let mut req: RequestBuilder;
-
-    #[cfg(not(feature = "sticky-cookie"))]
-    let req: RequestBuilder;
-
-    req = server
+    let req = server
         .http_client
         .clone()
-        .post(&server.config.worker_svc_uri[..])
+        .post(&*server.config.get_svc_uri())
         .header("x-guild-id", guild_id.0.to_string())
         .json(&wrapped);
 
-    let res_body: Bytes;
-    #[cfg(feature = "sticky-cookie")]
-    {
-        // apply sticky cookie header
-        // although whitelabel bots run on shard 0 only, we still treat them in the regular fashion to
-        // ensure a good spread of events across all workers, to prevent all events going to the worker
-        // assigned to shard 0 only.
-        let shard_id = calculate_shard_id(guild_id, server.config.shard_count);
-
-        let cookie = server.cookies.read().await;
-        if let Some(cookie) = cookie.get(&shard_id) {
-            let value = format!("{}={}", server.config.worker_sticky_cookie, cookie);
-            req = req.header(reqwest::header::COOKIE, value);
-        }
-        drop(cookie); // drop here so we can write safely later
-
-        let res = req.send().await.map_err(Error::ReqwestError)?;
-
-        if let Some(cookie) = res
-            .cookies()
-            .find(|c| c.name() == &*server.config.worker_sticky_cookie)
-        {
-            let mut cookies = server.cookies.write().await;
-            cookies.insert(shard_id, Box::from(cookie.value()));
-        };
-
-        res_body = res.bytes().await.map_err(Error::ReqwestError)?;
-    }
-
-    #[cfg(not(feature = "sticky-cookie"))]
-    {
-        let res = req.send().await.map_err(Error::ReqwestError)?;
-
-        res_body = res.bytes().await.map_err(Error::ReqwestError)?;
-    }
+    let res = req.send().await.map_err(Error::ReqwestError)?;
+    let res_body = res.bytes().await.map_err(Error::ReqwestError)?;
 
     Ok(res_body)
 }
 
 // Returns tuple of (token,is_whitelabel)
-async fn get_token<'a>(server: Arc<Server>, bot_id: Snowflake) -> Result<Box<str>, Error> {
+async fn get_token<T: Cache>(server: Arc<Server<T>>, bot_id: Snowflake) -> Result<Box<str>, Error> {
     // Check if public bot
-    if server.config.main_bot_id == bot_id {
-        let token = server.config.main_bot_token.clone();
+    if server.config.public_bot_id == bot_id {
+        let token = server.config.public_token.clone();
         return Ok(token);
     }
 
@@ -193,7 +171,50 @@ async fn get_token<'a>(server: Arc<Server>, bot_id: Snowflake) -> Result<Box<str
     }
 }
 
-#[cfg(feature = "sticky-cookie")]
-fn calculate_shard_id(guild_id: Snowflake, shard_count: u16) -> u16 {
-    ((guild_id.0 >> 22) % (shard_count as u64)) as u16
+async fn cache_resolved<T: Cache>(
+    server: Arc<Server<T>>,
+    interaction: ApplicationCommandInteraction,
+    guild_id: Snowflake,
+) -> Result<(), Error> {
+    let mut users: Vec<User> = interaction
+        .data
+        .resolved
+        .users
+        .into_iter()
+        .map(|(_, user)| user)
+        .collect();
+
+    let mut members: Vec<Member> = interaction
+        .data
+        .resolved
+        .members
+        .into_iter()
+        .map(|(_, member)| member)
+        .collect();
+
+    let roles: Vec<Role> = interaction
+        .data
+        .resolved
+        .roles
+        .into_iter()
+        .map(|(_, role)| role)
+        .collect();
+
+    // Don't cache channels since data is extremely basic
+
+    if let Some(member) = interaction.member {
+        if let Some(ref user) = member.user {
+            users.push(user.clone());
+        }
+
+        members.push(member);
+    } else if let Some(user) = interaction.user {
+        users.push(user);
+    }
+
+    server.cache.store_users(users).await?;
+    server.cache.store_members(members, guild_id).await?;
+    server.cache.store_roles(roles, guild_id).await?;
+
+    Ok(())
 }

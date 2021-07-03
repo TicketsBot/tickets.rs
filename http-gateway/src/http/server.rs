@@ -9,30 +9,22 @@ use warp::http::StatusCode;
 use warp::reply::Json;
 use warp::{Filter, Rejection};
 
-#[cfg(feature = "sticky-cookie")]
-use std::collections::HashMap;
-#[cfg(feature = "sticky-cookie")]
-use tokio::sync::RwLock;
+use cache::Cache;
 
-pub struct Server {
+pub struct Server<T: Cache> {
     pub config: Config,
     pub database: Database,
+    pub cache: T,
     pub http_client: reqwest::Client,
-    #[cfg(feature = "sticky-cookie")]
-    pub cookies: RwLock<HashMap<u16, Box<str>>>,
 }
 
-impl Server {
-    pub fn new(config: Config, database: Database) -> Server {
-        #[cfg(feature = "sticky-cookie")]
-        let shard_count = config.shard_count;
-
+impl<T: Cache> Server<T> {
+    pub fn new(config: Config, database: Database, cache: T) -> Server<T> {
         Server {
             config,
             database,
-            http_client: Server::build_http_client(),
-            #[cfg(feature = "sticky-cookie")]
-            cookies: RwLock::new(HashMap::with_capacity(shard_count as usize)),
+            cache,
+            http_client: Self::build_http_client(),
         }
     }
 
@@ -53,7 +45,7 @@ impl Server {
             .and(warp::path("handle"))
             .and(warp::path::param())
             .and(warp::any().map(move || self.clone()))
-            .and(Server::parse_signature())
+            .and(Self::parse_signature())
             .and(warp::header("x-signature-timestamp"))
             .and(warp::body::bytes())
             .and_then(super::handle)

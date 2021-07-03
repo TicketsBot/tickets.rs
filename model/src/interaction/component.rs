@@ -50,7 +50,7 @@ impl<'de> Deserialize<'de> for Component {
             ComponentType::Button => serde_json::from_value(value).map(Component::Button),
             ComponentType::SelectMenu => serde_json::from_value(value).map(Component::SelectMenu),
         }
-            .map_err(D::Error::custom)?;
+        .map_err(D::Error::custom)?;
 
         Ok(component)
     }

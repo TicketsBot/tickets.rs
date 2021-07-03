@@ -15,6 +15,9 @@ pub use interaction::{
 mod application_command_interaction_data;
 pub use application_command_interaction_data::ApplicationCommandInteractionData;
 
+mod application_command_interaction_data_resolved;
+pub use application_command_interaction_data_resolved::ApplicationCommandInteractionDataResolved;
+
 mod application_command_interaction_data_option;
 pub use application_command_interaction_data_option::ApplicationCommandInteractionDataOption;
 

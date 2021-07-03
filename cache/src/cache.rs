@@ -7,7 +7,7 @@ use model::user::User;
 use model::Snowflake;
 
 #[async_trait]
-pub trait Cache {
+pub trait Cache: Send + Sync + 'static {
     async fn store_guild(&self, guild: Guild) -> Result<(), CacheError>;
     async fn store_guilds(&self, guilds: Vec<Guild>) -> Result<(), CacheError>;
     async fn get_guild(&self, id: Snowflake) -> Result<Option<Guild>, CacheError>;

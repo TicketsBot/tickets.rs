@@ -23,6 +23,9 @@ pub enum Error {
     #[error("error while performing database operation: {0}")]
     DatabaseError(#[from] sqlx::Error),
 
+    #[error("error while performing cache operation: {0}")]
+    CacheError(#[from] cache::CacheError),
+
     #[error("token not found for bot {0}")]
     TokenNotFound(Snowflake),
 

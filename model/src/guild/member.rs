@@ -13,6 +13,8 @@ pub struct Member {
     pub roles: Vec<Snowflake>,
     pub joined_at: DateTime<Utc>,
     pub premium_since: Option<DateTime<Utc>>,
+    #[serde(default = "bool::default")]
     pub deaf: bool,
+    #[serde(default = "bool::default")]
     pub mute: bool,
 }
