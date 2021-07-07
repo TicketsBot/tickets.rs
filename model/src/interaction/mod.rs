@@ -9,7 +9,7 @@ pub use application_command_option_choice::ApplicationCommandOptionChoice;
 
 mod interaction;
 pub use interaction::{
-    ApplicationCommandInteraction, ButtonInteraction, Interaction, InteractionType, PingInteraction,
+    ApplicationCommandInteraction, MessageComponentInteraction, Interaction, InteractionType, PingInteraction,
 };
 
 mod application_command_interaction_data;

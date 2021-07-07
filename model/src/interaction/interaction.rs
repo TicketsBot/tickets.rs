@@ -14,7 +14,7 @@ use std::convert::TryFrom;
 pub enum Interaction {
     Ping(PingInteraction),
     ApplicationCommand(ApplicationCommandInteraction),
-    Button(ButtonInteraction),
+    MessageComponent(MessageComponentInteraction),
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy)]
@@ -22,7 +22,7 @@ pub enum Interaction {
 pub enum InteractionType {
     Ping = 1,
     ApplicationCommand = 2,
-    Button = 3,
+    MessageComponent = 3,
 }
 
 impl TryFrom<u64> for InteractionType {
@@ -32,7 +32,7 @@ impl TryFrom<u64> for InteractionType {
         Ok(match value {
             1 => Self::Ping,
             2 => Self::ApplicationCommand,
-            3 => Self::Button,
+            3 => Self::MessageComponent,
             _ => Err(format!("invalid interaction type \"{}\"", value).into_boxed_str())?,
         })
     }
@@ -58,12 +58,12 @@ pub struct ApplicationCommandInteraction {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ButtonInteraction {
+pub struct MessageComponentInteraction {
     pub id: Snowflake,
     pub application_id: Snowflake,
     pub r#type: InteractionType,
     pub message: Message,
-    pub data: ButtonInteractionData,
+    pub data: MessageComponentInteractionData,
     pub guild_id: Option<Snowflake>,
     pub channel_id: Snowflake,
     pub member: Option<Member>,
@@ -72,7 +72,7 @@ pub struct ButtonInteraction {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ButtonInteractionData {
+pub struct MessageComponentInteractionData {
     pub custom_id: Box<str>,
     pub component_type: ComponentType,
 }
@@ -93,7 +93,7 @@ impl<'de> Deserialize<'de> for Interaction {
             InteractionType::ApplicationCommand => {
                 serde_json::from_value(value).map(Interaction::ApplicationCommand)
             }
-            InteractionType::Button => serde_json::from_value(value).map(Interaction::Button),
+            InteractionType::MessageComponent => serde_json::from_value(value).map(Interaction::MessageComponent),
         }
         .map_err(D::Error::custom)?;
 

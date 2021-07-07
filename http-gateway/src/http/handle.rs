@@ -4,10 +4,7 @@ use cache::Cache;
 use common::event_forwarding::ForwardedInteraction;
 use ed25519_dalek::{PublicKey, Signature, Verifier};
 use model::guild::{Member, Role};
-use model::interaction::{
-    ApplicationCommandInteraction, Interaction, InteractionApplicationCommandCallbackData,
-    InteractionResponse, InteractionType,
-};
+use model::interaction::{ApplicationCommandInteraction, Interaction, InteractionApplicationCommandCallbackData, InteractionResponse, InteractionType, MessageComponentInteraction};
 use model::user::User;
 use model::Snowflake;
 use serde_json::value::RawValue;
@@ -67,16 +64,29 @@ pub async fn handle<T: Cache>(
                 let res_body = forward(server, bot_id, guild_id, interaction_type, &body[..])
                     .await
                     .map_err(warp::reject::custom)?;
+
                 Ok(Response::new(Body::from(res_body)))
             }
             None => Ok(warp::reply::json(&get_missing_guild_id_response()).into_response()),
         },
 
-        Interaction::Button(data) => match data.guild_id {
+        Interaction::MessageComponent(data) => match data.guild_id {
             Some(guild_id) => {
-                let res_body = forward(server, bot_id, guild_id, data.r#type, &body[..])
+                let interaction_type = data.r#type;
+
+                {
+                    let server = Arc::clone(&server);
+                    tokio::spawn(async move {
+                        if let Err(e) = cache_message_component_interaction(server, data, guild_id).await {
+                            eprintln!("error caching resolved: {}", e);
+                        }
+                    });
+                }
+
+                let res_body = forward(server, bot_id, guild_id, interaction_type, &body[..])
                     .await
                     .map_err(warp::reject::custom)?;
+
                 Ok(Response::new(Body::from(res_body)))
             }
             None => Ok(warp::reply::json(&get_missing_guild_id_response()).into_response()),
@@ -215,6 +225,24 @@ async fn cache_resolved<T: Cache>(
     server.cache.store_users(users).await?;
     server.cache.store_members(members, guild_id).await?;
     server.cache.store_roles(roles, guild_id).await?;
+
+    Ok(())
+}
+
+async fn cache_message_component_interaction<T: Cache>(
+    server: Arc<Server<T>>,
+    interaction: MessageComponentInteraction,
+    guild_id: Snowflake,
+) -> Result<(), Error> {
+    if let Some(member) = interaction.member {
+        if let Some(ref user) = member.user {
+            server.cache.store_user(user.clone()).await?;
+        }
+
+        server.cache.store_member(member, guild_id).await?;
+    } else if let Some(user) = interaction.user {
+        server.cache.store_user(user).await?;
+    }
 
     Ok(())
 }
