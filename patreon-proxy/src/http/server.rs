@@ -25,6 +25,9 @@ struct PremiumResponse {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     tier: Option<i32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_id: Option<String>,
 }
 
 macro_rules! map (
@@ -85,6 +88,7 @@ async fn is_premium(
     let tiers = Tier::values();
     let highest_tier_id = tiers.last().unwrap().tier_id();
     let mut guild_highest_tier: Option<&Tier> = None;
+    let mut user_id: Option<&str> = None;
 
     let patrons = patrons.read().await;
 
@@ -97,6 +101,7 @@ async fn is_premium(
                 Some(current_tier) => {
                     if tier.tier_id() > current_tier.tier_id() {
                         guild_highest_tier = Some(tier);
+                        user_id = Some(id);
                     }
                 }
             }
@@ -110,6 +115,7 @@ async fn is_premium(
     let response = PremiumResponse {
         premium: guild_highest_tier.is_some(),
         tier: guild_highest_tier.map(|tier| tier.tier_id()),
+        user_id: user_id.map(|id| id.to_owned()),
     };
 
     Ok(warp::reply::with_status(
