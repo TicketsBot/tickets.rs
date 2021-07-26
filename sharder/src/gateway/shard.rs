@@ -409,7 +409,7 @@ impl<T: EventForwarder> Shard<T> {
         if let Some(seq) = payload.seq {
             *self.seq.write().await = Some(seq);
 
-            let last_updated = self.last_seq_update.lock().await;
+            let mut last_updated = self.last_seq_update.lock().await;
             if last_updated.elapsed() > SEQ_SAVE_DELAY {
                 *last_updated = Instant::now();
                 drop(last_updated);
