@@ -42,6 +42,7 @@ use async_tungstenite::{
 };
 
 const GATEWAY_VERSION: u8 = 9;
+const SEQ_SAVE_DELAY: Duration = Duration::from_secs(5);
 
 pub struct Shard<T: EventForwarder> {
     pub(crate) config: Arc<Config>,
@@ -54,6 +55,7 @@ pub struct Shard<T: EventForwarder> {
     pub(crate) user_id: Snowflake,
     total_rx: Mutex<u64>,
     seq: RwLock<Option<usize>>,
+    last_seq_update: Mutex<Instant>,
     session_id: RwLock<Option<String>>,
     writer: RwLock<Option<mpsc::Sender<OutboundMessage>>>,
     kill_heartbeat: Mutex<Option<oneshot::Sender<()>>>,
@@ -100,6 +102,7 @@ impl<T: EventForwarder> Shard<T> {
             user_id,
             total_rx: Mutex::new(0),
             seq: RwLock::new(None),
+            last_seq_update: Mutex::new(Instant::now()),
             session_id: RwLock::new(None),
             writer: RwLock::new(None),
             kill_heartbeat: Mutex::new(None),
@@ -237,7 +240,7 @@ impl<T: EventForwarder> Shard<T> {
         >,
     ) -> Result<(), GatewayError> {
         #[cfg(feature = "compression")]
-        let mut decoder = Decompress::new(true);
+            let mut decoder = Decompress::new(true);
 
         loop {
             let shard = Arc::clone(&self);
@@ -406,7 +409,11 @@ impl<T: EventForwarder> Shard<T> {
         if let Some(seq) = payload.seq {
             *self.seq.write().await = Some(seq);
 
-            if self.is_ready.load(Ordering::Relaxed) {
+            let last_updated = self.last_seq_update.lock().await;
+            if last_updated.elapsed() > SEQ_SAVE_DELAY {
+                *last_updated = Instant::now();
+                drop(last_updated);
+
                 if let Err(e) = self.save_seq().await {
                     self.log_err("Error saving sequence number", &e);
                 }
