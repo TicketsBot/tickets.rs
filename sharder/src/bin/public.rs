@@ -71,7 +71,7 @@ async fn main() {
 fn get_shard_count(config: &Config) -> ShardCount {
     ShardCount {
         total: config.sharder_cluster_size * config.sharder_total,
-        lowest: config.sharder_total * config.sharder_id,
-        highest: config.sharder_total * (config.sharder_id + 1),
+        lowest: config.sharder_cluster_size * config.sharder_id,
+        highest: config.sharder_cluster_size * (config.sharder_id + 1),
     }
 }
