@@ -406,8 +406,10 @@ impl<T: EventForwarder> Shard<T> {
         if let Some(seq) = payload.seq {
             *self.seq.write().await = Some(seq);
 
-            if let Err(e) = self.save_seq().await {
-                self.log_err("Error saving sequence number", &e);
+            if self.is_ready.load(Ordering::Relaxed) {
+                if let Err(e) = self.save_seq().await {
+                    self.log_err("Error saving sequence number", &e);
+                }
             }
         }
 
