@@ -1,13 +1,10 @@
-use super::var_or_panic;
-
-use crate::var;
+use crate::Config;
 use cache::{Options, PostgresCache};
 use deadpool::managed::PoolConfig;
-use deadpool_redis::{Config, Pool};
+use deadpool_redis::{Config as RedisConfig, Pool};
 
 /// panics on err
-pub async fn build_cache() -> PostgresCache {
-    let cache_uri = var("CACHE_URI").unwrap();
+pub async fn build_cache(config: &Config) -> PostgresCache {
     let cache_opts = Options {
         users: false,
         guilds: true,
@@ -18,33 +15,34 @@ pub async fn build_cache() -> PostgresCache {
         voice_states: false,
     };
 
-    let cache_threads = var_or_panic("CACHE_THREADS").parse::<usize>().unwrap();
-    PostgresCache::connect(cache_uri, cache_opts, cache_threads)
+    PostgresCache::connect(config.cache_uri.clone(), cache_opts, config.cache_threads)
         .await
         .unwrap()
 }
 
 /// panics on err
-pub fn build_redis() -> Pool {
-    let mut cfg = Config::default();
-    cfg.url = Some(get_redis_uri());
-    cfg.pool = Some(PoolConfig::new(
-        var_or_panic("REDIS_THREADS").parse().unwrap(),
-    ));
+pub fn build_redis(config: &Config) -> Pool {
+    let cfg = RedisConfig {
+        url: Some(config.get_redis_uri()),
+        connection: None,
+        pool: Some(PoolConfig::new(config.redis_threads)),
+    };
 
-    cfg.create_pool().unwrap()
+    cfg.create_pool().expect("Failed to create Redis pool")
 }
 
-pub fn get_redis_uri() -> String {
-    let addr = var_or_panic("REDIS_ADDR");
+pub fn setup_sentry(config: &Config) -> sentry::ClientInitGuard {
+    // init sentry
+    let guard = sentry::init((&config.sentry_dsn[..], sentry::ClientOptions {
+        attach_stacktrace: true,
+        ..Default::default()
+    }));
 
-    match var("REDIS_PASSWORD") {
-        Some(pwd) => format!("redis://:{}@{}/", pwd, addr),
-        None => format!("redis://{}/", addr),
-    }
-}
+    let mut log_builder = env_logger::builder();
+    log_builder.parse_filters("info");
+    let logger = sentry_log::SentryLogger::with_dest(log_builder.build());
 
-pub fn get_worker_svc_uri() -> Box<str> {
-    let uri = var_or_panic("WORKER_SVC_URI");
-    format!("http://{}/event", uri).into_boxed_str()
+    log::set_boxed_logger(Box::new(logger)).unwrap();
+
+    guard
 }

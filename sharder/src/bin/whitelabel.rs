@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use sharder::{build_redis, Config, ShardManager, WhitelabelShardManager};
+use sharder::{build_redis, Config, ShardManager, WhitelabelShardManager, setup_sentry};
 
 use database::{sqlx::postgres::PgPoolOptions, Database};
-use sharder::{build_cache, var_or_panic};
+use sharder::build_cache;
 
 use tokio::signal;
 
@@ -21,33 +21,28 @@ fn main() {
 #[cfg(feature = "whitelabel")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = Arc::new(Config::from_envvar());
-
-    let sharder_id: u16 = var_or_panic("SHARDER_ID").parse().unwrap();
-    let sharder_count: u16 = var_or_panic("SHARDER_TOTAL").parse().unwrap();
+    let config = Config::from_envvar();
+    let _guard = setup_sentry(&config);
 
     // init db
     let db_opts = PgPoolOptions::new()
         .min_connections(1)
-        .max_connections(var_or_panic("DATABASE_THREADS").parse().unwrap());
-    let database = Arc::new(Database::connect(&var_or_panic("DATABASE_URI"), db_opts).await?);
+        .max_connections(config.database_threads);
+    let database = Arc::new(Database::connect(&config.database_uri[..], db_opts).await?);
 
     // init cache
-    let cache = Arc::new(build_cache().await);
+    let cache = Arc::new(build_cache(&config).await);
     //cache.create_schema().await.unwrap();
 
     // init redis
-    let redis = Arc::new(build_redis());
+    let redis = Arc::new(build_redis(&config));
 
     let event_forwarder = Arc::new(HttpEventForwarder::new(
         HttpEventForwarder::build_http_client(),
     ));
-    Arc::clone(&event_forwarder).start_reset_cookie_loop();
 
     let sm = Arc::new(WhitelabelShardManager::new(
         config,
-        sharder_count,
-        sharder_id,
         database,
         cache,
         redis,

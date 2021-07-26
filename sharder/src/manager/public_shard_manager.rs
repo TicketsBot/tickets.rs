@@ -29,14 +29,14 @@ pub struct PublicShardManager<T: EventForwarder> {
 #[cfg(not(feature = "whitelabel"))]
 impl<T: EventForwarder> PublicShardManager<T> {
     pub async fn new(
-        config: Arc<Config>,
+        config: Config,
         options: Options,
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
         event_forwarder: Arc<T>,
     ) -> Self {
         let mut sm = PublicShardManager {
-            config,
+            config: Arc::new(config),
             shards: HashMap::new(),
         };
 
@@ -56,7 +56,7 @@ impl<T: EventForwarder> PublicShardManager<T> {
             );
 
             let shard = Shard::new(
-                sm.config.clone(),
+                Arc::clone(&sm.config),
                 identify,
                 options.large_sharding_buckets,
                 Arc::clone(&cache),

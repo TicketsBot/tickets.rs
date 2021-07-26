@@ -2,30 +2,30 @@ use std::sync::Arc;
 use tokio::signal;
 
 use model::user::{ActivityType, StatusType, StatusUpdate};
-use sharder::{Config, PublicShardManager, ShardCount, ShardManager};
+use sharder::{Config, PublicShardManager, ShardCount, ShardManager, setup_sentry};
 
-use sharder::{build_cache, build_redis, var_or_panic};
+use sharder::{build_cache, build_redis};
 
-use deadpool_redis::cmd;
+use deadpool_redis::redis::cmd;
 use jemallocator::Jemalloc;
-use model::Snowflake;
 use sharder::event_forwarding::HttpEventForwarder;
-use std::str::FromStr;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[cfg(feature = "whitelabel")]
+/*#[cfg(feature = "whitelabel")]
 fn main() {
     panic!("Started public sharder with whitelabel feature flag")
 }
 
-#[cfg(not(feature = "whitelabel"))]
+#[cfg(not(feature = "whitelabel"))]*/
 #[tokio::main]
 async fn main() {
     // init sharder options
-    let config = Arc::new(Config::from_envvar());
-    let shard_count = get_shard_count();
+    let config = Config::from_envvar();
+    let _guard = setup_sentry(&config);
+
+    let shard_count = get_shard_count(&config);
 
     let presence = StatusUpdate::new(
         ActivityType::Listening,
@@ -33,19 +33,19 @@ async fn main() {
         StatusType::Online,
     );
     let options = sharder::Options {
-        token: var_or_panic("SHARDER_TOKEN"),
+        token: Box::from(config.sharder_token.clone()),
         shard_count,
         presence,
         large_sharding_buckets: 1,
-        user_id: Snowflake::from_str(&var_or_panic("BOT_ID")[..]).unwrap(),
+        user_id: config.bot_id,
     };
 
     // init cache
-    let cache = Arc::new(build_cache().await);
+    let cache = Arc::new(build_cache(&config).await);
     //cache.create_schema().await.unwrap();
 
     // init redis
-    let redis = Arc::new(build_redis());
+    let redis = Arc::new(build_redis(&config));
 
     // test redis connection
     let mut conn = redis.get().await.expect("Failed to get redis conn");
@@ -60,7 +60,6 @@ async fn main() {
     let event_forwarder = Arc::new(HttpEventForwarder::new(
         HttpEventForwarder::build_http_client(),
     ));
-    Arc::clone(&event_forwarder).start_reset_cookie_loop();
 
     let sm = PublicShardManager::new(config, options, cache, redis, event_forwarder).await;
     Arc::new(sm).connect().await;
@@ -69,14 +68,10 @@ async fn main() {
 }
 
 #[cfg(not(feature = "whitelabel"))]
-fn get_shard_count() -> ShardCount {
-    let cluster_size: u16 = var_or_panic("SHARDER_CLUSTER_SIZE").parse().unwrap();
-    let sharder_count: u16 = var_or_panic("SHARDER_TOTAL").parse().unwrap();
-    let sharder_id: u16 = var_or_panic("SHARDER_ID").parse().unwrap();
-
+fn get_shard_count(config: &Config) -> ShardCount {
     ShardCount {
-        total: cluster_size * sharder_count,
-        lowest: cluster_size * sharder_id,
-        highest: cluster_size * (sharder_id + 1),
+        total: config.sharder_cluster_size * config.sharder_total,
+        lowest: config.sharder_total * config.sharder_id,
+        highest: config.sharder_total * (config.sharder_id + 1),
     }
 }

@@ -11,7 +11,7 @@ model = { path = "../model" }
 common = { path = "../common" }
 database = { path = "../database" }
 tokio = { version = "1.2", features = ["full", "time", "sync", "signal"] }
-async-tungstenite = { version = "0.12", features = ["tokio-rustls"] }
+async-tungstenite = { version = "0.14", features = ["tokio-rustls-webpki-roots"] }
 webpki = "0.21.4"
 url = "2.1"
 futures = "0.3"
@@ -22,13 +22,18 @@ serde_repr = "0.1"
 thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
-redis = { version = "0.17", features = ["tokio-rt-core", "connection-manager"] }
-deadpool = { version = "0.5", features = ["managed"] }
-deadpool-redis = "0.6"
+redis = { version = "0.20", features = ["tokio-comp", "connection-manager"] }
+deadpool = { version = "0.8", features = ["managed"] }
+deadpool-redis = "0.8"
 jemallocator = "0.3"
 simd-json = "0.3"
-reqwest = { version = "0.11", features = ["json", "gzip", "cookies"] }
+reqwest = { version = "0.11", features = ["json", "gzip"] }
 flate2 = { version = "1.0", features = ["tokio", "zlib-ng-compat"], default-features = false, optional = true }
+log = "0.4"
+env_logger = "0.9"
+envy = "0.4"
+sentry = { version = "0.23", features = ["log"] }
+sentry-log = "0.23"
 
 [features]
 default = ["skip-initial-guild-creates"]

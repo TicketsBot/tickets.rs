@@ -27,7 +27,7 @@ pub enum GatewayError {
     RedisError(#[from] redis::RedisError),
 
     #[error("error while getting redis conn: {0}")]
-    PoolError(#[from] deadpool::managed::PoolError<redis::RedisError>),
+    PoolError(#[from] deadpool::managed::PoolError<deadpool_redis::redis::RedisError>),
 
     #[error("error while operating on websocket: {0}")]
     WebsocketError(#[from] async_tungstenite::tungstenite::Error),

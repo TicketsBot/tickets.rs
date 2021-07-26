@@ -5,7 +5,7 @@ use super::ShardManager;
 use crate::gateway::{Identify, Shard, ShardInfo};
 
 use crate::gateway::event_forwarding::EventForwarder;
-use crate::{get_redis_uri, Config, GatewayError};
+use crate::{Config, GatewayError};
 use cache::PostgresCache;
 use common::token_change;
 use database::{Database, WhitelabelBot};
@@ -22,8 +22,6 @@ use tokio::time::sleep;
 
 pub struct WhitelabelShardManager<T: EventForwarder> {
     config: Arc<Config>,
-    sharder_count: u16,
-    sharder_id: u16,
     shards: RwLock<HashMap<Snowflake, Arc<Shard<T>>>>,
     // user_id -> bot_id
     user_ids: RwLock<HashMap<Snowflake, Snowflake>>,
@@ -35,18 +33,14 @@ pub struct WhitelabelShardManager<T: EventForwarder> {
 
 impl<T: EventForwarder> WhitelabelShardManager<T> {
     pub fn new(
-        config: Arc<Config>,
-        sharder_count: u16,
-        sharder_id: u16,
+        config: Config,
         database: Arc<Database>,
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
         event_forwarder: Arc<T>,
     ) -> Self {
         WhitelabelShardManager {
-            config,
-            sharder_count,
-            sharder_id,
+            config: Arc::new(config),
             shards: RwLock::new(HashMap::new()),
             user_ids: RwLock::new(HashMap::new()),
             database,
@@ -161,7 +155,7 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
     pub async fn listen_status_updates(self: Arc<Self>) -> Result<(), GatewayError> {
         let database = Arc::clone(&self.database);
 
-        let mut conn = redis::Client::open(get_redis_uri())
+        let mut conn = redis::Client::open(self.config.get_redis_uri())
             .unwrap()
             .get_async_connection()
             .await?
@@ -213,7 +207,7 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
     }
 
     pub async fn listen_new_tokens(self: Arc<Self>) -> Result<(), GatewayError> {
-        let mut conn = redis::Client::open(get_redis_uri())
+        let mut conn = redis::Client::open(self.config.get_redis_uri())
             .unwrap()
             .get_async_connection()
             .await?
@@ -231,8 +225,8 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                 match serde_json::from_slice::<token_change::Payload>(m.get_payload_bytes()) {
                     Ok(payload) => {
                         // check whether this shard has the old bot
-                        if payload.old_id.0 % (manager.sharder_count as u64)
-                            == manager.sharder_id as u64
+                        if payload.old_id.0 % (manager.config.sharder_total as u64)
+                            == manager.config.sharder_id as u64
                         {
                             if let Some(shard) = self.shards.write().await.remove(&payload.old_id) {
                                 shard.log("Received token update payload, stopping");
@@ -241,8 +235,8 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                         }
 
                         // start new bot
-                        if payload.new_id.0 % (manager.sharder_count as u64)
-                            == manager.sharder_id as u64
+                        if payload.new_id.0 % (manager.config.sharder_total as u64)
+                            == manager.config.sharder_id as u64
                         {
                             match self.database.whitelabel.get_bot_by_id(payload.new_id).await {
                                 Ok(Some(bot)) => {
@@ -266,7 +260,7 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
     }
 
     pub async fn listen_delete(self: Arc<Self>) -> Result<(), GatewayError> {
-        let mut conn = redis::Client::open(get_redis_uri())
+        let mut conn = redis::Client::open(self.config.get_redis_uri())
             .unwrap()
             .get_async_connection()
             .await?
@@ -308,7 +302,7 @@ impl<T: EventForwarder> ShardManager for WhitelabelShardManager<T> {
         let bots = self
             .database
             .whitelabel
-            .get_bots_by_sharder(self.sharder_count, self.sharder_id)
+            .get_bots_by_sharder(self.config.sharder_total, self.config.sharder_id)
             .await
             .unwrap();
 

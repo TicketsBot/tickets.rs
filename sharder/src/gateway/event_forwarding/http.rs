@@ -4,21 +4,16 @@ use crate::{Config, GatewayError};
 use async_trait::async_trait;
 use common::event_forwarding;
 use model::Snowflake;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
-use tokio::time::sleep;
 
 pub struct HttpEventForwarder {
     client: reqwest::Client,
-    cookie: RwLock<Option<Box<str>>>,
 }
 
 impl HttpEventForwarder {
     pub fn new(client: reqwest::Client) -> HttpEventForwarder {
         HttpEventForwarder {
             client,
-            cookie: RwLock::new(Option::None),
         }
     }
 
@@ -29,15 +24,6 @@ impl HttpEventForwarder {
             .build()
             .expect("build_http_client")
     }
-
-    pub fn start_reset_cookie_loop(self: Arc<Self>) {
-        tokio::spawn(async move {
-            loop {
-                sleep(Duration::from_secs(180)).await;
-                *self.cookie.write().await = None;
-            }
-        });
-    }
 }
 
 #[async_trait]
@@ -46,33 +32,15 @@ impl EventForwarder for HttpEventForwarder {
         &self,
         config: &Config,
         event: event_forwarding::Event<'_>,
-        guild_id: Option<Snowflake>,
+        _guild_id: Option<Snowflake>,
     ) -> Result<(), GatewayError> {
-        let uri = &*config.worker_svc_uri;
+        let uri = config.get_worker_svc_uri();
 
         // reqwest::Client uses Arcs internally, meaning this method clones the same client but
         // allows us to make use of connection pooling
-        let mut req = self.client.clone().post(uri).json(&event);
-
-        if let Some(guild_id) = guild_id {
-            let header_name = &*config.sticky_cookie;
-            req = req.header(header_name, guild_id.0);
-        }
-
-        let cookie = self.cookie.read().await;
-        if let Some(cookie) = &*cookie {
-            let value = format!("{}={}", config.sticky_cookie, cookie);
-            req = req.header(reqwest::header::COOKIE, value);
-        }
-        drop(cookie); // drop here so we can write later
+        let req = self.client.clone().post(uri).json(&event);
 
         let res = req.send().await.map_err(GatewayError::ReqwestError)?;
-
-        if let Some(cookie) = res.cookies().find(|c| c.name() == &*config.sticky_cookie) {
-            // TODO: LOG
-            //shard.log(format!("Got new session cookie: {}", cookie.value()));
-            *self.cookie.write().await = Some(Box::from(cookie.value()));
-        }
 
         let bytes = res.bytes().await.map_err(GatewayError::ReqwestError)?;
         let res: WorkerResponse = serde_json::from_slice(&bytes).map_err(|_| {

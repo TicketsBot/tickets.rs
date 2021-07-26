@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
-use deadpool_redis::{cmd, Pool};
+use deadpool_redis::{redis::cmd, Pool};
 #[cfg(feature = "compression")]
 use flate2::{Decompress, FlushDecompress, Status};
 use futures::StreamExt;
@@ -15,6 +15,7 @@ use serde_json::value::RawValue;
 use tokio::sync::{mpsc, oneshot};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::sleep;
+use log::{error, info};
 
 use cache::{Cache, PostgresCache};
 use common::event_forwarding;
@@ -556,7 +557,7 @@ impl<T: EventForwarder> Shard<T> {
 
                 if !self
                     .is_ready
-                    .compare_and_swap(false, true, Ordering::Relaxed)
+                    .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed).unwrap_or_else(|x| x)
                 {
                     if let Some(tx) = self.ready_tx.lock().await.take() {
                         if let Err(_) = tx.send(()) {
@@ -691,7 +692,7 @@ impl<T: EventForwarder> Shard<T> {
                 // CAS in case value was updated since read
                 if !self
                     .is_ready
-                    .compare_and_swap(false, true, Ordering::Relaxed)
+                    .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed).unwrap_or_else(|x| x)
                 {
                     if let Some(tx) = self.ready_tx.lock().await.take() {
                         self.log("Reporting readiness");
@@ -1012,17 +1013,17 @@ impl<T: EventForwarder> Shard<T> {
 
     pub fn log(&self, msg: impl Display) {
         if is_whitelabel() {
-            println!("[shard:{}] {}", self.user_id, msg);
+            info!("[shard:{}] {}", self.user_id, msg);
         } else {
-            println!("[shard:{:0>2}] {}", self.get_shard_id(), msg);
+            info!("[shard:{:0>2}] {}", self.get_shard_id(), msg);
         }
     }
 
     pub fn log_err(&self, msg: impl Display, err: &GatewayError) {
         if is_whitelabel() {
-            eprintln!("[shard:{}] {}: {}", self.user_id, msg, err);
+            error!("[shard:{}] {}: {}", self.user_id, msg, err);
         } else {
-            eprintln!("[shard:{:0>2}] {}: {}", self.get_shard_id(), msg, err);
+            error!("[shard:{:0>2}] {}: {}", self.get_shard_id(), msg, err);
         }
     }
 }
