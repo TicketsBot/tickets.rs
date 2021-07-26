@@ -22,9 +22,9 @@ serde_repr = "0.1"
 thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
-redis = { version = "0.20", features = ["tokio-comp", "connection-manager"] }
-deadpool = { version = "0.8", features = ["managed"] }
-deadpool-redis = "0.8"
+redis = { version = "0.17", features = ["tokio-rt-core", "connection-manager"] }
+deadpool = { version = "0.5", features = ["managed"] }
+deadpool-redis = "0.6"
 jemallocator = "0.3"
 simd-json = "0.3"
 reqwest = { version = "0.11", features = ["json", "gzip"] }

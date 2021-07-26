@@ -24,7 +24,6 @@ pub async fn build_cache(config: &Config) -> PostgresCache {
 pub fn build_redis(config: &Config) -> Pool {
     let cfg = RedisConfig {
         url: Some(config.get_redis_uri()),
-        connection: None,
         pool: Some(PoolConfig::new(config.redis_threads)),
     };
 

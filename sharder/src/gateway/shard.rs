@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
-use deadpool_redis::{redis::cmd, Pool};
+use deadpool_redis::{cmd, Pool};
 #[cfg(feature = "compression")]
 use flate2::{Decompress, FlushDecompress, Status};
 use futures::StreamExt;

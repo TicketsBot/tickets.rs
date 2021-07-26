@@ -6,7 +6,7 @@ use sharder::{Config, PublicShardManager, ShardCount, ShardManager, setup_sentry
 
 use sharder::{build_cache, build_redis};
 
-use deadpool_redis::redis::cmd;
+use deadpool_redis::cmd;
 use jemallocator::Jemalloc;
 use sharder::event_forwarding::HttpEventForwarder;
 
