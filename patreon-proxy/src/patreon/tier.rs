@@ -7,15 +7,17 @@ pub enum Tier {
 }
 
 // TODO: Don't store these as constants
-const TIER_PREMIUM: &str = "4071609";
-const TIER_WHITELABEL: &str = "5259899";
+const TIERS_PREMIUM: &[&str] = &["4071609"];
+const TIERS_WHITELABEL: &[&str] = &["5259899"];
 
 impl Tier {
     pub fn get_by_patreon_id(patreon_id: &str) -> Option<Tier> {
-        match patreon_id {
-            TIER_PREMIUM => Some(Tier::Premium),
-            TIER_WHITELABEL => Some(Tier::Whitelabel),
-            _ => None,
+        if TIERS_WHITELABEL.contains(&patreon_id) {
+            Some(Tier::Whitelabel)
+        } else if TIERS_PREMIUM.contains(&patreon_id) {
+            Some(Tier::Premium)
+        } else {
+            None
         }
     }
 

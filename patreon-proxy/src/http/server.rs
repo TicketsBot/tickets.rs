@@ -97,7 +97,10 @@ async fn is_premium(
     ids.any(|id| {
         if let Some(tier) = patrons.get(id) {
             match guild_highest_tier {
-                None => guild_highest_tier = Some(tier),
+                None => {
+                    guild_highest_tier = Some(tier);
+                    user_id = Some(id);
+                },
                 Some(current_tier) => {
                     if tier.tier_id() > current_tier.tier_id() {
                         guild_highest_tier = Some(tier);
