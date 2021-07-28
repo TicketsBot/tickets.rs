@@ -48,49 +48,43 @@ pub async fn handle<T: Cache>(
             Ok(warp::reply::json(&response).into_response())
         }
 
-        Interaction::ApplicationCommand(data) => match data.guild_id {
-            Some(guild_id) => {
-                let interaction_type = data.r#type;
+        Interaction::ApplicationCommand(data) => {
+            let interaction_type = data.r#type;
 
-                {
-                    let server = Arc::clone(&server);
-                    tokio::spawn(async move {
-                        if let Err(e) = cache_resolved(server, data, guild_id).await {
-                            eprintln!("error caching resolved: {}", e);
-                        }
-                    });
-                }
-
-                let res_body = forward(server, bot_id, guild_id, interaction_type, &body[..])
-                    .await
-                    .map_err(warp::reject::custom)?;
-
-                Ok(Response::new(Body::from(res_body)))
+            if let Some(guild_id) = data.guild_id {
+                let server = Arc::clone(&server);
+                tokio::spawn(async move {
+                    if let Err(e) = cache_resolved(server, data, guild_id).await {
+                        eprintln!("error caching resolved: {}", e);
+                    }
+                });
             }
-            None => Ok(warp::reply::json(&get_missing_guild_id_response()).into_response()),
-        },
 
-        Interaction::MessageComponent(data) => match data.guild_id {
-            Some(guild_id) => {
-                let interaction_type = data.r#type;
+            let res_body = forward(server, bot_id, interaction_type, &body[..])
+                .await
+                .map_err(warp::reject::custom)?;
 
-                {
-                    let server = Arc::clone(&server);
-                    tokio::spawn(async move {
-                        if let Err(e) = cache_message_component_interaction(server, data, guild_id).await {
-                            eprintln!("error caching resolved: {}", e);
-                        }
-                    });
-                }
+            Ok(Response::new(Body::from(res_body)))
+        }
 
-                let res_body = forward(server, bot_id, guild_id, interaction_type, &body[..])
-                    .await
-                    .map_err(warp::reject::custom)?;
+        Interaction::MessageComponent(data) => {
+            let interaction_type = data.r#type;
 
-                Ok(Response::new(Body::from(res_body)))
+            if let Some(guild_id) = data.guild_id {
+                let server = Arc::clone(&server);
+                tokio::spawn(async move {
+                    if let Err(e) = cache_message_component_interaction(server, data, guild_id).await {
+                        eprintln!("error caching resolved: {}", e);
+                    }
+                });
             }
-            None => Ok(warp::reply::json(&get_missing_guild_id_response()).into_response()),
-        }, //_ => Err(warp::reject::custom(Error::UnsupportedInteractionType))
+
+            let res_body = forward(server, bot_id, interaction_type, &body[..])
+                .await
+                .map_err(warp::reject::custom)?;
+
+            Ok(Response::new(Body::from(res_body)))
+        } //_ => Err(warp::reject::custom(Error::UnsupportedInteractionType))
     }
 }
 
@@ -131,7 +125,6 @@ async fn get_public_key<T: Cache>(
 pub async fn forward<T: Cache>(
     server: Arc<Server<T>>,
     bot_id: Snowflake,
-    guild_id: Snowflake,
     interaction_type: InteractionType,
     data: &[u8],
 ) -> Result<Bytes, Error> {
@@ -152,7 +145,6 @@ pub async fn forward<T: Cache>(
         .http_client
         .clone()
         .post(&*server.config.get_svc_uri())
-        .header("x-guild-id", guild_id.0.to_string())
         .json(&wrapped);
 
     let res = req.send().await.map_err(Error::ReqwestError)?;

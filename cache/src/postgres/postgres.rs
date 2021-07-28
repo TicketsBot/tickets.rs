@@ -37,24 +37,27 @@ impl PostgresCache {
 
             // run executor in background
             tokio::spawn(async move {
-                let _: Result<(), CacheError> =
-                    backoff::future::retry(ExponentialBackoff::default(), || async {
-                        println!("[cache worker:{}] trying to connect", id);
-                        let (kill_tx, conn) =
-                            Self::spawn_worker(id, &uri[..], opts, Arc::clone(&worker_rx)).await?;
-                        println!("[cache worker:{}] connected!", id);
+                // Loop to reconnect after conn dies
+                loop {
+                    let _: Result<(), CacheError> =
+                        backoff::future::retry(ExponentialBackoff::default(), || async {
+                            println!("[cache worker:{}] trying to connect", id);
+                            let (kill_tx, conn) =
+                                Self::spawn_worker(id, &uri[..], opts, Arc::clone(&worker_rx)).await?;
+                            println!("[cache worker:{}] connected!", id);
 
-                        if let Err(e) = conn.await {
-                            eprintln!("[cache worker:{}] db connection error: {}", id, e);
-                            return Err(backoff::Error::Transient(CacheError::DatabaseError(e)));
-                        }
+                            if let Err(e) = conn.await {
+                                eprintln!("[cache worker:{}] db connection error: {}", id, e);
+                                return Err(backoff::Error::Transient(CacheError::DatabaseError(e)));
+                            }
 
-                        println!("[cache worker:{}] connection died", id);
+                            println!("[cache worker:{}] connection died", id);
 
-                        kill_tx.send(());
-                        Err(backoff::Error::Transient(CacheError::Disconnected))
-                    })
-                    .await;
+                            kill_tx.send(());
+                            Err(backoff::Error::Transient(CacheError::Disconnected))
+                        })
+                            .await;
+                }
             });
         }
 
@@ -231,7 +234,7 @@ impl Cache for PostgresCache {
                 tx,
             },
         )
-        .await
+            .await
     }
 
     async fn get_member(
@@ -248,7 +251,7 @@ impl Cache for PostgresCache {
                 tx,
             },
         )
-        .await
+            .await
     }
 
     async fn delete_member(
@@ -265,7 +268,7 @@ impl Cache for PostgresCache {
                 tx,
             },
         )
-        .await
+            .await
     }
 
     async fn store_role(&self, role: Role, guild_id: Snowflake) -> Result<(), CacheError> {
@@ -286,7 +289,7 @@ impl Cache for PostgresCache {
                 tx,
             },
         )
-        .await
+            .await
     }
 
     async fn get_role(&self, id: Snowflake) -> Result<Option<Role>, CacheError> {
@@ -323,7 +326,7 @@ impl Cache for PostgresCache {
                 tx,
             },
         )
-        .await
+            .await
     }
 
     async fn get_emoji(&self, id: Snowflake) -> Result<Option<Emoji>, CacheError> {
@@ -366,7 +369,7 @@ impl Cache for PostgresCache {
                 tx,
             },
         )
-        .await
+            .await
     }
 
     async fn delete_voice_state(
@@ -383,6 +386,6 @@ impl Cache for PostgresCache {
                 tx,
             },
         )
-        .await
+            .await
     }
 }
