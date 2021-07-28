@@ -37,7 +37,7 @@ pub struct Guild {
     //#[serde(skip_serializing, default)]
     #[serde(skip)]
     pub emojis: Vec<Emoji>,
-    pub features: Vec<Features>,
+    pub features: Vec<String>,
     pub mfa_level: MFALevel,
     pub application_id: Option<Snowflake>,
     pub widget_enabled: Option<bool>,
@@ -140,7 +140,7 @@ pub enum PremiumTier {
     TierThree = 3,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+/*#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Features {
     InviteSplash,
@@ -165,7 +165,8 @@ pub enum Features {
     PrivateThreads,
     ThreeDayThreadArchive,
     SevenDayThreadArchive,
-}
+    ThreadsEnabled,
+}*/
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WelcomeScreen {
