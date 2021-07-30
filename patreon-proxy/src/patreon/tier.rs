@@ -8,7 +8,7 @@ pub enum Tier {
 
 // TODO: Don't store these as constants
 const TIERS_PREMIUM: &[&str] = &["4071609"];
-const TIERS_WHITELABEL: &[&str] = &["5259899"];
+const TIERS_WHITELABEL: &[&str] = &["5259899", "7502618"];
 
 impl Tier {
     pub fn get_by_patreon_id(patreon_id: &str) -> Option<Tier> {
