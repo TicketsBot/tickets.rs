@@ -1,11 +1,13 @@
 use crate::http::Server;
-use actix_web::{get, http, web::Data, HttpResponse, Responder};
+use axum::body::Body;
+use axum::prelude::*;
+use hyper::{http, Response};
 use std::sync::Arc;
 
-#[get("/")]
-pub async fn index_handler(server: Data<Arc<Server>>) -> impl Responder {
-    HttpResponse::Found()
-        .header(http::header::LOCATION, &*server.config.vote_url)
-        .finish()
-        .into_body()
+pub async fn index_handler(server: extract::Extension<Arc<Server>>) -> Response<Body> {
+    Response::builder()
+        .status(http::status::StatusCode::FOUND)
+        .header(http::header::LOCATION, &server.0.config.vote_url[..])
+        .body(Body::empty())
+        .expect("Failed to build body") // Should be impossible
 }

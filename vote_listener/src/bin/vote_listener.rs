@@ -1,12 +1,13 @@
-use std::sync::Arc;
+use log::info;
 use vote_listener::{http::Server, Config, Database, Error};
 
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> Result<(), Error> {
     let config = Config::new();
 
     let database = Database::connect(&config).await?;
 
     let server = Server::new(config, database);
-    Arc::new(server).start().await
+    info!("Starting server...");
+    server.start().await
 }

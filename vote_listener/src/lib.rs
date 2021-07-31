@@ -7,4 +7,4 @@ mod database;
 pub use database::Database;
 
 mod error;
-pub use error::Error;
+pub use error::{Error, Result};

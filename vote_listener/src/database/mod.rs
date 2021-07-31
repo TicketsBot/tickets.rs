@@ -12,7 +12,7 @@ impl Database {
             .await
             .map_err(Error::DatabaseError)?;
 
-        actix_rt::spawn(async move {
+        tokio::spawn(async move {
             if let Err(e) = connection.await {
                 panic!("db connection error: {}", e);
             }

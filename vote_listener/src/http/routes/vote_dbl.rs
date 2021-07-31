@@ -1,57 +1,54 @@
 use std::sync::Arc;
 
-use actix_web::{http::HeaderValue, post, web::Data, web::Json, HttpRequest, HttpResponse};
+use axum::prelude::*;
 
-use crate::http::response::ErrorResponse;
 use crate::http::server::Server;
 
+use crate::http::response::Response;
+use axum::response::Json;
+use hyper::StatusCode;
+use log::{error, info};
 use model::Snowflake;
 use serde::{Deserialize, Serialize};
+use crate::http::extractors::AuthTokenExtractor;
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Body {
+pub struct RequestBody {
+    #[serde(default)]
     admin: bool,
     avatar: Box<str>,
     username: Box<str>,
     id: Snowflake,
 }
 
-#[post("/vote/dbl")]
 pub async fn vote_dbl_handler(
-    req: HttpRequest,
-    body: Json<Body>,
-    server: Data<Arc<Server>>,
-) -> HttpResponse {
-    match req.headers().get("Authorization").map(&HeaderValue::to_str) {
-        Some(Ok(header)) => {
-            if header != &*server.config.dbl_signature {
-                return generate_invalid_signature();
-            }
-        }
-        Some(Err(e)) => {
-            return generate_unauthorized(&e.to_string()[..]);
-        }
-        None => {
-            return generate_invalid_signature();
-        }
+    auth_token: AuthTokenExtractor,
+    body: extract::Json<RequestBody>,
+    server: extract::Extension<Arc<Server>>,
+) -> (StatusCode, Json<Response>) {
+    let (server, body) = (server.0, body.0);
+
+    if auth_token.0 != &server.config.dbl_token[..] {
+        return (StatusCode::UNAUTHORIZED, generate_invalid_signature())
     }
 
     if let Err(e) = server.database.add_vote(body.id).await {
-        eprintln!("Error while adding vote: {}", e); // TODO: Sentry
-        return HttpResponse::InternalServerError()
-            .json(ErrorResponse::new(Box::from(format!("{}", e))))
-            .into_body();
+        error!("Error while adding vote: {}", e); // TODO: Sentry
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(Response::error("Database error")),
+        );
     }
 
-    HttpResponse::Ok().finish().into_body()
+    info!("Logged vote for {}", body.id);
+
+    (StatusCode::OK, Json(Response::success()))
 }
 
-fn generate_invalid_signature() -> HttpResponse {
+fn generate_invalid_signature() -> Json<Response> {
     generate_unauthorized("Invalid signature")
 }
 
-fn generate_unauthorized(error: &str) -> HttpResponse {
-    HttpResponse::Unauthorized()
-        .json(ErrorResponse::new(Box::from(error)))
-        .into_body()
+fn generate_unauthorized(error: &str) -> Json<Response> {
+    Json(Response::error(error))
 }
