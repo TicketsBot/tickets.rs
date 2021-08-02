@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use sharder::{build_redis, Config, ShardManager, WhitelabelShardManager, setup_sentry};
+use sharder::{build_redis, Config, ShardManager, WhitelabelShardManager};
 
 use database::{sqlx::postgres::PgPoolOptions, Database};
 use sharder::build_cache;
@@ -22,7 +22,8 @@ fn main() {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_envvar();
-    let _guard = setup_sentry(&config);
+    //let _guard = setup_sentry(&config);
+    env_logger::init();
 
     // init db
     let db_opts = PgPoolOptions::new()
