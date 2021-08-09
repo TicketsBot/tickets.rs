@@ -15,7 +15,7 @@ use serde_json::value::RawValue;
 use tokio::sync::{mpsc, oneshot};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::sleep;
-use log::{error, info};
+use log::{debug, error, info};
 
 use cache::{Cache, PostgresCache};
 use common::event_forwarding;
@@ -40,6 +40,7 @@ use async_tungstenite::{
     tungstenite,
     tungstenite::{protocol::frame::coding::CloseCode, Message},
 };
+use std::error::Error;
 
 const GATEWAY_VERSION: u8 = 9;
 const SEQ_SAVE_DELAY: Duration = Duration::from_secs(5);
@@ -425,13 +426,12 @@ impl<T: EventForwarder> Shard<T> {
                 let payload = serde_json::from_slice(&raw[..])?;
 
                 if let Err(e) = Arc::clone(&self).handle_event(payload).await {
-                    self.log_err(
-                        format!(
-                            "Error processing dispatch (full payload: {:?})",
-                            str::from_utf8(&raw[..])
-                        ),
-                        &e,
-                    );
+                    if let GatewayError::JsonError(e) = e {
+                        let raw_payload = String::from_utf8_lossy(&raw[..]);
+                        self.log_debug("JSON error processing dispatch", &raw_payload, &e);
+                    } else {
+                        self.log_err("Error processing dispatch", &e);
+                    }
                 }
             }
 
@@ -1033,6 +1033,14 @@ impl<T: EventForwarder> Shard<T> {
             error!("[shard:{}] {}: {}", self.user_id, msg, err);
         } else {
             error!("[shard:{:0>2}] {}: {}", self.get_shard_id(), msg, err);
+        }
+    }
+
+    pub fn log_debug(&self, msg: impl Display, raw_payload: &str, err: impl Error) {
+        if is_whitelabel() {
+            debug!("[shard:{}] {}: {}\nFull payload: {}", self.user_id, msg, err, raw_payload);
+        } else {
+            debug!("[shard:{:0>2}] {}: {}\nFull payload: {}", self.get_shard_id(), msg, err, raw_payload);
         }
     }
 }
