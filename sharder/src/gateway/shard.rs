@@ -10,12 +10,13 @@ use deadpool_redis::{cmd, Pool};
 use flate2::{Decompress, FlushDecompress, Status};
 use futures::StreamExt;
 use futures_util::SinkExt;
+use log::{debug, error, info};
 use serde::Serialize;
 use serde_json::value::RawValue;
 use tokio::sync::{mpsc, oneshot};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::sleep;
-use log::{debug, error, info};
+use url::Url;
 
 use cache::{Cache, PostgresCache};
 use common::event_forwarding;
@@ -142,18 +143,15 @@ impl<T: EventForwarder> Shard<T> {
         *self.last_ack.write().await = Instant::now();
         // rst
 
-        let uri = match cfg!(feature = "compression") {
-            true => format!(
-                "wss://gateway.discord.gg/?v={}&encoding=json&compress=zlib-stream",
-                GATEWAY_VERSION
-            ),
-            false => format!(
-                "wss://gateway.discord.gg/?v={}&encoding=json",
-                GATEWAY_VERSION
-            ),
-        };
+        let mut uri = format!(
+            "wss://gateway.discord.gg/?v={}&encoding=json",
+            GATEWAY_VERSION
+        );
+        if cfg!(feature = "compression") {
+            uri.push_str("&compress=zlib-stream");
+        }
 
-        let uri = url::Url::parse(&uri[..]).unwrap();
+        let uri = Url::parse(&uri[..]).expect("Failed to parse websocket uri");
 
         let (wss, _) = connect_async(uri)
             .await
@@ -241,7 +239,7 @@ impl<T: EventForwarder> Shard<T> {
         >,
     ) -> Result<(), GatewayError> {
         #[cfg(feature = "compression")]
-            let mut decoder = Decompress::new(true);
+        let mut decoder = Decompress::new(true);
 
         loop {
             let shard = Arc::clone(&self);
@@ -566,7 +564,8 @@ impl<T: EventForwarder> Shard<T> {
 
                 if !self
                     .is_ready
-                    .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed).unwrap_or_else(|x| x)
+                    .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+                    .unwrap_or_else(|x| x)
                 {
                     if let Some(tx) = self.ready_tx.lock().await.take() {
                         if let Err(_) = tx.send(()) {
@@ -701,7 +700,8 @@ impl<T: EventForwarder> Shard<T> {
                 // CAS in case value was updated since read
                 if !self
                     .is_ready
-                    .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed).unwrap_or_else(|x| x)
+                    .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+                    .unwrap_or_else(|x| x)
                 {
                     if let Some(tx) = self.ready_tx.lock().await.take() {
                         self.log("Reporting readiness");
@@ -1038,9 +1038,18 @@ impl<T: EventForwarder> Shard<T> {
 
     pub fn log_debug(&self, msg: impl Display, raw_payload: &str, err: impl Error) {
         if is_whitelabel() {
-            debug!("[shard:{}] {}: {}\nFull payload: {}", self.user_id, msg, err, raw_payload);
+            debug!(
+                "[shard:{}] {}: {}\nFull payload: {}",
+                self.user_id, msg, err, raw_payload
+            );
         } else {
-            debug!("[shard:{:0>2}] {}: {}\nFull payload: {}", self.get_shard_id(), msg, err, raw_payload);
+            debug!(
+                "[shard:{:0>2}] {}: {}\nFull payload: {}",
+                self.get_shard_id(),
+                msg,
+                err,
+                raw_payload
+            );
         }
     }
 }

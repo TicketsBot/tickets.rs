@@ -32,10 +32,13 @@ pub fn build_redis(config: &Config) -> Pool {
 
 pub fn setup_sentry(config: &Config) -> sentry::ClientInitGuard {
     // init sentry
-    let guard = sentry::init((&config.sentry_dsn[..], sentry::ClientOptions {
-        attach_stacktrace: true,
-        ..Default::default()
-    }));
+    let guard = sentry::init((
+        &config.sentry_dsn[..],
+        sentry::ClientOptions {
+            attach_stacktrace: true,
+            ..Default::default()
+        },
+    ));
 
     let mut log_builder = env_logger::builder();
     log_builder.parse_filters("info");

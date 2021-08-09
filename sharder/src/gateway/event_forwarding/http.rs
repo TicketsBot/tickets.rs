@@ -12,9 +12,7 @@ pub struct HttpEventForwarder {
 
 impl HttpEventForwarder {
     pub fn new(client: reqwest::Client) -> HttpEventForwarder {
-        HttpEventForwarder {
-            client,
-        }
+        HttpEventForwarder { client }
     }
 
     pub fn build_http_client() -> reqwest::Client {
