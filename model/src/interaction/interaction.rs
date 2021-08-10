@@ -93,7 +93,9 @@ impl<'de> Deserialize<'de> for Interaction {
             InteractionType::ApplicationCommand => {
                 serde_json::from_value(value).map(Interaction::ApplicationCommand)
             }
-            InteractionType::MessageComponent => serde_json::from_value(value).map(Interaction::MessageComponent),
+            InteractionType::MessageComponent => {
+                serde_json::from_value(value).map(Interaction::MessageComponent)
+            }
         }
         .map_err(D::Error::custom)?;
 

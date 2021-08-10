@@ -1,6 +1,9 @@
 mod application_command;
 pub use application_command::ApplicationCommand;
 
+mod application_command_type;
+pub use application_command_type::ApplicationCommandType;
+
 mod application_command_option;
 pub use application_command_option::{ApplicationCommandOption, ApplicationCommandOptionType};
 
@@ -9,7 +12,8 @@ pub use application_command_option_choice::ApplicationCommandOptionChoice;
 
 mod interaction;
 pub use interaction::{
-    ApplicationCommandInteraction, MessageComponentInteraction, Interaction, InteractionType, PingInteraction,
+    ApplicationCommandInteraction, Interaction, InteractionType, MessageComponentInteraction,
+    PingInteraction,
 };
 
 mod application_command_interaction_data;

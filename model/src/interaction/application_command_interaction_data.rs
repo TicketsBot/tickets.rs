@@ -17,4 +17,6 @@ pub struct ApplicationCommandInteractionData {
     pub custom_id: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component_type: Option<ComponentType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_id: Option<Snowflake>,
 }
