@@ -1,7 +1,4 @@
-use crate::interaction::{
-    ApplicationCommandInteractionDataOption, ApplicationCommandInteractionDataResolved,
-    ComponentType,
-};
+use crate::interaction::{ApplicationCommandInteractionDataOption, ApplicationCommandInteractionDataResolved, ComponentType, ApplicationCommandType};
 use crate::Snowflake;
 use serde::{Deserialize, Serialize};
 
@@ -19,4 +16,5 @@ pub struct ApplicationCommandInteractionData {
     pub component_type: Option<ComponentType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_id: Option<Snowflake>,
+    pub r#type: ApplicationCommandType,
 }
