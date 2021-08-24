@@ -1,4 +1,4 @@
-use crate::{Cache, CacheError, Options};
+use crate::{Cache, CacheError, Options, Result};
 use model::user::User;
 use model::Snowflake;
 
@@ -10,7 +10,6 @@ use backoff::ExponentialBackoff;
 use model::channel::Channel;
 use model::guild::{Emoji, Guild, Member, Role, VoiceState};
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_postgres::tls::NoTlsStream;
 use tokio_postgres::{Connection, NoTls, Socket};
@@ -26,7 +25,7 @@ impl PostgresCache {
         uri: String,
         opts: Options,
         workers: usize,
-    ) -> Result<PostgresCache, CacheError> {
+    ) -> Result<PostgresCache> {
         let (worker_tx, worker_rx) = mpsc::channel(1); // TODO: Tweak
         let worker_rx = Arc::new(Mutex::new(worker_rx));
 
@@ -39,11 +38,11 @@ impl PostgresCache {
             tokio::spawn(async move {
                 // Loop to reconnect after conn dies
                 loop {
-                    let _: Result<(), CacheError> =
+                    let _: Result<()> =
                         backoff::future::retry(ExponentialBackoff::default(), || async {
                             println!("[cache worker:{}] trying to connect", id);
                             let (kill_tx, conn) =
-                                Self::spawn_worker(id, &uri[..], opts, Arc::clone(&worker_rx)).await?;
+                                Self::spawn_worker(id, &uri[..], Arc::clone(&worker_rx)).await?;
                             println!("[cache worker:{}] connected!", id);
 
                             if let Err(e) = conn.await {
@@ -70,9 +69,8 @@ impl PostgresCache {
     async fn spawn_worker(
         id: usize,
         uri: &str,
-        opts: Options,
         payload_rx: PayloadReceiver,
-    ) -> Result<(oneshot::Sender<()>, Connection<Socket, NoTlsStream>), CacheError> {
+    ) -> Result<(oneshot::Sender<()>, Connection<Socket, NoTlsStream>)> {
         let (client, conn) = tokio_postgres::connect(uri, NoTls)
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -84,7 +82,7 @@ impl PostgresCache {
         Ok((kill_tx, conn))
     }
 
-    pub async fn create_schema(&self) -> Result<(), CacheError> {
+    pub async fn create_schema(&self) -> Result<()> {
         let queries = vec![
             // create tables
             r#"SET synchronous_commit TO OFF;"#,
@@ -120,9 +118,9 @@ impl PostgresCache {
 
     async fn send_payload<T>(
         &self,
-        rx: oneshot::Receiver<Result<T, CacheError>>,
+        rx: oneshot::Receiver<Result<T>>,
         payload: CachePayload,
-    ) -> Result<T, CacheError> {
+    ) -> Result<T> {
         self.tx
             .clone()
             .send(payload)
@@ -134,11 +132,11 @@ impl PostgresCache {
 
 #[async_trait]
 impl Cache for PostgresCache {
-    async fn store_guild(&self, guild: Guild) -> Result<(), CacheError> {
+    async fn store_guild(&self, guild: Guild) -> Result<()> {
         self.store_guilds(vec![guild]).await
     }
 
-    async fn store_guilds(&self, guilds: Vec<Guild>) -> Result<(), CacheError> {
+    async fn store_guilds(&self, guilds: Vec<Guild>) -> Result<()> {
         if !self.opts.guilds {
             return Ok(());
         }
@@ -148,23 +146,27 @@ impl Cache for PostgresCache {
             .await
     }
 
-    async fn get_guild(&self, id: Snowflake) -> Result<Option<Guild>, CacheError> {
+    async fn get_guild(&self, id: Snowflake) -> Result<Option<Guild>> {
         let (tx, rx) = oneshot::channel();
         self.send_payload(rx, CachePayload::GetGuild { id, tx })
             .await
     }
 
-    async fn delete_guild(&self, id: Snowflake) -> Result<(), CacheError> {
+    async fn delete_guild(&self, id: Snowflake) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::DeleteGuild { id, tx })
-            .await
+        self.send_payload(rx, CachePayload::DeleteGuild { id, tx }).await
     }
 
-    async fn store_channel(&self, channel: Channel) -> Result<(), CacheError> {
+    async fn get_guild_count(&self) -> Result<usize> {
+        let (tx, rx) = oneshot::channel();
+        self.send_payload(rx, CachePayload::GetGuildCount { tx }).await
+    }
+
+    async fn store_channel(&self, channel: Channel) -> Result<()> {
         self.store_channels(vec![channel]).await
     }
 
-    async fn store_channels(&self, channels: Vec<Channel>) -> Result<(), CacheError> {
+    async fn store_channels(&self, channels: Vec<Channel>) -> Result<()> {
         if !self.opts.channels {
             return Ok(());
         }
@@ -174,23 +176,23 @@ impl Cache for PostgresCache {
             .await
     }
 
-    async fn get_channel(&self, id: Snowflake) -> Result<Option<Channel>, CacheError> {
+    async fn get_channel(&self, id: Snowflake) -> Result<Option<Channel>> {
         let (tx, rx) = oneshot::channel();
         self.send_payload(rx, CachePayload::GetChannel { id, tx })
             .await
     }
 
-    async fn delete_channel(&self, id: Snowflake) -> Result<(), CacheError> {
+    async fn delete_channel(&self, id: Snowflake) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.send_payload(rx, CachePayload::DeleteChannel { id, tx })
             .await
     }
 
-    async fn store_user(&self, user: User) -> Result<(), CacheError> {
+    async fn store_user(&self, user: User) -> Result<()> {
         self.store_users(vec![user]).await
     }
 
-    async fn store_users(&self, users: Vec<User>) -> Result<(), CacheError> {
+    async fn store_users(&self, users: Vec<User>) -> Result<()> {
         if !self.opts.users {
             return Ok(());
         }
@@ -200,19 +202,19 @@ impl Cache for PostgresCache {
             .await
     }
 
-    async fn get_user(&self, id: Snowflake) -> Result<Option<User>, CacheError> {
+    async fn get_user(&self, id: Snowflake) -> Result<Option<User>> {
         let (tx, rx) = oneshot::channel();
         self.send_payload(rx, CachePayload::GetUser { id, tx })
             .await
     }
 
-    async fn delete_user(&self, id: Snowflake) -> Result<(), CacheError> {
+    async fn delete_user(&self, id: Snowflake) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.send_payload(rx, CachePayload::DeleteUser { id, tx })
             .await
     }
 
-    async fn store_member(&self, member: Member, guild_id: Snowflake) -> Result<(), CacheError> {
+    async fn store_member(&self, member: Member, guild_id: Snowflake) -> Result<()> {
         self.store_members(vec![member], guild_id).await
     }
 
@@ -220,7 +222,7 @@ impl Cache for PostgresCache {
         &self,
         members: Vec<Member>,
         guild_id: Snowflake,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         if !self.opts.members {
             return Ok(());
         }
@@ -241,7 +243,7 @@ impl Cache for PostgresCache {
         &self,
         user_id: Snowflake,
         guild_id: Snowflake,
-    ) -> Result<Option<Member>, CacheError> {
+    ) -> Result<Option<Member>> {
         let (tx, rx) = oneshot::channel();
         self.send_payload(
             rx,
@@ -258,7 +260,7 @@ impl Cache for PostgresCache {
         &self,
         user_id: Snowflake,
         guild_id: Snowflake,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.send_payload(
             rx,
@@ -271,11 +273,11 @@ impl Cache for PostgresCache {
             .await
     }
 
-    async fn store_role(&self, role: Role, guild_id: Snowflake) -> Result<(), CacheError> {
+    async fn store_role(&self, role: Role, guild_id: Snowflake) -> Result<()> {
         self.store_roles(vec![role], guild_id).await
     }
 
-    async fn store_roles(&self, roles: Vec<Role>, guild_id: Snowflake) -> Result<(), CacheError> {
+    async fn store_roles(&self, roles: Vec<Role>, guild_id: Snowflake) -> Result<()> {
         if !self.opts.roles {
             return Ok(());
         }
@@ -292,19 +294,19 @@ impl Cache for PostgresCache {
             .await
     }
 
-    async fn get_role(&self, id: Snowflake) -> Result<Option<Role>, CacheError> {
+    async fn get_role(&self, id: Snowflake) -> Result<Option<Role>> {
         let (tx, rx) = oneshot::channel();
         self.send_payload(rx, CachePayload::GetRole { id, tx })
             .await
     }
 
-    async fn delete_role(&self, id: Snowflake) -> Result<(), CacheError> {
+    async fn delete_role(&self, id: Snowflake) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.send_payload(rx, CachePayload::DeleteRole { id, tx })
             .await
     }
 
-    async fn store_emoji(&self, emoji: Emoji, guild_id: Snowflake) -> Result<(), CacheError> {
+    async fn store_emoji(&self, emoji: Emoji, guild_id: Snowflake) -> Result<()> {
         self.store_emojis(vec![emoji], guild_id).await
     }
 
@@ -312,7 +314,7 @@ impl Cache for PostgresCache {
         &self,
         emojis: Vec<Emoji>,
         guild_id: Snowflake,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         if !self.opts.emojis {
             return Ok(());
         }
@@ -329,23 +331,23 @@ impl Cache for PostgresCache {
             .await
     }
 
-    async fn get_emoji(&self, id: Snowflake) -> Result<Option<Emoji>, CacheError> {
+    async fn get_emoji(&self, id: Snowflake) -> Result<Option<Emoji>> {
         let (tx, rx) = oneshot::channel();
         self.send_payload(rx, CachePayload::GetEmoji { id, tx })
             .await
     }
 
-    async fn delete_emoji(&self, id: Snowflake) -> Result<(), CacheError> {
+    async fn delete_emoji(&self, id: Snowflake) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.send_payload(rx, CachePayload::DeleteEmoji { id, tx })
             .await
     }
 
-    async fn store_voice_state(&self, voice_state: VoiceState) -> Result<(), CacheError> {
+    async fn store_voice_state(&self, voice_state: VoiceState) -> Result<()> {
         self.store_voice_states(vec![voice_state]).await
     }
 
-    async fn store_voice_states(&self, voice_states: Vec<VoiceState>) -> Result<(), CacheError> {
+    async fn store_voice_states(&self, voice_states: Vec<VoiceState>) -> Result<()> {
         if !self.opts.voice_states {
             return Ok(());
         }
@@ -359,7 +361,7 @@ impl Cache for PostgresCache {
         &self,
         user_id: Snowflake,
         guild_id: Snowflake,
-    ) -> Result<Option<VoiceState>, CacheError> {
+    ) -> Result<Option<VoiceState>> {
         let (tx, rx) = oneshot::channel();
         self.send_payload(
             rx,
@@ -376,7 +378,7 @@ impl Cache for PostgresCache {
         &self,
         user_id: Snowflake,
         guild_id: Snowflake,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.send_payload(
             rx,

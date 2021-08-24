@@ -8,4 +8,4 @@ mod postgres;
 pub use postgres::{CachePayload, PostgresCache};
 
 mod error;
-pub use error::CacheError;
+pub use error::{CacheError, Result};

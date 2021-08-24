@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
-use axum::prelude::*;
+use axum::extract;
 
 use crate::http::server::Server;
 
+use crate::http::extractors::AuthTokenExtractor;
 use crate::http::response::Response;
 use axum::response::Json;
 use hyper::StatusCode;
 use log::{error, info};
 use model::Snowflake;
 use serde::{Deserialize, Serialize};
-use crate::http::extractors::AuthTokenExtractor;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RequestBody {
@@ -29,7 +29,7 @@ pub async fn vote_dbl_handler(
     let (server, body) = (server.0, body.0);
 
     if auth_token.0 != &server.config.dbl_token[..] {
-        return (StatusCode::UNAUTHORIZED, generate_invalid_signature())
+        return (StatusCode::UNAUTHORIZED, generate_invalid_signature());
     }
 
     if let Err(e) = server.database.add_vote(body.id).await {

@@ -30,3 +30,17 @@ impl Options {
         }
     }
 }
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            users: true,
+            guilds: true,
+            members: true,
+            channels: true,
+            roles: true,
+            emojis: true,
+            voice_states: true
+        }
+    }
+}

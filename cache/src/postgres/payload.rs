@@ -26,6 +26,9 @@ pub enum CachePayload {
         id: Snowflake,
         tx: ResultSender<()>,
     },
+    GetGuildCount {
+        tx: ResultSender<usize>,
+    },
 
     StoreChannels {
         channels: Vec<Channel>,

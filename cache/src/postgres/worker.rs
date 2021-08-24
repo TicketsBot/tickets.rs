@@ -1,5 +1,5 @@
 use crate::postgres::payload::CachePayload;
-use crate::CacheError;
+use crate::{CacheError, Result};
 use model::channel::Channel;
 use model::guild::{Emoji, Guild, Member, Role, VoiceState};
 use model::user::User;
@@ -87,6 +87,10 @@ impl Worker {
             CachePayload::DeleteGuild { id, tx } => {
                 let _ = tx.send(self.delete_guild(id).await);
             }
+            CachePayload::GetGuildCount { tx } => {
+                let _ = tx.send(self.get_guild_count().await);
+            }
+
             CachePayload::StoreChannels { channels, tx } => {
                 let _ = tx.send(self.store_channels(channels).await);
             }
@@ -178,7 +182,7 @@ impl Worker {
 }
 
 impl Worker {
-    async fn store_guilds(&self, mut guilds: Vec<Guild>) -> Result<(), CacheError> {
+    async fn store_guilds(&self, mut guilds: Vec<Guild>) -> Result<()> {
         if guilds.is_empty() {
             return Ok(());
         }
@@ -212,7 +216,7 @@ impl Worker {
             .map_err(CacheError::DatabaseError)?;
 
         // cache objects on guild
-        let mut res: Result<(), CacheError> = Ok(());
+        let mut res: Result<()> = Ok(());
 
         // TODO: check opts
         for guild in guilds {
@@ -263,7 +267,7 @@ impl Worker {
         res
     }
 
-    async fn get_guild(&self, id: Snowflake) -> Result<Option<Guild>, CacheError> {
+    async fn get_guild(&self, id: Snowflake) -> Result<Option<Guild>> {
         self.client
             .query(
                 r#"SELECT "data" FROM guilds WHERE "guild_id" = $1;"#,
@@ -273,7 +277,7 @@ impl Worker {
         Ok(None)
     }
 
-    async fn delete_guild(&self, id: Snowflake) -> Result<(), CacheError> {
+    async fn delete_guild(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM guilds WHERE "guild_id" = $1;"#;
         self.client
             .execute(query, &[&(id.0 as i64)])
@@ -282,7 +286,19 @@ impl Worker {
         Ok(())
     }
 
-    async fn store_channels(&self, channels: Vec<Channel>) -> Result<(), CacheError> {
+    async fn get_guild_count(&self) -> Result<usize> {
+        let query = r#"SELECT COUNT(guild_id) FROM guilds;"#;
+
+        let row = self.client
+            .query_one(query, &[])
+            .await
+            .map_err(CacheError::DatabaseError)?;
+
+        let count: i64 = row.try_get(0).map_err(CacheError::DatabaseError)?;
+        Ok(count as usize)
+    }
+
+    async fn store_channels(&self, channels: Vec<Channel>) -> Result<()> {
         let mut channels = channels
             .into_iter()
             .filter(|c| c.guild_id.is_some())
@@ -328,11 +344,11 @@ impl Worker {
         Ok(())
     }
 
-    async fn get_channel(&self, id: Snowflake) -> Result<Option<Channel>, CacheError> {
+    async fn get_channel(&self, id: Snowflake) -> Result<Option<Channel>> {
         Ok(None)
     }
 
-    async fn delete_channel(&self, id: Snowflake) -> Result<(), CacheError> {
+    async fn delete_channel(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM channels WHERE "channel_id" = $1;"#;
         self.client
             .execute(query, &[&(id.0 as i64)])
@@ -341,7 +357,7 @@ impl Worker {
         Ok(())
     }
 
-    async fn store_users(&self, mut users: Vec<User>) -> Result<(), CacheError> {
+    async fn store_users(&self, mut users: Vec<User>) -> Result<()> {
         if users.is_empty() {
             return Ok(());
         }
@@ -377,7 +393,7 @@ impl Worker {
         Ok(())
     }
 
-    async fn get_user(&self, id: Snowflake) -> Result<Option<User>, CacheError> {
+    async fn get_user(&self, id: Snowflake) -> Result<Option<User>> {
         let row = self
             .client
             .query_one(
@@ -391,7 +407,7 @@ impl Worker {
         Ok(None)
     }
 
-    async fn delete_user(&self, id: Snowflake) -> Result<(), CacheError> {
+    async fn delete_user(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM users WHERE "user_id" = $1;"#;
         self.client
             .execute(query, &[&(id.0 as i64)])
@@ -404,7 +420,7 @@ impl Worker {
         &self,
         members: Vec<Member>,
         guild_id: Snowflake,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         let mut members = members
             .into_iter()
             .filter(|m| m.user.is_some())
@@ -466,7 +482,7 @@ impl Worker {
         &self,
         user_id: Snowflake,
         guild_id: Snowflake,
-    ) -> Result<Option<Member>, CacheError> {
+    ) -> Result<Option<Member>> {
         Ok(None)
     }
 
@@ -474,7 +490,7 @@ impl Worker {
         &self,
         user_id: Snowflake,
         guild_id: Snowflake,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         let query = r#"DELETE FROM members WHERE "guild_id" = $1 AND "user_id" = $2;"#;
         self.client
             .execute(query, &[&(guild_id.0 as i64), &(user_id.0 as i64)])
@@ -487,7 +503,7 @@ impl Worker {
         &self,
         mut roles: Vec<Role>,
         guild_id: Snowflake,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         if roles.is_empty() {
             return Ok(());
         }
@@ -526,11 +542,11 @@ impl Worker {
         Ok(())
     }
 
-    async fn get_role(&self, id: Snowflake) -> Result<Option<Role>, CacheError> {
+    async fn get_role(&self, id: Snowflake) -> Result<Option<Role>> {
         Ok(None)
     }
 
-    async fn delete_role(&self, id: Snowflake) -> Result<(), CacheError> {
+    async fn delete_role(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM roles WHERE "role_id" = $1;"#;
         self.client
             .execute(query, &[&(id.0 as i64)])
@@ -543,7 +559,7 @@ impl Worker {
         &self,
         emojis: Vec<Emoji>,
         guild_id: Snowflake,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         let mut emojis = emojis
             .into_iter()
             .filter(|e| e.id.is_some())
@@ -588,11 +604,11 @@ impl Worker {
         Ok(())
     }
 
-    async fn get_emoji(&self, emoji_id: Snowflake) -> Result<Option<Emoji>, CacheError> {
+    async fn get_emoji(&self, emoji_id: Snowflake) -> Result<Option<Emoji>> {
         Ok(None)
     }
 
-    async fn delete_emoji(&self, id: Snowflake) -> Result<(), CacheError> {
+    async fn delete_emoji(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM emojis WHERE "emoji_id" = $1;"#;
         self.client
             .execute(query, &[&(id.0 as i64)])
@@ -601,7 +617,7 @@ impl Worker {
         Ok(())
     }
 
-    async fn store_voice_states(&self, voice_states: Vec<VoiceState>) -> Result<(), CacheError> {
+    async fn store_voice_states(&self, voice_states: Vec<VoiceState>) -> Result<()> {
         let mut voice_states = voice_states
             .into_iter()
             .filter(|vs| vs.guild_id.is_some())
@@ -650,7 +666,7 @@ impl Worker {
         &self,
         user_id: Snowflake,
         guild_id: Snowflake,
-    ) -> Result<Option<VoiceState>, CacheError> {
+    ) -> Result<Option<VoiceState>> {
         Ok(None)
     }
 
@@ -658,7 +674,7 @@ impl Worker {
         &self,
         user_id: Snowflake,
         guild_id: Snowflake,
-    ) -> Result<(), CacheError> {
+    ) -> Result<()> {
         let query = r#"DELETE FROM voice_states WHERE "guild_id" = $1 AND "user_id" = $2;"#;
         self.client
             .execute(query, &[&(guild_id.0 as i64), &(user_id.0 as i64)])

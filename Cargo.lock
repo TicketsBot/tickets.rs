@@ -240,25 +240,29 @@ checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
 name = "axum"
-version = "0.1.1"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ecc2fad7de703d3117d448ca0e0bf45932510b323754b0a848221aed5647c7c"
+checksum = "8057b0a4ea316fc0ad3bd48706f2b89076e45a70b9f7b3a4e740e5ec52078ea2"
 dependencies = [
  "async-trait",
+ "bitflags",
  "bytes 1.0.1",
  "futures-util",
  "http",
- "http-body 0.4.2",
+ "http-body 0.4.3",
  "hyper 0.14.11",
- "pin-project 1.0.8",
+ "pin-project-lite 0.2.7",
  "regex",
  "serde",
  "serde_json",
  "serde_urlencoded 0.7.0",
+ "sync_wrapper",
  "tokio 1.9.0",
  "tokio-util 0.6.7",
  "tower",
  "tower-http",
+ "tower-layer",
+ "tower-service",
 ]
 
 [[package]]
@@ -1259,9 +1263,9 @@ dependencies = [
 
 [[package]]
 name = "http-body"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60daa14be0e0786db0f03a9e57cb404c9d756eed2b6c62b9ea98ec5743ec75a9"
+checksum = "399c583b2979440c60be0821a6199eca73bc3c8dcd9d070d75ac726e2c6186e5"
 dependencies = [
  "bytes 1.0.1",
  "http",
@@ -1357,7 +1361,7 @@ dependencies = [
  "futures-util",
  "h2 0.3.3",
  "http",
- "http-body 0.4.2",
+ "http-body 0.4.3",
  "httparse",
  "httpdate 1.0.1",
  "itoa",
@@ -2355,7 +2359,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "http",
- "http-body 0.4.2",
+ "http-body 0.4.3",
  "hyper 0.14.11",
  "hyper-tls 0.5.0",
  "ipnet",
@@ -2662,6 +2666,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "server_counter"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "cache",
+ "env_logger 0.9.0",
+ "envy",
+ "hyper 0.14.11",
+ "log",
+ "model",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio 1.9.0",
+ "tokio-postgres 0.7.2",
+]
+
+[[package]]
 name = "sha-1"
 version = "0.9.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2933,6 +2956,12 @@ dependencies = [
  "quote",
  "unicode-xid",
 ]
+
+[[package]]
+name = "sync_wrapper"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20518fe4a4c9acf048008599e464deb21beeae3d3578418951a189c235a7a9a8"
 
 [[package]]
 name = "synstructure"
@@ -3250,7 +3279,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "http",
- "http-body 0.4.2",
+ "http-body 0.4.3",
  "pin-project 1.0.8",
  "tower-layer",
  "tower-service",

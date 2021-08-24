@@ -8,5 +8,6 @@ members = [
     "database",
     "vote_listener",
     "http-gateway",
-    "bot-list-updater"
+    "bot-list-updater",
+    "server-counter"
 ]

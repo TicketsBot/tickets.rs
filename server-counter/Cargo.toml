@@ -1,11 +1,12 @@
 [package]
-name = "vote_listener"
+name = "server_counter"
 version = "0.1.0"
 authors = ["rxdn"]
 edition = "2018"
 
 [dependencies]
 model = { path = "../model" }
+cache = { path = "../cache" }
 tokio = { version = "1.2", features = ["full"] }
 axum = "0.2"
 hyper = { version = "0.14", features = ["http1", "http2", "server", "runtime", "stream"] }
@@ -16,3 +17,4 @@ serde_json = "1.0"
 envy = "0.4"
 log = "0.4"
 env_logger = "0.9"
+parking_lot = "0.11"

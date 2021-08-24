@@ -1,6 +1,8 @@
 use crate::CachePayload;
 use thiserror::Error;
 
+pub type Result<T> = std::result::Result<T, CacheError>;
+
 #[derive(Error, Debug)]
 pub enum CacheError {
     #[error("Error occurred while interacting with DB: {0}")]
@@ -22,8 +24,8 @@ pub enum CacheError {
     Disconnected,
 }
 
-impl<T> Into<Result<T, Self>> for CacheError {
-    fn into(self) -> Result<T, Self> {
+impl<T> Into<Result<T>> for CacheError {
+    fn into(self) -> Result<T> {
         Err(self)
     }
 }
