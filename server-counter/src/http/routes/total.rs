@@ -5,10 +5,21 @@ use axum::response::Json;
 use cache::Cache;
 use hyper::http::StatusCode;
 use std::sync::Arc;
+use axum::http::{HeaderMap, HeaderValue};
+use axum::http::header::{HeaderName, ACCESS_CONTROL_ALLOW_ORIGIN};
 
 pub async fn total_handler<T: Cache>(
     server: extract::Extension<Arc<Server<T>>>,
-) -> (StatusCode, Json<Response>) {
+) -> (StatusCode, HeaderMap, Json<Response>) {
     let count = *server.0.count.read();
-    (StatusCode::OK, Json(Response::success(count)))
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("ticketsbot.net"),
+    );
+
+    let body = Response::success(count);
+
+    (StatusCode::OK, headers, Json(body))
 }
