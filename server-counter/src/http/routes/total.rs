@@ -16,7 +16,7 @@ pub async fn total_handler<T: Cache>(
     let mut headers = HeaderMap::new();
     headers.insert(
         ACCESS_CONTROL_ALLOW_ORIGIN,
-        HeaderValue::from_static("ticketsbot.net"),
+        HeaderValue::from_static("https://ticketsbot.net"),
     );
 
     let body = Response::success(count);
