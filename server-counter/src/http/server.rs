@@ -31,7 +31,6 @@ impl<T: Cache> Server<T> {
         let app = Router::new()
             .route("/total", get(routes::total_handler::<T>))
             .layer(AddExtensionLayer::new(server.clone()))
-            .layer()
             .route("/total/prometheus", get(routes::prometheus_handler::<T>))
             .layer(AddExtensionLayer::new(server.clone()));
 

@@ -6,7 +6,7 @@ use cache::Cache;
 use hyper::http::StatusCode;
 use std::sync::Arc;
 use axum::http::{HeaderMap, HeaderValue};
-use axum::http::header::{HeaderName, ACCESS_CONTROL_ALLOW_ORIGIN};
+use axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN;
 
 pub async fn total_handler<T: Cache>(
     server: extract::Extension<Arc<Server<T>>>,
