@@ -397,7 +397,7 @@ impl<T: EventForwarder> Shard<T> {
 
     // we return None because it's ok to discard the payload
     async fn read_payload(self: Arc<Self>, data: &[u8]) -> Result<Payload, GatewayError> {
-        serde_json::from_slice(&data[..]).map_err(GatewayError::JsonError)
+        serde_json::from_slice(data).map_err(GatewayError::JsonError)
     }
 
     async fn process_payload(
@@ -421,11 +421,11 @@ impl<T: EventForwarder> Shard<T> {
 
         match payload.opcode {
             Opcode::Dispatch => {
-                let payload = serde_json::from_slice(&raw[..])?;
+                let payload = serde_json::from_slice(raw)?;
 
                 if let Err(e) = Arc::clone(&self).handle_event(payload).await {
                     if let GatewayError::JsonError(e) = e {
-                        let raw_payload = String::from_utf8_lossy(&raw[..]);
+                        let raw_payload = String::from_utf8_lossy(raw);
                         self.log_debug("JSON error processing dispatch", &raw_payload, &e);
                     } else {
                         self.log_err("Error processing dispatch", &e);
@@ -458,7 +458,7 @@ impl<T: EventForwarder> Shard<T> {
             }
 
             Opcode::Hello => {
-                let hello: payloads::Hello = serde_json::from_slice(&raw[..])?;
+                let hello: payloads::Hello = serde_json::from_slice(raw)?;
                 let interval = Duration::from_millis(hello.data.heartbeat_interval as u64);
 
                 let mut should_identify = true;
@@ -568,7 +568,7 @@ impl<T: EventForwarder> Shard<T> {
                     .unwrap_or_else(|x| x)
                 {
                     if let Some(tx) = self.ready_tx.lock().await.take() {
-                        if let Err(_) = tx.send(()) {
+                        if tx.send(()).is_err() {
                             self.log_err(
                                 "Error sending ready notification to probe",
                                 &GatewayError::ReceiverHungUpError,
@@ -705,7 +705,7 @@ impl<T: EventForwarder> Shard<T> {
                 {
                     if let Some(tx) = self.ready_tx.lock().await.take() {
                         self.log("Reporting readiness");
-                        if let Err(_) = tx.send(()) {
+                        if tx.send(()).is_err() {
                             self.log_err(
                                 "Error sending ready notification to probe",
                                 &GatewayError::ReceiverHungUpError,

@@ -10,7 +10,7 @@ pub struct PermissionBitSet(pub u64);
 impl PermissionBitSet {
     pub fn has_permission(&self, permission: Permission) -> bool {
         let perm = permission as u64;
-        return self.0 & perm == perm;
+        self.0 & perm == perm
     }
 }
 

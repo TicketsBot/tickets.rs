@@ -9,7 +9,7 @@ use std::convert::TryFrom;
 #[serde(untagged)]
 pub enum Component {
     ActionRow(ActionRow),
-    Button(Button),
+    Button(Box<Button>), // Clippy recommendation, large struct
     SelectMenu(SelectMenu),
 }
 
@@ -29,7 +29,7 @@ impl TryFrom<u64> for ComponentType {
             1 => Self::ActionRow,
             2 => Self::Button,
             3 => Self::SelectMenu,
-            _ => Err(format!("invalid component type \"{}\"", value).into_boxed_str())?,
+            _ => return Err(format!("invalid component type \"{}\"", value).into_boxed_str()),
         })
     }
 }

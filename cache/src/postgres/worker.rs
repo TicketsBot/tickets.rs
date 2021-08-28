@@ -46,8 +46,6 @@ impl Worker {
                         break
                     }
                     recv = rx.recv() => {
-                        drop(rx);
-
                         let payload = match recv {
                             Some(p) => p,
                             None => { // Should never happen
@@ -197,7 +195,7 @@ impl Worker {
             if first {
                 first = false;
             } else {
-                query.push_str(",");
+                query.push(',');
             }
 
             let encoded = serde_json::to_string(guild).map_err(CacheError::JsonError)?;
@@ -268,13 +266,15 @@ impl Worker {
     }
 
     async fn get_guild(&self, id: Snowflake) -> Result<Option<Guild>> {
-        self.client
+        /*self.client
             .query(
                 r#"SELECT "data" FROM guilds WHERE "guild_id" = $1;"#,
                 &[&(id.0 as i64)],
             )
             .await;
-        Ok(None)
+        Ok(None)*/
+
+        unimplemented!()
     }
 
     async fn delete_guild(&self, id: Snowflake) -> Result<()> {
@@ -320,7 +320,7 @@ impl Worker {
             if first {
                 first = false;
             } else {
-                query.push_str(",");
+                query.push(',');
             }
 
             let encoded = serde_json::to_string(&channel).map_err(CacheError::JsonError)?;
@@ -345,7 +345,7 @@ impl Worker {
     }
 
     async fn get_channel(&self, id: Snowflake) -> Result<Option<Channel>> {
-        Ok(None)
+        unimplemented!()
     }
 
     async fn delete_channel(&self, id: Snowflake) -> Result<()> {
@@ -372,7 +372,7 @@ impl Worker {
             if first {
                 first = false;
             } else {
-                query.push_str(",");
+                query.push(',');
             }
 
             let encoded = serde_json::to_string(&user).map_err(CacheError::JsonError)?;
@@ -394,7 +394,7 @@ impl Worker {
     }
 
     async fn get_user(&self, id: Snowflake) -> Result<Option<User>> {
-        let row = self
+        /*let row = self
             .client
             .query_one(
                 r#"SELECT "data" FROM users WHERE "user_id" = $1;"#,
@@ -404,7 +404,9 @@ impl Worker {
             .map_err(CacheError::DatabaseError)?;
         let data: &str = row.get(0);
 
-        Ok(None)
+        Ok(None)*/
+
+        unimplemented!()
     }
 
     async fn delete_user(&self, id: Snowflake) -> Result<()> {
@@ -454,7 +456,7 @@ impl Worker {
             if first {
                 first = false;
             } else {
-                query.push_str(",");
+                query.push(',');
             }
 
             let encoded = serde_json::to_string(&member).map_err(CacheError::JsonError)?;
@@ -483,7 +485,7 @@ impl Worker {
         user_id: Snowflake,
         guild_id: Snowflake,
     ) -> Result<Option<Member>> {
-        Ok(None)
+        unimplemented!()
     }
 
     async fn delete_member(
@@ -518,7 +520,7 @@ impl Worker {
             if first {
                 first = false;
             } else {
-                query.push_str(",");
+                query.push(',');
             }
 
             let encoded = serde_json::to_string(&role).map_err(CacheError::JsonError)?;
@@ -543,7 +545,7 @@ impl Worker {
     }
 
     async fn get_role(&self, id: Snowflake) -> Result<Option<Role>> {
-        Ok(None)
+        unimplemented!()
     }
 
     async fn delete_role(&self, id: Snowflake) -> Result<()> {
@@ -580,7 +582,7 @@ impl Worker {
             if first {
                 first = false;
             } else {
-                query.push_str(",");
+                query.push(',');
             }
 
             let encoded = serde_json::to_string(&emoji).map_err(CacheError::JsonError)?;
@@ -605,7 +607,7 @@ impl Worker {
     }
 
     async fn get_emoji(&self, emoji_id: Snowflake) -> Result<Option<Emoji>> {
-        Ok(None)
+        unimplemented!()
     }
 
     async fn delete_emoji(&self, id: Snowflake) -> Result<()> {
@@ -638,7 +640,7 @@ impl Worker {
             if first {
                 first = false;
             } else {
-                query.push_str(",");
+                query.push(',');
             }
 
             let encoded = serde_json::to_string(&voice_state).map_err(CacheError::JsonError)?;
@@ -667,7 +669,7 @@ impl Worker {
         user_id: Snowflake,
         guild_id: Snowflake,
     ) -> Result<Option<VoiceState>> {
-        Ok(None)
+        unimplemented!()
     }
 
     async fn delete_voice_state(

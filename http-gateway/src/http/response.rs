@@ -1,6 +1,5 @@
 use crate::Error;
 use serde::Serialize;
-use warp::reply::Json;
 
 #[derive(Serialize, Debug)]
 pub struct ErrorResponse<'a> {
@@ -13,8 +12,8 @@ impl ErrorResponse<'_> {
     }
 }
 
-impl Into<warp::reply::Json> for ErrorResponse<'_> {
-    fn into(self) -> Json {
-        warp::reply::json(&self)
+impl From<ErrorResponse<'_>> for warp::reply::Json {
+    fn from(e: ErrorResponse<'_>) -> Self {
+        warp::reply::json(&e)
     }
 }

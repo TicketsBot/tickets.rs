@@ -42,7 +42,7 @@ pub enum Permission {
 }
 
 impl Permission {
-    pub fn sum(permissions: &Vec<Permission>) -> u64 {
+    pub fn sum(permissions: &[Permission]) -> u64 {
         let mut sum = 0;
         permissions
             .iter()

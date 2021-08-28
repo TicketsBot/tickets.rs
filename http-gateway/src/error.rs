@@ -41,9 +41,9 @@ pub enum Error {
 
 impl Reject for Error {}
 
-impl<T> Into<Result<T, Self>> for Error {
-    fn into(self) -> Result<T, Self> {
-        Err(self)
+impl<T> From<Error> for Result<T, Error> {
+    fn from(e: Error) -> Self {
+        Err(e)
     }
 }
 

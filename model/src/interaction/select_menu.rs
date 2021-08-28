@@ -28,5 +28,5 @@ pub struct SelectOption {
 }
 
 fn one() -> u8 {
-    return 1;
+    1
 }

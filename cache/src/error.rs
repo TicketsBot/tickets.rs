@@ -24,8 +24,14 @@ pub enum CacheError {
     Disconnected,
 }
 
-impl<T> Into<Result<T>> for CacheError {
+/*impl<T> Into<Result<T>> for CacheError {
     fn into(self) -> Result<T> {
         Err(self)
+    }
+}*/
+
+impl<T> From<CacheError> for Result<T> {
+    fn from(e: CacheError) -> Self {
+        Err(e)
     }
 }

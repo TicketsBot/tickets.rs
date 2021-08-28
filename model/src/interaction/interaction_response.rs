@@ -59,7 +59,7 @@ impl TryFrom<u64> for InteractionResponseType {
             5 => Self::DeferredChannelMessageWithSource,
             6 => Self::DeferredMessageUpdate,
             7 => Self::UpdateMessage,
-            _ => Err(format!("invalid interaction response type \"{}\"", value).into_boxed_str())?,
+            _ => return Err(format!("invalid interaction response type \"{}\"", value).into_boxed_str()),
         })
     }
 }

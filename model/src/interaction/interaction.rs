@@ -13,8 +13,8 @@ use std::convert::TryFrom;
 #[serde(untagged)]
 pub enum Interaction {
     Ping(PingInteraction),
-    ApplicationCommand(ApplicationCommandInteraction),
-    MessageComponent(MessageComponentInteraction),
+    ApplicationCommand(Box<ApplicationCommandInteraction>), // Clippy recommendation, large struct
+    MessageComponent(Box<MessageComponentInteraction>),
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy)]
@@ -33,7 +33,7 @@ impl TryFrom<u64> for InteractionType {
             1 => Self::Ping,
             2 => Self::ApplicationCommand,
             3 => Self::MessageComponent,
-            _ => Err(format!("invalid interaction type \"{}\"", value).into_boxed_str())?,
+            _ => return Err(format!("invalid interaction type \"{}\"", value).into_boxed_str()),
         })
     }
 }

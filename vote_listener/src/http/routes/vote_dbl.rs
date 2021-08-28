@@ -28,7 +28,7 @@ pub async fn vote_dbl_handler(
 ) -> (StatusCode, Json<Response>) {
     let (server, body) = (server.0, body.0);
 
-    if auth_token.0 != &server.config.dbl_token[..] {
+    if auth_token.0 != server.config.dbl_token[..] {
         return (StatusCode::UNAUTHORIZED, generate_invalid_signature());
     }
 

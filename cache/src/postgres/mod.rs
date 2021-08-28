@@ -1,5 +1,5 @@
-mod postgres;
-pub use postgres::PostgresCache;
+mod postgres_cache;
+pub use postgres_cache::PostgresCache;
 
 mod worker;
 

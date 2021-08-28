@@ -4,7 +4,7 @@ use cache::Cache;
 use common::event_forwarding::ForwardedInteraction;
 use ed25519_dalek::{PublicKey, Signature, Verifier};
 use model::guild::{Member, Role};
-use model::interaction::{ApplicationCommandInteraction, Interaction, InteractionApplicationCommandCallbackData, InteractionResponse, InteractionType, MessageComponentInteraction};
+use model::interaction::{ApplicationCommandInteraction, Interaction, InteractionResponse, InteractionType, MessageComponentInteraction};
 use model::user::User;
 use model::Snowflake;
 use serde_json::value::RawValue;
@@ -54,7 +54,7 @@ pub async fn handle<T: Cache>(
             if let Some(guild_id) = data.guild_id {
                 let server = Arc::clone(&server);
                 tokio::spawn(async move {
-                    if let Err(e) = cache_resolved(server, data, guild_id).await {
+                    if let Err(e) = cache_resolved(server, *data, guild_id).await {
                         eprintln!("error caching resolved: {}", e);
                     }
                 });
@@ -73,7 +73,7 @@ pub async fn handle<T: Cache>(
             if let Some(guild_id) = data.guild_id {
                 let server = Arc::clone(&server);
                 tokio::spawn(async move {
-                    if let Err(e) = cache_message_component_interaction(server, data, guild_id).await {
+                    if let Err(e) = cache_message_component_interaction(server, *data, guild_id).await {
                         eprintln!("error caching resolved: {}", e);
                     }
                 });
@@ -86,20 +86,6 @@ pub async fn handle<T: Cache>(
             Ok(Response::new(Body::from(res_body)))
         } //_ => Err(warp::reject::custom(Error::UnsupportedInteractionType))
     }
-}
-
-fn get_missing_guild_id_response() -> InteractionResponse {
-    let data = InteractionApplicationCommandCallbackData {
-        tts: None,
-        content: Box::from(
-            "Commands in DMs are not currently supported. Please run this command in a server.",
-        ),
-        embeds: None,
-        allowed_mentions: None,
-        flags: 0,
-    };
-
-    InteractionResponse::new_channel_message_with_source(data)
 }
 
 async fn get_public_key<T: Cache>(

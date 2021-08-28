@@ -21,7 +21,7 @@ impl Identify {
         intents: u64,
     ) -> Identify {
         if let Some(large_threshold) = large_threshold {
-            if large_threshold > 250 || large_threshold < 50 {
+            if !(50..=250).contains(&large_threshold) {
                 panic!("large_threshold must be between 50 and 250 inclusive");
             }
         }

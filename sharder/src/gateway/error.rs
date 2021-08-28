@@ -65,7 +65,7 @@ pub enum GatewayError {
     DatabaseError(#[from] database::sqlx::Error),
 
     #[error("bot ID was missing on whitelabel identify")]
-    MissingBotID(),
+    MissingBotId(),
 
     #[error("error occurred while parsing utf8 bytes: {0}")]
     Utf8Error(#[from] std::str::Utf8Error),
@@ -90,8 +90,8 @@ impl GatewayError {
     }
 }
 
-impl<T> Into<Result<T, Self>> for GatewayError {
-    fn into(self) -> Result<T, Self> {
-        Err(self)
+impl<T> From<GatewayError> for Result<T, GatewayError> {
+    fn from(e: GatewayError) -> Self {
+        Err(e)
     }
 }
