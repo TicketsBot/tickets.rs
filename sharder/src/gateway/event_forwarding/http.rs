@@ -38,24 +38,22 @@ impl EventForwarder for HttpEventForwarder {
         // allows us to make use of connection pooling
         let req = self.client.clone().post(uri).json(&event);
 
-        let res = req.send().await.map_err(GatewayError::ReqwestError)?;
+        let res = req.send().await?;
+        let bytes = res.bytes().await?;
 
-        let bytes = res.bytes().await.map_err(GatewayError::ReqwestError)?;
-        let res: WorkerResponse = serde_json::from_slice(&bytes).map_err(|_| {
-            let message = std::str::from_utf8(&*bytes).map_err(GatewayError::Utf8Error);
-            match message {
-                Ok(message) => GatewayError::WorkerError(Box::from(message)),
-                Err(e) => e,
+        let res = serde_json::from_slice::<WorkerResponse>(&bytes);
+        let res = match res {
+            Ok(v) => v,
+            Err(_) => {
+                let message = std::str::from_utf8(&*bytes)?;
+                return GatewayError::WorkerError(message.to_owned()).into();
             }
-        })?;
+        };
 
-        match res.success {
-            true => Ok(()),
-            false => GatewayError::WorkerError(Box::from(
-                res.error
-                    .unwrap_or(std::str::from_utf8(&*bytes).map_err(GatewayError::Utf8Error)?),
-            ))
-            .into(),
+        if !res.success {
+            return Err(GatewayError::WorkerError(res.error.unwrap_or(std::str::from_utf8(&*bytes)?).to_owned()))
         }
+
+        Ok(())
     }
 }

@@ -12,7 +12,7 @@ impl<T: EventForwarder> Shard<T> {
             .whitelabel_guilds
             .insert(self.user_id, guild_id)
             .await
-            .map_err(GatewayError::DatabaseError)
+            .into()
     }
 }
 

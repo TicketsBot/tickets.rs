@@ -78,10 +78,10 @@ pub enum GatewayError {
     },
 
     #[error("error occurred while forwarding event to worker over HTTP: {0}")]
-    ReqwestError(reqwest::Error),
+    ReqwestError(#[from] reqwest::Error),
 
     #[error("Received error response from worker: {0}")]
-    WorkerError(Box<str>),
+    WorkerError(String),
 }
 
 impl GatewayError {

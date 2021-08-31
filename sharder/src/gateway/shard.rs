@@ -153,9 +153,7 @@ impl<T: EventForwarder> Shard<T> {
 
         let uri = Url::parse(&uri[..]).expect("Failed to parse websocket uri");
 
-        let (wss, _) = connect_async(uri)
-            .await
-            .map_err(GatewayError::WebsocketError)?;
+        let (wss, _) = connect_async(uri).await?;
         let (ws_tx, ws_rx) = wss.split();
         *self.connect_time.write().await = Instant::now();
 
@@ -188,11 +186,9 @@ impl<T: EventForwarder> Shard<T> {
         msg: U,
         tx: oneshot::Sender<Result<(), futures::channel::mpsc::SendError>>,
     ) -> Result<(), GatewayError> {
-        OutboundMessage::new(msg, tx)
-            .map_err(GatewayError::JsonError)?
+        OutboundMessage::new(msg, tx)?
             .send(self.writer.read().await.clone().unwrap())
-            .await
-            .map_err(GatewayError::SendMessageError)?;
+            .await?;
 
         Ok(())
     }
@@ -397,7 +393,7 @@ impl<T: EventForwarder> Shard<T> {
 
     // we return None because it's ok to discard the payload
     async fn read_payload(self: Arc<Self>, data: &[u8]) -> Result<Payload, GatewayError> {
-        serde_json::from_slice(data).map_err(GatewayError::JsonError)
+        Ok(serde_json::from_slice(data)?)
     }
 
     async fn process_payload(
@@ -538,8 +534,7 @@ impl<T: EventForwarder> Shard<T> {
     }
 
     async fn handle_event(self: Arc<Self>, data: Box<RawValue>) -> Result<(), GatewayError> {
-        let payload: Dispatch =
-            serde_json::from_str(data.get()).map_err(GatewayError::JsonError)?;
+        let payload: Dispatch = serde_json::from_str(data.get())?;
 
         // Gateway events
         match &payload.data {
@@ -774,9 +769,7 @@ impl<T: EventForwarder> Shard<T> {
         let (tx, rx) = oneshot::channel();
         self.write(payload, tx).await?;
 
-        rx.await
-            .map_err(GatewayError::RecvError)?
-            .map_err(GatewayError::WebsocketSendError)?;
+        rx.await??;
 
         *self.last_heartbeat.write().await = Instant::now();
         Ok(())
@@ -786,10 +779,7 @@ impl<T: EventForwarder> Shard<T> {
         let (tx, rx) = oneshot::channel();
         self.write(&self.identify, tx).await?;
 
-        Ok(rx
-            .await
-            .map_err(GatewayError::RecvError)?
-            .map_err(GatewayError::WebsocketSendError)?)
+        Ok(rx.await??)
     }
 
     async fn wait_for_ratelimit(&self) -> Result<(), GatewayError> {
@@ -809,16 +799,14 @@ impl<T: EventForwarder> Shard<T> {
             res = cmd("SET")
                 .arg(&[&key[..], "1", "NX", "PX", "6000"]) // some arbitrary value, set if not exist, set expiry, of 6s
                 .query_async(&mut conn)
-                .await
-                .map_err(GatewayError::RedisError)?;
+                .await?;
 
             if res == redis::Value::Nil {
                 // get time to delay
                 let ttl = cmd("PTTL")
                     .arg(&key)
                     .query_async(&mut conn)
-                    .await
-                    .map_err(GatewayError::RedisError)?;
+                    .await?;
 
                 if let redis::Value::Int(ttl) = ttl {
                     // if number is negative, we can go ahead and identify
@@ -847,9 +835,7 @@ impl<T: EventForwarder> Shard<T> {
         self.write(payload, tx).await?;
 
         Ok(rx
-            .await
-            .map_err(GatewayError::RecvError)?
-            .map_err(GatewayError::WebsocketSendError)?)
+            .await??)
     }
 
     async fn save_session_id(&self) -> Result<(), GatewayError> {
@@ -865,8 +851,7 @@ impl<T: EventForwarder> Shard<T> {
                 cmd("SET")
                     .arg(&[&key[..], session_id, "EX", "120"]) // expiry of 120s
                     .query_async(&mut conn)
-                    .await
-                    .map_err(GatewayError::RedisError)?;
+                    .await?;
 
                 Ok(())
             }
@@ -885,14 +870,11 @@ impl<T: EventForwarder> Shard<T> {
         let res = cmd("GET")
             .arg(&[&key[..]])
             .query_async(&mut conn)
-            .await
-            .map_err(GatewayError::RedisError)?;
+            .await?;
 
         match res {
             redis::Value::Data(data) => {
-                let session_id = str::from_utf8(&data[..])
-                    .map_err(GatewayError::Utf8Error)?
-                    .to_owned();
+                let session_id = str::from_utf8(&data[..])?.to_owned();
                 Ok(Some(session_id))
             }
             _ => Ok(None),
@@ -912,8 +894,7 @@ impl<T: EventForwarder> Shard<T> {
                 cmd("SET")
                     .arg(&[&key[..], &seq.to_string()[..], "EX", "120"]) // expiry of 120s
                     .query_async(&mut conn)
-                    .await
-                    .map_err(GatewayError::RedisError)?;
+                    .await?;
 
                 Ok(())
             }
@@ -932,21 +913,14 @@ impl<T: EventForwarder> Shard<T> {
         let res = cmd("GET")
             .arg(&[&key[..]])
             .query_async(&mut conn)
-            .await
-            .map_err(GatewayError::RedisError)?;
+            .await?;
 
-        match res {
-            redis::Value::Data(data) => {
-                match str::from_utf8(&data[..])
-                    .map_err(GatewayError::Utf8Error)?
-                    .parse()
-                {
-                    Ok(seq) => Ok(Some(seq)),
-                    Err(_) => Ok(None),
-                }
-            }
-            _ => Ok(None),
-        }
+        let seq = match res {
+            redis::Value::Data(data) => str::from_utf8(&data[..])?.parse().ok(),
+            _ => None,
+        };
+
+        Ok(seq)
     }
 
     async fn delete_session_id(&self) -> Result<(), GatewayError> {
@@ -960,8 +934,7 @@ impl<T: EventForwarder> Shard<T> {
         cmd("DEL")
             .arg(&[&key[..]])
             .query_async(&mut conn)
-            .await
-            .map_err(GatewayError::RedisError)?;
+            .await?;
 
         Ok(())
     }
@@ -977,8 +950,7 @@ impl<T: EventForwarder> Shard<T> {
         cmd("DEL")
             .arg(&[&key[..]])
             .query_async(&mut conn)
-            .await
-            .map_err(GatewayError::RedisError)?;
+            .await?;
 
         Ok(())
     }
