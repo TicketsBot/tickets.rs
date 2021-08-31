@@ -803,10 +803,7 @@ impl<T: EventForwarder> Shard<T> {
 
             if res == redis::Value::Nil {
                 // get time to delay
-                let ttl = cmd("PTTL")
-                    .arg(&key)
-                    .query_async(&mut conn)
-                    .await?;
+                let ttl = cmd("PTTL").arg(&key).query_async(&mut conn).await?;
 
                 if let redis::Value::Int(ttl) = ttl {
                     // if number is negative, we can go ahead and identify
@@ -834,8 +831,7 @@ impl<T: EventForwarder> Shard<T> {
         let (tx, rx) = oneshot::channel();
         self.write(payload, tx).await?;
 
-        Ok(rx
-            .await??)
+        Ok(rx.await??)
     }
 
     async fn save_session_id(&self) -> Result<(), GatewayError> {
@@ -867,10 +863,7 @@ impl<T: EventForwarder> Shard<T> {
 
         let mut conn = self.redis.get().await?;
 
-        let res = cmd("GET")
-            .arg(&[&key[..]])
-            .query_async(&mut conn)
-            .await?;
+        let res = cmd("GET").arg(&[&key[..]]).query_async(&mut conn).await?;
 
         match res {
             redis::Value::Data(data) => {
@@ -910,10 +903,7 @@ impl<T: EventForwarder> Shard<T> {
 
         let mut conn = self.redis.get().await?;
 
-        let res = cmd("GET")
-            .arg(&[&key[..]])
-            .query_async(&mut conn)
-            .await?;
+        let res = cmd("GET").arg(&[&key[..]]).query_async(&mut conn).await?;
 
         let seq = match res {
             redis::Value::Data(data) => str::from_utf8(&data[..])?.parse().ok(),
@@ -931,10 +921,7 @@ impl<T: EventForwarder> Shard<T> {
             None => return Ok(()),
         };
 
-        cmd("DEL")
-            .arg(&[&key[..]])
-            .query_async(&mut conn)
-            .await?;
+        cmd("DEL").arg(&[&key[..]]).query_async(&mut conn).await?;
 
         Ok(())
     }
@@ -947,10 +934,7 @@ impl<T: EventForwarder> Shard<T> {
             None => return Ok(()),
         };
 
-        cmd("DEL")
-            .arg(&[&key[..]])
-            .query_async(&mut conn)
-            .await?;
+        cmd("DEL").arg(&[&key[..]]).query_async(&mut conn).await?;
 
         Ok(())
     }

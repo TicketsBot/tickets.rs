@@ -51,7 +51,11 @@ impl EventForwarder for HttpEventForwarder {
         };
 
         if !res.success {
-            return Err(GatewayError::WorkerError(res.error.unwrap_or(std::str::from_utf8(&*bytes)?).to_owned()))
+            return Err(GatewayError::WorkerError(
+                res.error
+                    .unwrap_or(std::str::from_utf8(&*bytes)?)
+                    .to_owned(),
+            ));
         }
 
         Ok(())

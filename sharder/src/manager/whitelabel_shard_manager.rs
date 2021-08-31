@@ -161,8 +161,7 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
             .await?
             .into_pubsub();
 
-        conn.subscribe(common::status_updates::KEY)
-            .await?;
+        conn.subscribe(common::status_updates::KEY).await?;
 
         tokio::spawn(async move {
             let mut stream = conn.on_message();
@@ -213,8 +212,7 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
             .await?
             .into_pubsub();
 
-        conn.subscribe(common::token_change::KEY)
-            .await?;
+        conn.subscribe(common::token_change::KEY).await?;
 
         tokio::spawn(async move {
             let mut stream = conn.on_message();
@@ -266,8 +264,7 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
             .await?
             .into_pubsub();
 
-        conn.subscribe(common::status_updates::KEY)
-            .await?;
+        conn.subscribe(common::status_updates::KEY).await?;
 
         tokio::spawn(async move {
             let mut stream = conn.on_message();
