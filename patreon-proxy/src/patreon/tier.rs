@@ -29,6 +29,6 @@ impl Tier {
     }
 
     pub fn values<'a>() -> &'a [Tier] {
-        return &[Premium, Whitelabel];
+        &[Premium, Whitelabel]
     }
 }

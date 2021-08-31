@@ -4,10 +4,10 @@ use crate::config::Config;
 use crate::database::Tokens;
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::Arc;
 
-use log::debug;
+use crate::error::PatreonError;
+use log::{debug, error};
 
 pub struct Poller {
     config: Arc<Config>,
@@ -19,7 +19,7 @@ impl Poller {
         Poller { config, tokens }
     }
 
-    pub async fn poll(&self) -> Result<HashMap<String, Tier>, Box<dyn Error>> {
+    pub async fn poll(&self) -> Result<HashMap<String, Tier>, PatreonError> {
         let mut patrons: HashMap<String, Tier> = HashMap::new();
         let first = format!("https://www.patreon.com/api/oauth2/api/campaigns/{}/pledges?page%5Bcount%5D=25&sort=created", self.config.patreon_campaign_id);
 
@@ -34,7 +34,7 @@ impl Poller {
         Ok(patrons)
     }
 
-    async fn poll_page(&self, uri: String) -> Result<PledgeResponse, Box<dyn Error>> {
+    async fn poll_page(&self, uri: String) -> Result<PledgeResponse, PatreonError> {
         debug!("Polling {}", uri);
 
         let client = reqwest::ClientBuilder::new()
@@ -42,7 +42,7 @@ impl Poller {
             .build()
             .unwrap();
 
-        let res: PledgeResponse = client
+        let res = client
             .get(&uri)
             .header(
                 "Authorization",
@@ -50,9 +50,23 @@ impl Poller {
             )
             .send()
             .await?
-            .json()
+            .bytes()
             .await?;
 
-        Ok(res)
+        let pledges =
+            serde_json::from_slice::<PledgeResponse>(&res[..]).map_err(PatreonError::JsonError);
+        let pledges = match pledges {
+            Ok(v) => v,
+            Err(e) => {
+                error!(
+                    "Error deserialising pledges: {}\nFull body: {:?}",
+                    e,
+                    std::str::from_utf8(&res[..])
+                );
+                return Err(e);
+            }
+        };
+
+        Ok(pledges)
     }
 }

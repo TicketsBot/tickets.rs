@@ -10,7 +10,6 @@ use patreon::oauth;
 use patreon::Poller;
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::Arc;
 
 use chrono::prelude::*;
@@ -19,10 +18,11 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::time::delay_for;
 
+use crate::error::PatreonError;
 use log::{debug, error, info};
 
 #[tokio::main]
-pub async fn main() -> Result<(), Box<dyn Error>> {
+pub async fn main() -> Result<(), PatreonError> {
     env_logger::init();
 
     let config = Arc::new(Config::new().unwrap());
@@ -89,7 +89,7 @@ async fn handle_refresh(
     tokens: &database::Tokens,
     config: &Config,
     db_client: &Database,
-) -> Result<database::Tokens, Box<dyn Error>> {
+) -> Result<database::Tokens, PatreonError> {
     info!("handle_refresh called");
     let new_tokens = oauth::refresh_tokens(
         tokens.refresh_token.clone(),

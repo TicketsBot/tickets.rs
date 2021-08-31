@@ -38,10 +38,7 @@ CREATE TABLE IF NOT EXISTS patreon_keys(
         Ok(())
     }
 
-    pub async fn get_tokens(
-        &self,
-        client_id: String,
-    ) -> Result<Tokens, Box<dyn std::error::Error>> {
+    pub async fn get_tokens(&self, client_id: String) -> Result<Tokens, PatreonError> {
         let query = "
 SELECT
     \"access_token\", \"refresh_token\", \"expires\"
@@ -54,7 +51,7 @@ WHERE
 
         let res = self.client.query(query, &[&client_id]).await?;
         if res.is_empty() {
-            return Err(Box::new(PatreonError::MissingTokens(client_id)));
+            return PatreonError::MissingTokens(client_id).into();
         }
 
         let row = &res[0];
