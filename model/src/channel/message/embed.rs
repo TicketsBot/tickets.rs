@@ -39,7 +39,7 @@ pub struct EmbedFooter {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EmbedImage {
-    url: Option<String>,
+    url: String,
     proxy_url: Option<String>,
     height: Option<usize>,
     width: Option<usize>,
@@ -47,7 +47,7 @@ pub struct EmbedImage {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EmbedThumbnail {
-    pub url: Option<String>,
+    pub url: String,
     pub proxy_url: Option<String>,
     pub height: Option<usize>,
     pub width: Option<usize>,
@@ -68,7 +68,7 @@ pub struct EmbedProvider {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EmbedAuthor {
-    pub name: Option<String>,
+    pub name: String,
     pub url: Option<String>,
     pub icon_url: Option<String>,
     pub proxy_icon_url: Option<String>,

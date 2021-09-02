@@ -106,9 +106,10 @@ pub enum MessageType {
     GuildDiscoveryGracePeriodFinalWarning = 17,
     ThreadCreated = 18,
     Reply = 19,
-    ApplicationCommand = 20,
+    ChatInputCommand = 20,
     ThreadStarterMessage = 21,
     GuildInviteReminder = 22,
+    ContextMenuCommand = 23,
 }
 
 impl Default for MessageType {
