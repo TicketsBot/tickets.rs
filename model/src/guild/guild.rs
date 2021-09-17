@@ -6,6 +6,8 @@ use crate::channel::Channel;
 use crate::user::PresenceUpdate;
 use crate::{ImageHash, PermissionBitSet, Snowflake};
 use chrono::{DateTime, Utc};
+use crate::stage::StageInstance;
+use crate::sticker::Sticker;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Guild {
@@ -91,6 +93,10 @@ pub struct Guild {
     pub welcome_screen: Option<WelcomeScreen>,
     #[serde(default = "NsfwLevel::default")]
     pub nsfw_level: NsfwLevel,
+    #[serde(skip_serializing)]
+    pub stage_instances: Option<Vec<StageInstance>>,
+    #[serde(skip_serializing)]
+    pub stickers: Option<Vec<Sticker>>,
 }
 
 impl PartialEq for Guild {

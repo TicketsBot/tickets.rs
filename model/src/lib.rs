@@ -14,6 +14,7 @@ pub mod channel;
 pub mod guild;
 pub mod interaction;
 pub mod stage;
+pub mod sticker;
 pub mod user;
 
 mod util;
