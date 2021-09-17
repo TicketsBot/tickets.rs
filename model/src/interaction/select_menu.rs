@@ -13,6 +13,8 @@ pub struct SelectMenu {
     /// 1-25
     #[serde(default = "one")]
     pub max_values: u8,
+    #[serde(default = "Default::default")]
+    pub disabled: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

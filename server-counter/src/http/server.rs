@@ -34,14 +34,11 @@ impl<T: Cache> Server<T> {
             .route("/total/prometheus", get(routes::prometheus_handler::<T>))
             .layer(AddExtensionLayer::new(server.clone()));
 
-        let addr = &server.config.server_addr[..]
-            .parse()
-            .map_err(Error::AddrParseError)?;
+        let addr = &server.config.server_addr[..].parse()?;
 
-        hyper::Server::bind(&addr)
+        hyper::Server::bind(addr)
             .serve(app.into_make_service())
-            .await
-            .map_err(Error::HyperError)?;
+            .await?;
 
         Ok(())
     }

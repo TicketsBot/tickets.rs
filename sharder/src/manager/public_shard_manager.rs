@@ -77,7 +77,7 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
     async fn connect(self: Arc<Self>) {
         for (_, shard) in self.shards.iter() {
             let shard_id = shard.get_shard_id();
-            let shard = Arc::clone(&shard);
+            let shard = Arc::clone(shard);
             let (ready_tx, ready_rx) = oneshot::channel::<()>();
 
             tokio::spawn(async move {

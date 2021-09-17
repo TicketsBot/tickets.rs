@@ -23,13 +23,11 @@ impl Server {
             .route("/vote/dbl", post(routes::vote_dbl_handler))
             .layer(AddExtensionLayer::new(server.clone()));
 
-        let addr = &server.config.server_addr[..]
-            .parse()
-            .map_err(Error::AddrParseError)?;
-        hyper::Server::bind(&addr)
+        let addr = &server.config.server_addr[..].parse()?;
+
+        hyper::Server::bind(addr)
             .serve(app.into_make_service())
-            .await
-            .map_err(Error::HyperError)?;
+            .await?;
 
         Ok(())
     }

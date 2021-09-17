@@ -55,7 +55,8 @@ impl<T: Cache> Server<T> {
                 eprintln!("Rejecting with {:?}", error);
 
                 if let Some(err) = error.find::<Error>() {
-                    let json: Json = ErrorResponse::from(&err).into();
+                    let err_response: ErrorResponse = err.into();
+                    let json: Json = err_response.into();
 
                     let status_code = match err {
                         Error::InvalidSignature(..)

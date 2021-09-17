@@ -6,9 +6,11 @@ pub struct ErrorResponse<'a> {
     pub error: &'a Error,
 }
 
-impl ErrorResponse<'_> {
-    pub fn from(error: &Error) -> ErrorResponse {
-        ErrorResponse { error }
+impl<'a> From<&'a Error> for ErrorResponse<'a> {
+    fn from(e: &'a Error) -> Self {
+        Self {
+            error: e,
+        }
     }
 }
 

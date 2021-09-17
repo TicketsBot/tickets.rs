@@ -233,8 +233,7 @@ impl Worker {
                 let users = members
                     .iter()
                     .map(|m| m.user.clone())
-                    .filter(|m| m.is_some())
-                    .map(|m| m.unwrap())
+                    .flatten()
                     .collect();
 
                 if let Err(e) = self.store_members(members, guild.id).await {

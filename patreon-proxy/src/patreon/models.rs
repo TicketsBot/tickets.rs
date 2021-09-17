@@ -99,8 +99,7 @@ impl PledgeResponse {
 
                 Some((discord_id.to_string(), tier))
             })
-            .filter(|patron| patron.is_some())
-            .map(|patron| patron.unwrap())
+            .flatten()
             .collect()
     }
 

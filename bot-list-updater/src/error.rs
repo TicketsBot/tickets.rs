@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+pub type Result<T> = std::result::Result<T, UpdaterError>;
+
 #[derive(Error, Debug)]
 pub enum UpdaterError {
     #[error("Error while sending HTTP request {0}")]
@@ -9,8 +11,8 @@ pub enum UpdaterError {
     ResponseError(String),
 }
 
-impl<T> Into<Result<T, UpdaterError>> for UpdaterError {
-    fn into(self) -> Result<T, UpdaterError> {
-        Err(self)
+impl<T> From<UpdaterError> for Result<T> {
+    fn from(e: UpdaterError) -> Result<T> {
+        Err(e)
     }
 }

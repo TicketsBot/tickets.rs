@@ -38,3 +38,9 @@ impl Retriever {
         Ok(res.count)
     }
 }
+
+impl Default for Retriever {
+    fn default() -> Self {
+        Self::new()
+    }
+}

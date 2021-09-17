@@ -3,7 +3,7 @@ use serde::Serializer;
 use std::fmt::Debug;
 use warp::reject::Reject;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("invalid ed25519 signature length")]
     InvalidSignatureLength,
