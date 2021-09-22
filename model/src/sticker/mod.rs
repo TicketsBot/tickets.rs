@@ -8,7 +8,7 @@ pub struct Sticker {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pack_id: Option<Snowflake>,
     pub name: Box<str>,
-    pub description: Option<Box<Str>>,
+    pub description: Option<Box<str>>,
     pub tags: Box<str>,
     pub r#type: StickerType,
     pub format_type: FormatType,
