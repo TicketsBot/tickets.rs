@@ -12,7 +12,7 @@ async fn main() {
     // Internally arc'd
     let http_client = reqwest::Client::new();
 
-    let retriever = Retriever::new_with_client(http_client.clone());
+    let retriever = Retriever::new_with_client(conf.base_url, http_client.clone());
     let dbl_updater = DblUpdater::new_with_client(conf.dbl_token, conf.bot_id, http_client.clone());
     let discord_boats_updater = DiscordBoatsUpdater::new_with_client(conf.dboats_token, conf.bot_id, http_client);
 

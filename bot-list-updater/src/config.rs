@@ -4,6 +4,7 @@ use serde::Deserialize;
 pub struct Config {
     pub delay: u64,
     pub bot_id: u64,
+    pub base_url: String,
 
     pub dbl_token: String,
     pub dboats_token: String,
