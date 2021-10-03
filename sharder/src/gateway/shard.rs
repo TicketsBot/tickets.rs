@@ -36,8 +36,8 @@ use super::payloads::event::Event;
 use super::payloads::{Dispatch, Opcode, Payload};
 use super::OutboundMessage;
 use crate::gateway::event_forwarding::{is_whitelisted, EventForwarder};
-use async_tungstenite::{
-    tokio::connect_async,
+use tokio_tungstenite::{
+    connect_async,
     tungstenite,
     tungstenite::{protocol::frame::coding::CloseCode, Message},
 };
@@ -231,7 +231,7 @@ impl<T: EventForwarder> Shard<T> {
     async fn listen(
         self: Arc<Self>,
         mut rx: futures::channel::mpsc::UnboundedReceiver<
-            Result<Message, async_tungstenite::tungstenite::Error>,
+            Result<Message, tokio_tungstenite::tungstenite::Error>,
         >,
     ) -> Result<(), GatewayError> {
         #[cfg(feature = "compression")]

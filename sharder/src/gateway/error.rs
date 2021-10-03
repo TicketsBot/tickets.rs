@@ -1,5 +1,5 @@
 use crate::gateway::outbound_message::OutboundMessage;
-use async_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use std::fmt::Display;
 use thiserror::Error;
 
@@ -30,7 +30,7 @@ pub enum GatewayError {
     PoolError(#[from] deadpool::managed::PoolError<deadpool_redis::redis::RedisError>),
 
     #[error("error while operating on websocket: {0}")]
-    WebsocketError(#[from] async_tungstenite::tungstenite::Error),
+    WebsocketError(#[from] tokio_tungstenite::tungstenite::Error),
 
     #[error("error while writing to websocket: {0}")]
     WebsocketSendError(#[from] futures::channel::mpsc::SendError),

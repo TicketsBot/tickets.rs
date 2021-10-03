@@ -11,7 +11,8 @@ model = { path = "../model" }
 common = { path = "../common" }
 database = { path = "../database" }
 tokio = { version = "1.2", features = ["full", "time", "sync", "signal"] }
-async-tungstenite = { version = "0.14", features = ["tokio-rustls-webpki-roots"] }
+#async-tungstenite = { version = "0.14", features = ["tokio-rustls-webpki-roots"] }
+tokio-tungstenite = { version = "0.15", features = ["rustls-tls", "webpki-roots"] }
 webpki = "0.21.4"
 url = "2.1"
 futures = "0.3"

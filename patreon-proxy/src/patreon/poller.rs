@@ -8,15 +8,27 @@ use std::sync::Arc;
 
 use crate::error::PatreonError;
 use log::{debug, error};
+use std::time::Duration;
 
 pub struct Poller {
     config: Arc<Config>,
+    client: reqwest::Client,
     pub tokens: Arc<Tokens>,
 }
 
 impl Poller {
     pub fn new(config: Arc<Config>, tokens: Arc<Tokens>) -> Poller {
-        Poller { config, tokens }
+        let client = reqwest::ClientBuilder::new()
+            .use_rustls_tls()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("failed to build http client");
+
+        Poller {
+            config,
+            client,
+            tokens,
+        }
     }
 
     pub async fn poll(&self) -> Result<HashMap<String, Tier>, PatreonError> {
@@ -37,12 +49,7 @@ impl Poller {
     async fn poll_page(&self, uri: String) -> Result<PledgeResponse, PatreonError> {
         debug!("Polling {}", uri);
 
-        let client = reqwest::ClientBuilder::new()
-            .use_rustls_tls()
-            .build()
-            .unwrap();
-
-        let res = client
+        let res = self.client
             .get(&uri)
             .header(
                 "Authorization",
