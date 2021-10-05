@@ -42,6 +42,8 @@ use tokio_tungstenite::{
     tungstenite::{protocol::frame::coding::CloseCode, Message},
 };
 use std::error::Error;
+use serde_json::Value;
+use serde_json::error::Category;
 
 const GATEWAY_VERSION: u8 = 9;
 const SEQ_SAVE_DELAY: Duration = Duration::from_secs(5);
@@ -235,7 +237,7 @@ impl<T: EventForwarder> Shard<T> {
         >,
     ) -> Result<(), GatewayError> {
         #[cfg(feature = "compression")]
-        let mut decoder = Decompress::new(true);
+            let mut decoder = Decompress::new(true);
 
         loop {
             let shard = Arc::clone(&self);
@@ -285,7 +287,9 @@ impl<T: EventForwarder> Shard<T> {
                         }
 
                         Some(Ok(Message::Text(data))) => {
-                            let payload = match Arc::clone(&self).read_payload(data.as_bytes()).await {
+                            let value: Value = serde_json::from_slice(data.as_bytes())?;
+
+                            let payload = match Arc::clone(&self).read_payload(&value).await {
                                 Ok(payload) => payload,
                                 Err(e) => {
                                     self.log_err("Error while deserializing payload", &e);
@@ -293,7 +297,7 @@ impl<T: EventForwarder> Shard<T> {
                                 }
                             };
 
-                            if let Err(e) = Arc::clone(&self).process_payload(payload, data.as_bytes()).await {
+                            if let Err(e) = Arc::clone(&self).process_payload(payload, value).await {
                                 self.log_err("An error occurred while processing a payload", &e);
                             }
                         }
@@ -308,7 +312,9 @@ impl<T: EventForwarder> Shard<T> {
                                 }
                             };
 
-                            let payload = match Arc::clone(&self).read_payload(&data[..]).await {
+                            let value: Value = serde_json::from_slice(data.as_bytes())?;
+
+                            let payload = match Arc::clone(&self).read_payload(&value).await {
                                 Ok(payload) => payload,
                                 Err(e) => {
                                     self.log_err("Error while deserializing payload", &e);
@@ -316,7 +322,7 @@ impl<T: EventForwarder> Shard<T> {
                                 }
                             };
 
-                            if let Err(e) = Arc::clone(&self).process_payload(payload, &data[..]).await {
+                            if let Err(e) = Arc::clone(&self).process_payload(payload, value).await {
                                 self.log_err("An error occurred while processing a payload", &e);
                             }
                         }
@@ -391,15 +397,29 @@ impl<T: EventForwarder> Shard<T> {
         return Ok(output);
     }
 
-    // we return None because it's ok to discard the payload
-    async fn read_payload(self: Arc<Self>, data: &[u8]) -> Result<Payload, GatewayError> {
-        Ok(serde_json::from_slice(data)?)
+    // Manually deserialize since we only need 2 values
+    async fn read_payload(self: Arc<Self>, data: &Value) -> Result<Payload, GatewayError> {
+        let opcode = serde_json::from_value(
+            data.get("op")
+                .ok_or_else(|| GatewayError::MissingFieldError("op".to_owned()))?
+                .clone()
+        )?;
+
+        let seq = match data.get("s") {
+            None => None,
+            Some(s) => serde_json::from_value(s.clone())?,
+        };
+
+        Ok(Payload {
+            opcode,
+            seq,
+        })
     }
 
     async fn process_payload(
         self: Arc<Self>,
         payload: Payload,
-        raw: &[u8],
+        raw: Value,
     ) -> Result<(), GatewayError> {
         if let Some(seq) = payload.seq {
             *self.seq.write().await = Some(seq);
@@ -417,12 +437,14 @@ impl<T: EventForwarder> Shard<T> {
 
         match payload.opcode {
             Opcode::Dispatch => {
-                let payload = serde_json::from_slice(raw)?;
+                let payload = serde_json::from_value(raw)?;
 
                 if let Err(e) = Arc::clone(&self).handle_event(payload).await {
-                    if let GatewayError::JsonError(e) = e {
-                        let raw_payload = String::from_utf8_lossy(raw);
-                        self.log_debug("JSON error processing dispatch", &raw_payload, &e);
+                    if let GatewayError::JsonError(ref err) = e {
+                        // Ignore unknown payloads
+                        if err.classify() != Category::Data {
+                            self.log_err("Error processing dispatch", &e);
+                        }
                     } else {
                         self.log_err("Error processing dispatch", &e);
                     }
@@ -454,7 +476,7 @@ impl<T: EventForwarder> Shard<T> {
             }
 
             Opcode::Hello => {
-                let hello: payloads::Hello = serde_json::from_slice(raw)?;
+                let hello: payloads::Hello = serde_json::from_value(raw)?;
                 let interval = Duration::from_millis(hello.data.heartbeat_interval as u64);
 
                 let mut should_identify = true;

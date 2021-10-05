@@ -65,7 +65,10 @@ pub enum GatewayError {
     DatabaseError(#[from] database::sqlx::Error),
 
     #[error("bot ID was missing on whitelabel identify")]
-    MissingBotId(),
+    MissingBotId,
+
+    #[error("json was missing field {0}")]
+    MissingFieldError(String),
 
     #[error("error occurred while parsing utf8 bytes: {0}")]
     Utf8Error(#[from] std::str::Utf8Error),
