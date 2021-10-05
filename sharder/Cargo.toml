@@ -11,7 +11,6 @@ model = { path = "../model" }
 common = { path = "../common" }
 database = { path = "../database" }
 tokio = { version = "1.2", features = ["full", "time", "sync", "signal"] }
-#async-tungstenite = { version = "0.14", features = ["tokio-rustls-webpki-roots"] }
 tokio-tungstenite = { version = "0.15", features = ["rustls-tls", "webpki-roots"] }
 webpki = "0.21.4"
 url = "2.1"
@@ -28,7 +27,7 @@ deadpool = { version = "0.5", features = ["managed"] }
 deadpool-redis = "0.6"
 jemallocator = "0.3"
 simd-json = "0.3"
-reqwest = { version = "0.11", features = ["json", "gzip"] }
+reqwest = { version = "0.11", features = ["json", "gzip", "rustls-tls-webpki-roots"] }
 flate2 = { version = "1.0", features = ["tokio", "zlib-ng-compat"], default-features = false, optional = true }
 log = "0.4"
 env_logger = "0.9"

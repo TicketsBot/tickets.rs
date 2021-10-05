@@ -1367,6 +1367,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyper-rustls"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f9f7a97316d44c0af9b0301e65010573a853a9fc97046d7331d7f6bc0fd5a64"
+dependencies = [
+ "futures-util",
+ "hyper 0.14.12",
+ "log",
+ "rustls 0.19.1",
+ "tokio 1.11.0",
+ "tokio-rustls 0.22.0",
+ "webpki",
+]
+
+[[package]]
 name = "hyper-tls"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2287,7 +2302,7 @@ dependencies = [
  "http",
  "http-body 0.3.1",
  "hyper 0.13.10",
- "hyper-rustls",
+ "hyper-rustls 0.21.0",
  "hyper-tls 0.4.3",
  "ipnet",
  "js-sys",
@@ -2328,6 +2343,7 @@ dependencies = [
  "http",
  "http-body 0.4.3",
  "hyper 0.14.12",
+ "hyper-rustls 0.22.1",
  "hyper-tls 0.5.0",
  "ipnet",
  "js-sys",
@@ -2337,16 +2353,19 @@ dependencies = [
  "native-tls",
  "percent-encoding",
  "pin-project-lite 0.2.7",
+ "rustls 0.19.1",
  "serde",
  "serde_json",
  "serde_urlencoded 0.7.0",
  "tokio 1.11.0",
  "tokio-native-tls",
+ "tokio-rustls 0.22.0",
  "tokio-util 0.6.7",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "webpki-roots 0.21.1",
  "winreg",
 ]
 

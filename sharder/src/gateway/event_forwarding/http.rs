@@ -19,6 +19,7 @@ impl HttpEventForwarder {
         reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(3))
             .gzip(cfg!(feature = "compression"))
+            .use_rustls_tls()
             .build()
             .expect("build_http_client")
     }
