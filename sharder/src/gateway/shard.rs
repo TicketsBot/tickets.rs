@@ -36,14 +36,13 @@ use super::payloads::event::Event;
 use super::payloads::{Dispatch, Opcode, Payload};
 use super::OutboundMessage;
 use crate::gateway::event_forwarding::{is_whitelisted, EventForwarder};
+use serde_json::error::Category;
+use serde_json::Value;
+use std::error::Error;
 use tokio_tungstenite::{
-    connect_async,
-    tungstenite,
+    connect_async, tungstenite,
     tungstenite::{protocol::frame::coding::CloseCode, Message},
 };
-use std::error::Error;
-use serde_json::Value;
-use serde_json::error::Category;
 
 const GATEWAY_VERSION: u8 = 9;
 const SEQ_SAVE_DELAY: Duration = Duration::from_secs(5);
@@ -237,7 +236,7 @@ impl<T: EventForwarder> Shard<T> {
         >,
     ) -> Result<(), GatewayError> {
         #[cfg(feature = "compression")]
-            let mut decoder = Decompress::new(true);
+        let mut decoder = Decompress::new(true);
 
         loop {
             let shard = Arc::clone(&self);
@@ -402,7 +401,7 @@ impl<T: EventForwarder> Shard<T> {
         let opcode = serde_json::from_value(
             data.get("op")
                 .ok_or_else(|| GatewayError::MissingFieldError("op".to_owned()))?
-                .clone()
+                .clone(),
         )?;
 
         let seq = match data.get("s") {
@@ -410,10 +409,7 @@ impl<T: EventForwarder> Shard<T> {
             Some(s) => serde_json::from_value(s.clone())?,
         };
 
-        Ok(Payload {
-            opcode,
-            seq,
-        })
+        Ok(Payload { opcode, seq })
     }
 
     async fn process_payload(

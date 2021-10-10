@@ -27,7 +27,7 @@ deadpool = { version = "0.5", features = ["managed"] }
 deadpool-redis = "0.6"
 jemallocator = "0.3"
 simd-json = "0.3"
-reqwest = { version = "0.11", features = ["json", "gzip", "rustls-tls-webpki-roots"] }
+reqwest = { version = "0.11", features = ["json", "rustls-tls-webpki-roots"] }
 flate2 = { version = "1.0", features = ["tokio", "zlib-ng-compat"], default-features = false, optional = true }
 log = "0.4"
 env_logger = "0.9"
@@ -37,7 +37,7 @@ sentry-log = "0.23"
 
 [features]
 default = ["skip-initial-guild-creates"]
-compression = ["flate2"]
+compression = ["flate2", "reqwest/gzip"]
 whitelabel = []
 skip-initial-guild-creates = []
 

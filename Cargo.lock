@@ -2930,6 +2930,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "stats-channel-updater"
+version = "0.1.0"
+dependencies = [
+ "env_logger 0.9.0",
+ "envy",
+ "log",
+ "model",
+ "reqwest 0.11.4",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "stringprep"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

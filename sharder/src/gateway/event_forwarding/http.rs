@@ -16,12 +16,16 @@ impl HttpEventForwarder {
     }
 
     pub fn build_http_client() -> reqwest::Client {
-        reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(3))
-            .gzip(cfg!(feature = "compression"))
-            .use_rustls_tls()
-            .build()
-            .expect("build_http_client")
+            .use_rustls_tls();
+
+        #[cfg(feature = "compression")]
+        {
+            builder = builder.gzip(true);
+        }
+
+        builder.build().expect("build_http_client")
     }
 }
 

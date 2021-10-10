@@ -1,7 +1,7 @@
 use crate::gateway::outbound_message::OutboundMessage;
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use std::fmt::Display;
 use thiserror::Error;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 #[derive(Error, Debug)]
 pub enum GatewayError {

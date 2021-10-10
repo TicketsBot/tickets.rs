@@ -9,5 +9,6 @@ members = [
     "vote_listener",
     "http-gateway",
     "bot-list-updater",
-    "server-counter"
+    "server-counter",
+    "stats-channel-updater"
 ]

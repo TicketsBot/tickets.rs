@@ -1,0 +1,13 @@
+[package]
+name = "stats-channel-updater"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+model = { path = "../model" }
+envy = "0.4"
+reqwest = { version = "0.11", features = ["blocking", "json", "rustls-tls-webpki-roots"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+log = "0.4"
+env_logger = "0.9"
