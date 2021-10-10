@@ -1,11 +1,10 @@
 use serde::Deserialize;
-use model::Snowflake;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub server_counter_url: String,
     pub discord_token: String,
-    pub channel_id: Snowflake,
+    pub channel_id: u64,
 }
 
 impl Config {

@@ -1,9 +1,9 @@
 use crate::config::Config;
 use crate::error::Result;
+use crate::AppError;
 use reqwest::blocking as reqwest;
 use serde::{Deserialize, Serialize};
 use std::str;
-use crate::AppError;
 
 pub struct Client {
     config: Config,
@@ -28,14 +28,13 @@ impl Client {
             .build()
             .expect("failed to build http client");
 
-        Self {
-            config,
-            client,
-        }
+        Self { config, client }
     }
 
     pub fn fetch_server_count(&self) -> Result<usize> {
-        let res: Response = self.client.get(self.config.server_counter_url.clone())
+        let res: Response = self
+            .client
+            .get(self.config.server_counter_url.clone())
             .send()?
             .json()?;
 
@@ -47,9 +46,17 @@ impl Client {
             name: format!("Server Count: {}", server_count),
         };
 
-        let url = format!("https://discord.com/api/v9/channels/{}", self.config.channel_id);
-        let res = self.client.patch(url)
-            .header("Authorization", format!("Bot {}", self.config.discord_token))
+        let url = format!(
+            "https://discord.com/api/v9/channels/{}",
+            self.config.channel_id
+        );
+        let res = self
+            .client
+            .patch(url)
+            .header(
+                "Authorization",
+                format!("Bot {}", self.config.discord_token),
+            )
             .json(&body)
             .send()?;
 
