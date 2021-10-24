@@ -6,9 +6,9 @@ use deadpool_redis::{Config as RedisConfig, Pool};
 /// panics on err
 pub async fn build_cache(config: &Config) -> PostgresCache {
     let cache_opts = Options {
-        users: false,
+        users: true,
         guilds: true,
-        members: false,
+        members: true,
         channels: true,
         roles: true,
         emojis: false,
