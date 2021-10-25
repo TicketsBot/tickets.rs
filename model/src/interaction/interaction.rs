@@ -90,6 +90,7 @@ pub struct ApplicationCommandAutoCompleteInteraction {
     pub channel_id: Snowflake,
     pub member: Option<Member>,
     pub user: Option<User>,
+    pub token: Box<str>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
