@@ -43,7 +43,11 @@ pub struct DeferredApplicationCommandResponseData {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ApplicationCommandAutoCompleteResultResponse {
     r#type: InteractionResponseType,
-    choices: Vec<ApplicationCommandOptionChoice>,
+    data: ApplicationCommandAutoCompleteResultResponseData,
+}
+
+pub struct ApplicationCommandAutoCompleteResultResponseData {
+    pub choices: Vec<ApplicationCommandOptionChoice>,
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy)]
@@ -106,7 +110,9 @@ impl InteractionResponse {
     pub fn new_application_command_auto_complete_result_response(choices: Vec<ApplicationCommandOptionChoice>) -> InteractionResponse {
         InteractionResponse::ApplicationCommandAutoCompleteResult(ApplicationCommandAutoCompleteResultResponse {
             r#type: InteractionResponseType::ApplicationCommandAutoCompleteResult,
-            choices,
+            data: ApplicationCommandAutoCompleteResultResponseData {
+                choices,
+            },
         })
     }
 }
