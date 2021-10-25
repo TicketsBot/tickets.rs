@@ -84,7 +84,9 @@ pub async fn handle<T: Cache>(
                 .map_err(warp::reject::custom)?;
 
             Ok(Response::new(Body::from(res_body)))
-        } //_ => Err(warp::reject::custom(Error::UnsupportedInteractionType))
+        }
+
+        _ => Err(warp::reject::custom(Error::UnsupportedInteractionType))
     }
 }
 

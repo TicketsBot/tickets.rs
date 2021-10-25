@@ -25,7 +25,7 @@ pub struct SelectOption {
     pub description: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emoji: Option<Emoji>,
-    #[serde(default = "bool::default")]
+    #[serde(default)]
     pub default: bool,
 }
 

@@ -1,4 +1,4 @@
-use crate::interaction::InteractionApplicationCommandCallbackData;
+use crate::interaction::{InteractionApplicationCommandCallbackData, ApplicationCommandOptionChoice};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -14,6 +14,7 @@ pub enum InteractionResponse {
     ChannelMessageWithSource(ApplicationCommandResponse),
     DeferredChannelMessageWithSource(DeferredApplicationCommandResponse),
     DeferredMessageUpdate(SimpleInteractionResponse),
+    ApplicationCommandAutoCompleteResult(ApplicationCommandAutoCompleteResultResponse),
     // UpdateMessage is not yet supported
 }
 
@@ -39,14 +40,21 @@ pub struct DeferredApplicationCommandResponseData {
     pub flags: usize,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ApplicationCommandAutoCompleteResultResponse {
+    pub choices: Vec<ApplicationCommandOptionChoice>,
+}
+
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy)]
 #[repr(u8)]
+#[non_exhaustive]
 pub enum InteractionResponseType {
     Pong = 1,
     ChannelMessageWithSource = 4,
     DeferredChannelMessageWithSource = 5,
     DeferredMessageUpdate = 6,
     UpdateMessage = 7,
+    ApplicationCommandAutoCompleteResult = 8,
 }
 
 impl TryFrom<u64> for InteractionResponseType {
@@ -59,6 +67,7 @@ impl TryFrom<u64> for InteractionResponseType {
             5 => Self::DeferredChannelMessageWithSource,
             6 => Self::DeferredMessageUpdate,
             7 => Self::UpdateMessage,
+            8 => Self::ApplicationCommandAutoCompleteResult,
             _ => return Err(format!("invalid interaction response type \"{}\"", value).into_boxed_str()),
         })
     }
@@ -106,24 +115,14 @@ impl<'de> Deserialize<'de> for InteractionResponse {
             .map_err(D::Error::custom)?;
 
         let response = match response_type {
-            InteractionResponseType::Pong => {
-                serde_json::from_value(value).map(InteractionResponse::PongResponse)
-            }
-            InteractionResponseType::ChannelMessageWithSource => {
-                serde_json::from_value(value).map(InteractionResponse::ChannelMessageWithSource)
-            }
-            InteractionResponseType::DeferredChannelMessageWithSource => {
-                serde_json::from_value(value)
-                    .map(InteractionResponse::DeferredChannelMessageWithSource)
-            }
-            InteractionResponseType::DeferredMessageUpdate => {
-                serde_json::from_value(value).map(InteractionResponse::DeferredMessageUpdate)
-            }
-            InteractionResponseType::UpdateMessage => {
-                Err(Error::custom("UpdateMessage is not yet supported"))
-            }
+            InteractionResponseType::Pong => serde_json::from_value(value).map(InteractionResponse::PongResponse),
+            InteractionResponseType::ChannelMessageWithSource => serde_json::from_value(value).map(InteractionResponse::ChannelMessageWithSource),
+            InteractionResponseType::DeferredChannelMessageWithSource => serde_json::from_value(value).map(InteractionResponse::DeferredChannelMessageWithSource),
+            InteractionResponseType::DeferredMessageUpdate => serde_json::from_value(value).map(InteractionResponse::DeferredMessageUpdate),
+            InteractionResponseType::UpdateMessage => Err(Error::custom("UpdateMessage is not yet supported")),
+            InteractionResponseType::ApplicationCommandAutoCompleteResult => serde_json::from_value(value).map(InteractionResponse::ApplicationCommandAutoCompleteResult),
         }
-        .map_err(D::Error::custom)?;
+            .map_err(D::Error::custom)?;
 
         Ok(response)
     }

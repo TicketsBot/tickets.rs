@@ -1,6 +1,6 @@
 use crate::channel::message::Message;
 use crate::guild::Member;
-use crate::interaction::{ApplicationCommandInteractionData, ComponentType};
+use crate::interaction::{ApplicationCommandInteractionData, ComponentType, ApplicationCommandInteractionDataOption, ApplicationCommandType};
 use crate::user::User;
 use crate::Snowflake;
 use serde::de::Error;
@@ -11,10 +11,12 @@ use std::convert::TryFrom;
 
 #[derive(Serialize, Debug)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum Interaction {
-    Ping(PingInteraction),
-    ApplicationCommand(Box<ApplicationCommandInteraction>), // Clippy recommendation, large struct
+    Ping(Box<PingInteraction>),
+    ApplicationCommand(Box<ApplicationCommandInteraction>),
     MessageComponent(Box<MessageComponentInteraction>),
+    ApplicationCommandAutoComplete(Box<ApplicationCommandAutoCompleteInteraction>),
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy)]
@@ -23,6 +25,7 @@ pub enum InteractionType {
     Ping = 1,
     ApplicationCommand = 2,
     MessageComponent = 3,
+    ApplicationCommandAutoComplete = 4,
 }
 
 impl TryFrom<u64> for InteractionType {
@@ -77,6 +80,26 @@ pub struct MessageComponentInteractionData {
     pub component_type: ComponentType,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ApplicationCommandAutoCompleteInteraction {
+    pub id: Snowflake,
+    pub application_id: Snowflake,
+    pub r#type: InteractionType,
+    pub data: ApplicationCommandAutoCompleteInteractionData,
+    pub guild_id: Option<Snowflake>,
+    pub channel_id: Snowflake,
+    pub member: Option<Member>,
+    pub user: Option<User>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ApplicationCommandAutoCompleteInteractionData {
+    pub id: Snowflake,
+    pub name: Box<str>,
+    pub options: Vec<ApplicationCommandInteractionDataOption>,
+    pub r#type: ApplicationCommandType,
+}
+
 impl<'de> Deserialize<'de> for Interaction {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = Value::deserialize(deserializer)?;
@@ -90,12 +113,9 @@ impl<'de> Deserialize<'de> for Interaction {
 
         let component = match interaction_type {
             InteractionType::Ping => serde_json::from_value(value).map(Interaction::Ping),
-            InteractionType::ApplicationCommand => {
-                serde_json::from_value(value).map(Interaction::ApplicationCommand)
-            }
-            InteractionType::MessageComponent => {
-                serde_json::from_value(value).map(Interaction::MessageComponent)
-            }
+            InteractionType::ApplicationCommand => serde_json::from_value(value).map(Interaction::ApplicationCommand),
+            InteractionType::MessageComponent => serde_json::from_value(value).map(Interaction::MessageComponent),
+            InteractionType::ApplicationCommandAutoComplete => serde_json::from_value(value).map(Interaction::ApplicationCommandAutoComplete),
         }
         .map_err(D::Error::custom)?;
 
