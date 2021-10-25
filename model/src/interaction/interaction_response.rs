@@ -46,6 +46,7 @@ pub struct ApplicationCommandAutoCompleteResultResponse {
     data: ApplicationCommandAutoCompleteResultResponseData,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ApplicationCommandAutoCompleteResultResponseData {
     pub choices: Vec<ApplicationCommandOptionChoice>,
 }
