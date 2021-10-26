@@ -86,6 +86,14 @@ pub async fn handle<T: Cache>(
             Ok(Response::new(Body::from(res_body)))
         }
 
+        Interaction::ApplicationCommandAutoComplete(data) => {
+            let res_body = forward(server, bot_id, data.r#type, &body[..])
+                .await
+                .map_err(warp::reject::custom)?;
+
+            Ok(Response::new(Body::from(res_body)))
+        }
+
         _ => Err(warp::reject::custom(Error::UnsupportedInteractionType))
     }
 }

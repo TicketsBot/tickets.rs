@@ -36,6 +36,7 @@ impl TryFrom<u64> for InteractionType {
             1 => Self::Ping,
             2 => Self::ApplicationCommand,
             3 => Self::MessageComponent,
+            4 => Self::ApplicationCommandAutoComplete,
             _ => return Err(format!("invalid interaction type \"{}\"", value).into_boxed_str()),
         })
     }
@@ -118,7 +119,7 @@ impl<'de> Deserialize<'de> for Interaction {
             InteractionType::MessageComponent => serde_json::from_value(value).map(Interaction::MessageComponent),
             InteractionType::ApplicationCommandAutoComplete => serde_json::from_value(value).map(Interaction::ApplicationCommandAutoComplete),
         }
-        .map_err(D::Error::custom)?;
+            .map_err(D::Error::custom)?;
 
         Ok(component)
     }
