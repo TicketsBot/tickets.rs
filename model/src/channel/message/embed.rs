@@ -9,7 +9,7 @@ pub struct Embed {
     pub description: Option<String>,
     pub url: Option<String>,
     pub timestamp: Option<DateTime<Utc>>,
-    pub color: Option<u16>,
+    pub color: Option<u32>,
     pub footer: Option<EmbedFooter>,
     pub image: Option<EmbedImage>,
     pub thumbnail: Option<EmbedThumbnail>,
