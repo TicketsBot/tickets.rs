@@ -1,10 +1,11 @@
+#[cfg(feature = "postgres")]
 use crate::CachePayload;
-use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, CacheError>;
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum CacheError {
+    #[cfg(feature = "postgres")]
     #[error("Error occurred while interacting with DB: {0}")]
     DatabaseError(#[from] tokio_postgres::Error),
 
@@ -14,21 +15,17 @@ pub enum CacheError {
     #[error("Got wrong type for column")]
     WrongType(),
 
+    #[cfg(feature = "postgres")]
     #[error("Error sending cache payload to worker: {0}")]
     SendError(#[from] tokio::sync::mpsc::error::SendError<CachePayload>),
 
+    #[cfg(feature = "postgres")]
     #[error("Error receiving response from worker: {0}")]
     RecvError(#[from] tokio::sync::oneshot::error::RecvError),
 
     #[error("Disconnected from database")]
     Disconnected,
 }
-
-/*impl<T> Into<Result<T>> for CacheError {
-    fn into(self) -> Result<T> {
-        Err(self)
-    }
-}*/
 
 impl<T> From<CacheError> for Result<T> {
     fn from(e: CacheError) -> Self {

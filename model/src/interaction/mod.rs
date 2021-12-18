@@ -13,7 +13,7 @@ pub use application_command_option_choice::ApplicationCommandOptionChoice;
 mod interaction;
 pub use interaction::{
     ApplicationCommandInteraction, Interaction, InteractionType, MessageComponentInteraction,
-    PingInteraction,
+    PingInteraction, ModalSubmitInteraction,
 };
 
 mod application_command_interaction_data;
@@ -44,3 +44,6 @@ pub use button::{Button, ButtonStyle};
 
 mod select_menu;
 pub use select_menu::{SelectMenu, SelectOption};
+
+mod input_text;
+pub use input_text::{InputText, TextStyleType};

@@ -17,6 +17,7 @@ pub enum Interaction {
     ApplicationCommand(Box<ApplicationCommandInteraction>),
     MessageComponent(Box<MessageComponentInteraction>),
     ApplicationCommandAutoComplete(Box<ApplicationCommandAutoCompleteInteraction>),
+    ModalSubmit(Box<ModalSubmitInteraction>),
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy)]
@@ -26,6 +27,7 @@ pub enum InteractionType {
     ApplicationCommand = 2,
     MessageComponent = 3,
     ApplicationCommandAutoComplete = 4,
+    ModalSubmit = 5,
 }
 
 impl TryFrom<u64> for InteractionType {
@@ -37,15 +39,24 @@ impl TryFrom<u64> for InteractionType {
             2 => Self::ApplicationCommand,
             3 => Self::MessageComponent,
             4 => Self::ApplicationCommandAutoComplete,
+            5 => Self::ModalSubmit,
             _ => return Err(format!("invalid interaction type \"{}\"", value).into_boxed_str()),
         })
     }
 }
 
+// ============================================================================
+// Ping Interaction
+// ============================================================================
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PingInteraction {
     pub r#type: InteractionType,
 }
+
+// ============================================================================
+// Application Command Interaction
+// ============================================================================
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ApplicationCommandInteraction {
@@ -60,6 +71,10 @@ pub struct ApplicationCommandInteraction {
     pub token: Box<str>,
     pub version: u8,
 }
+
+// ============================================================================
+// Message Component Interaction
+// ============================================================================
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MessageComponentInteraction {
@@ -80,6 +95,10 @@ pub struct MessageComponentInteractionData {
     pub custom_id: Box<str>,
     pub component_type: ComponentType,
 }
+
+// ============================================================================
+// Auto Complete Interaction
+// ============================================================================
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ApplicationCommandAutoCompleteInteraction {
@@ -102,6 +121,38 @@ pub struct ApplicationCommandAutoCompleteInteractionData {
     pub r#type: ApplicationCommandType,
 }
 
+// ============================================================================
+// Modal Submit Interaction
+// ============================================================================
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ModalSubmitInteraction {
+    pub id: Snowflake,
+    pub application_id: Snowflake,
+    pub r#type: InteractionType,
+    pub message: Message,
+    pub data: ModalInteractionData,
+    pub guild_id: Option<Snowflake>,
+    pub channel_id: Snowflake,
+    pub member: Option<Member>,
+    pub user: Option<User>,
+    pub token: Box<str>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ModalInteractionData {
+    pub custom_id: Box<str>,
+    pub title: Box<str>,
+    pub components: Vec<ModalInteractionComponentData>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ModalInteractionComponentData {
+    pub r#type: ComponentType,
+    pub custom_id: Box<str>,
+    pub value: Box<str>,
+}
+
 impl<'de> Deserialize<'de> for Interaction {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = Value::deserialize(deserializer)?;
@@ -118,6 +169,7 @@ impl<'de> Deserialize<'de> for Interaction {
             InteractionType::ApplicationCommand => serde_json::from_value(value).map(Interaction::ApplicationCommand),
             InteractionType::MessageComponent => serde_json::from_value(value).map(Interaction::MessageComponent),
             InteractionType::ApplicationCommandAutoComplete => serde_json::from_value(value).map(Interaction::ApplicationCommandAutoComplete),
+            InteractionType::ModalSubmit => serde_json::from_value(value).map(Interaction::ModalSubmit),
         }
             .map_err(D::Error::custom)?;
 
