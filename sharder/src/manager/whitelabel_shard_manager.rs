@@ -6,7 +6,7 @@ use crate::gateway::{Identify, Shard, ShardInfo};
 
 use crate::gateway::event_forwarding::EventForwarder;
 use crate::{Config, GatewayError};
-use cache::PostgresCache;
+use cache::Cache;
 use common::token_change;
 use database::{Database, WhitelabelBot};
 use deadpool_redis::Pool;
@@ -26,7 +26,7 @@ pub struct WhitelabelShardManager<T: EventForwarder> {
     // user_id -> bot_id
     user_ids: RwLock<HashMap<Snowflake, Snowflake>>,
     database: Arc<Database>,
-    cache: Arc<PostgresCache>,
+    cache: Arc<C>,
     redis: Arc<Pool>,
     event_forwarder: Arc<T>,
 }
@@ -35,7 +35,7 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
     pub fn new(
         config: Config,
         database: Arc<Database>,
-        cache: Arc<PostgresCache>,
+        cache: Arc<C>,
         redis: Arc<Pool>,
         event_forwarder: Arc<T>,
     ) -> Self {

@@ -1,23 +1,19 @@
 use crate::Config;
-use cache::{Options, PostgresCache};
+use cache::{Options};
 use deadpool::managed::PoolConfig;
 use deadpool_redis::{Config as RedisConfig, Pool};
 
 /// panics on err
-pub async fn build_cache(config: &Config) -> PostgresCache {
-    let cache_opts = Options {
-        users: true,
-        guilds: true,
-        members: true,
-        channels: true,
-        roles: true,
-        emojis: false,
-        voice_states: false,
-    };
-
-    PostgresCache::connect(config.cache_uri.clone(), cache_opts, config.cache_threads)
+#[cfg(feature = "postgres-cache")]
+pub async fn build_cache(config: &Config) -> cache::PostgresCache {
+    cache::PostgresCache::connect(config.cache_uri.clone(), cache_opts(), config.cache_threads)
         .await
         .unwrap()
+}
+
+#[cfg(feature = "memory-cache")]
+pub async fn build_cache(_: &Config) -> cache::MemoryCache {
+    cache::MemoryCache::new(cache_opts())
 }
 
 /// panics on err
@@ -47,4 +43,16 @@ pub fn setup_sentry(config: &Config) -> sentry::ClientInitGuard {
     log::set_boxed_logger(Box::new(logger)).unwrap();
 
     guard
+}
+
+fn cache_opts() -> Options {
+    Options {
+        users: true,
+        guilds: true,
+        members: true,
+        channels: true,
+        roles: true,
+        emojis: false,
+        voice_states: false,
+    }
 }

@@ -1,5 +1,6 @@
 #[cfg(feature = "postgres")]
 use crate::CachePayload;
+use model::Snowflake;
 
 pub type Result<T> = std::result::Result<T, CacheError>;
 
@@ -25,6 +26,30 @@ pub enum CacheError {
 
     #[error("Disconnected from database")]
     Disconnected,
+
+    #[cfg(feature = "cache-model")]
+    #[error("Guild with ID {0} not found")]
+    GuildNotFound(Snowflake),
+
+    #[cfg(feature = "memory")]
+    #[error("Tried to insert a Member object into cache, was missing User object")]
+    MemberMissingUser,
+
+    #[cfg(feature = "memory")]
+    #[error("Requested an entity from cache, but the store for the entity type is disabled")]
+    StoreDisabled,
+
+    #[cfg(feature = "cache-model")]
+    #[error("Struct {0} was missing a field: {1}")]
+    MissingField(String, String),
+
+    #[cfg(feature = "client")]
+    #[error("Error during HTTP request: {0}")]
+    ReqwestError(reqwest::Error),
+
+    #[cfg(feature = "client")]
+    #[error("Error during HTTP request: {0}")]
+    ResponseError(String),
 }
 
 impl<T> From<CacheError> for Result<T> {

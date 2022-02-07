@@ -3,11 +3,10 @@ use serde::{Deserialize, Serialize};
 use crate::user::User;
 use crate::Snowflake;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Emoji {
-    #[serde(skip_serializing)]
     pub id: Option<Snowflake>,
-    pub name: Option<String>,
+    pub name: Option<Box<str>>,
     pub roles: Option<Vec<Snowflake>>,
     pub user: Option<User>,
     pub requires_colons: Option<bool>,

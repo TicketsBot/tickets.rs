@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use std::collections::HashMap;
 
-use cache::PostgresCache;
+use cache::MemoryCache;
 
 use crate::config::Config;
 use crate::gateway::event_forwarding::EventForwarder;
@@ -31,7 +31,7 @@ impl<T: EventForwarder> PublicShardManager<T> {
     pub async fn new(
         config: Config,
         options: Options,
-        cache: Arc<PostgresCache>,
+        cache: Arc<MemoryCache>,
         redis: Arc<Pool>,
         event_forwarder: Arc<T>,
     ) -> Self {
@@ -78,16 +78,13 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
         for (_, shard) in self.shards.iter() {
             let shard_id = shard.get_shard_id();
             let shard = Arc::clone(shard);
-            let (ready_tx, ready_rx) = oneshot::channel::<()>();
 
             tokio::spawn(async move {
-                let mut ready_tx = Some(ready_tx);
-
                 loop {
                     let shard = Arc::clone(&shard);
                     shard.log("Starting...");
 
-                    match Arc::clone(&shard).connect(ready_tx.take()).await {
+                    match Arc::clone(&shard).connect().await {
                         Ok(()) => shard.log("Exited with Ok"),
                         Err(e) => shard.log_err("Exited with error", &e),
                     }
@@ -95,11 +92,6 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
                     sleep(Duration::from_millis(500)).await;
                 }
             });
-
-            match ready_rx.await {
-                Ok(_) => println!("[{:0>2}] Loaded guilds", shard_id),
-                Err(e) => eprintln!("[{:0>2}] Error reading ready rx: {}", shard_id, e),
-            }
         }
 
         File::create("/tmp/ready").await.unwrap(); // panic if can't create

@@ -27,7 +27,7 @@ pub enum Event {
     ThreadMemberUpdate(ThreadMember),
     ThreadMembersUpdate(super::ThreadMembersUpdate),
     GuildCreate(Guild),
-    GuildUpdate(Guild),
+    GuildUpdate(super::GuildUpdate),
     GuildDelete(UnavailableGuild),
     GuildBanAdd(super::GuildBanAdd),
     GuildBanRemove(super::GuildBanRemove),

@@ -37,7 +37,7 @@ async fn main() {
         token: Box::from(config.sharder_token.clone()),
         shard_count,
         presence,
-        large_sharding_buckets: 1,
+        large_sharding_buckets: 16,
         user_id: config.bot_id,
     };
 
@@ -61,6 +61,17 @@ async fn main() {
     let event_forwarder = Arc::new(HttpEventForwarder::new(
         HttpEventForwarder::build_http_client(),
     ));
+
+    // Start cache server
+    {
+        let cache = Arc::clone(&cache);
+        let server_addr = config.cache_server.clone();
+
+        tokio::spawn(async move {
+            let server = cache_server::Server::new(cache);
+            server.start(server_addr.as_str()).await;
+        });
+    }
 
     let sm = PublicShardManager::new(config, options, cache, redis, event_forwarder).await;
     Arc::new(sm).connect().await;

@@ -4,99 +4,77 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use super::{Emoji, Member, Role, VoiceState};
 use crate::channel::Channel;
 use crate::user::PresenceUpdate;
-use crate::{ImageHash, PermissionBitSet, Snowflake};
+use crate::{ImageHash, Snowflake};
 use chrono::{DateTime, Utc};
 use crate::stage::StageInstance;
 use crate::sticker::Sticker;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Guild {
-    #[serde(skip_serializing)]
     pub id: Snowflake,
-    pub name: String,
+    pub name: Box<str>,
     pub icon: Option<ImageHash>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub splash: Option<ImageHash>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discovery_splash: Option<ImageHash>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub owner: Option<bool>,
     #[serde(serialize_with = "Snowflake::serialize_to_int")]
     pub owner_id: Snowflake,
-    pub permissions: Option<PermissionBitSet>,
-    pub region: String,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "Snowflake::serialize_option_to_int"
-    )]
+    #[serde(serialize_with = "Snowflake::serialize_option_to_int")]
     pub afk_channel_id: Option<Snowflake>,
     pub afk_timeout: u16,
+    #[serde(default)]
+    pub widget_enabled: bool,
+    #[serde(serialize_with = "Snowflake::serialize_option_to_int")]
+    pub widget_channel_id: Option<Snowflake>,
     pub verification_level: VerificationLevel,
     pub default_message_notifications: DefaultMessageNotifications,
     pub explicit_content_filter: ExplicitContentFilterLevel,
-    #[serde(skip_serializing, default)]
     pub roles: Vec<Role>,
-    //#[serde(skip_serializing, default)]
-    #[serde(skip)]
     pub emojis: Vec<Emoji>,
-    pub features: Vec<String>,
+    #[serde(default)]
+    pub features: Vec<Box<str>>,
     pub mfa_level: MFALevel,
+    #[serde(serialize_with = "Snowflake::serialize_option_to_int")]
     pub application_id: Option<Snowflake>,
-    pub widget_enabled: Option<bool>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "Snowflake::serialize_option_to_int"
-    )]
-    pub widget_channel_id: Option<Snowflake>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "Snowflake::serialize_option_to_int"
-    )]
+    #[serde(serialize_with = "Snowflake::serialize_option_to_int")]
     pub system_channel_id: Option<Snowflake>,
-    pub system_channels_flags: Option<u8>,
+    #[serde(default)]
+    pub system_channels_flags: u32,
+    #[serde(serialize_with = "Snowflake::serialize_option_to_int")]
     pub rules_channel_id: Option<Snowflake>,
-    pub joined_at: Option<DateTime<Utc>>,
-    pub large: Option<bool>,
+    pub joined_at: DateTime<Utc>,
+    pub large: bool,
     pub unavailable: Option<bool>,
-    pub member_count: Option<u32>,
-    //#[serde(skip_serializing)]
-    #[serde(skip)]
-    pub voice_states: Option<Vec<VoiceState>>,
-    #[serde(skip_serializing)]
-    pub members: Option<Vec<Member>>,
-    #[serde(skip_serializing)]
-    pub channels: Option<Vec<Channel>>,
-    #[serde(skip_serializing)]
-    pub threads: Option<Vec<Channel>>,
-    #[serde(skip_serializing)]
-    pub presences: Option<Vec<PresenceUpdate>>,
+    pub member_count: u32,
+    pub voice_states: Vec<VoiceState>,
+    pub members: Vec<Member>,
+    pub channels: Vec<Channel>,
+    pub threads: Vec<Channel>,
+    pub presences: Vec<PresenceUpdate>,
     pub max_presences: Option<u32>,
-    pub max_members: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub vanity_url_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_members: u32,
+    pub vanity_url_code: Option<Box<str>>,
+    pub description: Option<Box<str>>,
     pub banner: Option<ImageHash>,
     pub premium_tier: PremiumTier,
-    pub premium_subscription_count: Option<u16>,
-    pub preferred_locale: String,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "Snowflake::serialize_option_to_int"
-    )]
+    #[serde(default)]
+    pub premium_subscription_count: u32,
+    pub preferred_locale: Box<str>,
+    #[serde(serialize_with = "Snowflake::serialize_option_to_int")]
     pub public_updates_channel_id: Option<Snowflake>,
-    pub max_video_channel_users: Option<u8>,
-    pub approximate_member_count: Option<u32>,
-    pub approximate_presence_count: Option<u32>,
+    pub max_video_channel_users: u16,
+    #[serde(default)]
+    pub approximate_member_count: u32,
+    #[serde(default)]
+    pub approximate_presence_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub welcome_screen: Option<WelcomeScreen>,
     #[serde(default = "NsfwLevel::default")]
     pub nsfw_level: NsfwLevel,
-    #[serde(skip_serializing)]
-    pub stage_instances: Option<Vec<StageInstance>>,
-    #[serde(skip_serializing)]
-    pub stickers: Option<Vec<Sticker>>,
+    pub stage_instances: Vec<StageInstance>,
+    pub stickers: Vec<Sticker>,
+    pub premium_progress_bar_enabled: bool,
 }
 
 impl PartialEq for Guild {
@@ -105,7 +83,7 @@ impl PartialEq for Guild {
     }
 }
 
-#[derive(Serialize_repr, Deserialize_repr, Debug)]
+#[derive(Serialize_repr, Deserialize_repr, Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum VerificationLevel {
     None = 0,
@@ -115,14 +93,14 @@ pub enum VerificationLevel {
     VeryHigh = 4,
 }
 
-#[derive(Serialize_repr, Deserialize_repr, Debug)]
+#[derive(Serialize_repr, Deserialize_repr, Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum DefaultMessageNotifications {
     AllMessage = 0,
     OnlyMentions = 1,
 }
 
-#[derive(Serialize_repr, Deserialize_repr, Debug)]
+#[derive(Serialize_repr, Deserialize_repr, Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum ExplicitContentFilterLevel {
     Disabled = 0,
@@ -130,14 +108,14 @@ pub enum ExplicitContentFilterLevel {
     AllMembers = 2,
 }
 
-#[derive(Serialize_repr, Deserialize_repr, Debug)]
+#[derive(Serialize_repr, Deserialize_repr, Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum MFALevel {
     None = 0,
     Elevated = 1,
 }
 
-#[derive(Serialize_repr, Deserialize_repr, Debug)]
+#[derive(Serialize_repr, Deserialize_repr, Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum PremiumTier {
     None = 0,
@@ -174,26 +152,26 @@ pub enum Features {
     ThreadsEnabled,
 }*/
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WelcomeScreen {
-    pub description: Option<String>,
+    pub description: Option<Box<str>>,
     pub welcome_channels: Vec<WelcomeScreenChannel>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WelcomeScreenChannel {
     pub channel_id: Snowflake,
-    pub description: String,
+    pub description: Box<str>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "Snowflake::serialize_option_to_int"
     )]
     pub emoji_id: Option<Snowflake>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub emoji_name: Option<String>,
+    pub emoji_name: Option<Box<str>>,
 }
 
-#[derive(Serialize_repr, Deserialize_repr, Debug)]
+#[derive(Serialize_repr, Deserialize_repr, Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum NsfwLevel {
     Default = 0,

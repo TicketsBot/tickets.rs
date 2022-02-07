@@ -5,7 +5,6 @@ use crate::{Discriminator, ImageHash, Snowflake};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct User {
-    #[serde(skip_serializing)]
     pub id: Snowflake,
     pub username: String,
     #[serde(serialize_with = "Discriminator::serialize_to_int")]
@@ -23,12 +22,11 @@ pub struct User {
     pub verified: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub flags: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub flags: u64,
     pub premium_type: Option<PremiumType>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub public_flags: Option<u64>,
+    #[serde(default)]
+    pub public_flags: u64,
 }
 
 impl PartialEq for User {
@@ -50,9 +48,9 @@ impl User {
             locale: None,
             verified: None,
             email: None,
-            flags: None,
+            flags: 0,
             premium_type: None,
-            public_flags: None,
+            public_flags: 0,
         }
     }
 }

@@ -8,13 +8,17 @@ pub struct Config {
     // Required
     pub sharder_id: u16,
     pub sharder_total: u16,
+    #[cfg(feature = "postgres-cache")]
     pub cache_uri: String,
+    #[cfg(feature = "postgres-cache")]
     pub cache_threads: usize,
     pub redis_addr: String,
     pub redis_password: Option<String>,
     pub redis_threads: usize,
     pub worker_svc_uri: String,
     pub sentry_dsn: String,
+    #[cfg(feature = "memory-cache")]
+    pub cache_server: String,
 
     // Public Sharder
     #[cfg(not(feature = "whitelabel"))]

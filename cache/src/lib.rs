@@ -19,3 +19,6 @@ pub use error::{CacheError, Result};
 
 #[cfg(feature = "cache-model")]
 pub mod model;
+
+#[cfg(feature = "client")]
+pub mod client;

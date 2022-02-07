@@ -2,9 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{PermissionBitSet, Snowflake};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Role {
-    #[serde(skip_serializing)]
     pub id: Snowflake,
     pub name: String,
     pub color: u32,

@@ -4,10 +4,12 @@ use serde_repr::Deserialize_repr;
 use chrono::{DateTime, Utc};
 
 use crate::gateway::ShardInfo;
+use crate::gateway::util::*;
 use model::channel::{Channel, ChannelType, ThreadMember};
-use model::guild::{Emoji, Member, Role, UnavailableGuild};
+use model::guild::{Emoji, Member, Role, UnavailableGuild, VerificationLevel, DefaultMessageNotifications, ExplicitContentFilterLevel, MFALevel, PremiumTier};
 use model::user::{PresenceUpdate, User};
-use model::Snowflake;
+use model::{Snowflake, ImageHash};
+use cache::model::{CachedGuild, CachedMember};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Ready {
@@ -49,6 +51,59 @@ pub struct ChannelPinsUpdate {
     pub guild_id: Option<Snowflake>,
     pub channel_id: Snowflake,
     pub last_pin_timestamp: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GuildUpdate {
+    pub id: Snowflake,
+    pub name: Option<Box<str>>,
+    pub icon: Option<ImageHash>,
+    pub afk_channel_id: Option<Snowflake>,
+    pub owner_id: Option<Snowflake>,
+    pub splash: Option<ImageHash>,
+    pub discovery_splash: Option<ImageHash>,
+    pub afk_timeout: Option<u16>,
+    pub verification_level: Option<VerificationLevel>,
+    pub default_message_notifications: Option<DefaultMessageNotifications>,
+    pub explicit_content_filter: Option<ExplicitContentFilterLevel>,
+    pub features: Option<Vec<Box<str>>>,
+    pub mfa_level: Option<MFALevel>,
+    pub widget_enabled: Option<bool>,
+    pub widget_channel_id: Option<Snowflake>,
+    pub system_channel_id: Option<Snowflake>,
+    pub vanity_url_code: Option<Box<str>>,
+    pub description: Option<Box<str>>,
+    pub banner: Option<ImageHash>,
+    pub premium_tier: Option<PremiumTier>,
+    pub premium_subscription_count: Option<u32>,
+    pub unavailable: Option<bool>,
+}
+
+#[cfg(feature = "memory-cache")]
+impl GuildUpdate {
+    pub fn apply_changes(self, target: &mut CachedGuild) {
+        replace_if_some(&mut target.name, self.name);
+        replace_option_if_some(&mut target.icon, self.icon);
+        replace_option_if_some(&mut target.afk_channel_id, self.afk_channel_id);
+        replace_if_some(&mut target.owner_id, self.owner_id);
+        replace_option_if_some(&mut target.splash, self.splash);
+        replace_option_if_some(&mut target.discovery_splash, self.discovery_splash);
+        replace_if_some(&mut target.afk_timeout, self.afk_timeout);
+        replace_if_some(&mut target.verification_level, self.verification_level);
+        replace_if_some(&mut target.default_message_notifications, self.default_message_notifications);
+        replace_if_some(&mut target.explicit_content_filter, self.explicit_content_filter);
+        replace_if_some(&mut target.features, self.features);
+        replace_if_some(&mut target.mfa_level, self.mfa_level);
+        replace_if_some(&mut target.widget_enabled, self.widget_enabled);
+        replace_option_if_some(&mut target.widget_channel_id, self.widget_channel_id);
+        replace_option_if_some(&mut target.system_channel_id, self.system_channel_id);
+        replace_option_if_some(&mut target.vanity_url_code, self.vanity_url_code);
+        replace_option_if_some(&mut target.description, self.description);
+        replace_option_if_some(&mut target.banner, self.banner);
+        replace_if_some(&mut target.premium_tier, self.premium_tier);
+        replace_if_some(&mut target.premium_subscription_count, self.premium_subscription_count);
+        replace_option_if_some(&mut target.unavailable, self.unavailable);
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -98,9 +153,40 @@ pub struct GuildMemberUpdate {
     pub guild_id: Snowflake,
     pub roles: Vec<Snowflake>,
     pub user: User,
-    pub nick: Option<String>,
-    pub joined_at: DateTime<Utc>,
+    pub nick: Option<Box<str>>,
+    pub joined_at: Option<DateTime<Utc>>,
     pub premium_since: Option<DateTime<Utc>>,
+    pub deaf: Option<bool>,
+    pub mute: Option<bool>,
+    pub pending: Option<bool>,
+}
+
+impl GuildMemberUpdate {
+    pub fn apply_changes(self, target: &mut CachedMember) {
+        target.roles = self.roles;
+        target.nick = self.nick;
+        replace_if_some(&mut target.joined_at, self.joined_at);
+        target.premium_since = self.premium_since;
+
+        replace_if_some(&mut target.deaf, self.deaf);
+        replace_if_some(&mut target.mute, self.mute);
+        replace_if_some(&mut target.pending, self.pending);
+    }
+}
+
+impl Into<Member> for GuildMemberUpdate {
+    fn into(self) -> Member {
+        Member {
+            user: Some(self.user),
+            nick: self.nick,
+            roles: self.roles,
+            joined_at: self.joined_at.unwrap_or_else(|| Utc::now()), // TODO: Improve
+            premium_since: self.premium_since,
+            deaf: self.deaf.unwrap_or(false),
+            mute: self.mute.unwrap_or(false),
+            pending: self.pending.unwrap_or(false),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

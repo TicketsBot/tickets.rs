@@ -379,6 +379,7 @@ dependencies = [
  "model",
  "native-tls",
  "postgres-native-tls",
+ "reqwest 0.11.4",
  "serde",
  "serde_json",
  "thiserror",
@@ -391,6 +392,22 @@ name = "cache-padded"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "631ae5198c9be5e753e5cc215e1bd73c2b466a3565173db433f52bb9d3e66dba"
+
+[[package]]
+name = "cache-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "cache",
+ "env_logger 0.9.0",
+ "envy",
+ "hyper 0.14.12",
+ "log",
+ "model",
+ "serde",
+ "serde_json",
+ "tokio 1.11.0",
+]
 
 [[package]]
 name = "cc"
@@ -2732,8 +2749,10 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "cache",
+ "cache-server",
  "chrono",
  "common",
+ "dashmap",
  "database",
  "deadpool",
  "deadpool-redis",
@@ -2745,6 +2764,7 @@ dependencies = [
  "jemallocator",
  "log",
  "model",
+ "parking_lot",
  "redis",
  "reqwest 0.11.4",
  "sentry",

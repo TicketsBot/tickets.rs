@@ -1,11 +1,20 @@
-#[derive(Clone, Copy)]
+use serde::Deserialize;
+
+#[derive(Clone, Copy, Deserialize)]
 pub struct Options {
+    #[serde(default)]
     pub users: bool,
+    #[serde(default)]
     pub guilds: bool,
+    #[serde(default)]
     pub members: bool,
+    #[serde(default)]
     pub channels: bool,
+    #[serde(default)]
     pub roles: bool,
+    #[serde(default)]
     pub emojis: bool,
+    #[serde(default)]
     pub voice_states: bool,
 }
 
@@ -40,7 +49,7 @@ impl Default for Options {
             channels: true,
             roles: true,
             emojis: true,
-            voice_states: true
+            voice_states: true,
         }
     }
 }

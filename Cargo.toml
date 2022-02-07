@@ -10,5 +10,6 @@ members = [
     "http-gateway",
     "bot-list-updater",
     "server-counter",
-    "stats-channel-updater"
+    "stats-channel-updater",
+    "cache-server"
 ]

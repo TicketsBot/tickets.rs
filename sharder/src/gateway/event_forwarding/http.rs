@@ -3,7 +3,6 @@ use crate::gateway::worker_response::WorkerResponse;
 use crate::{Config, GatewayError};
 use async_trait::async_trait;
 use common::event_forwarding;
-use model::Snowflake;
 use std::time::Duration;
 
 pub struct HttpEventForwarder {
@@ -34,8 +33,7 @@ impl EventForwarder for HttpEventForwarder {
     async fn forward_event(
         &self,
         config: &Config,
-        event: event_forwarding::Event<'_>,
-        _guild_id: Option<Snowflake>,
+        event: event_forwarding::Event<'_>
     ) -> Result<(), GatewayError> {
         let uri = config.get_worker_svc_uri();
 

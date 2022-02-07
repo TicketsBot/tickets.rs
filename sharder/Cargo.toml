@@ -6,8 +6,9 @@ edition = "2018"
 default-run = "public"
 
 [dependencies]
-cache = { path = "../cache" }
+cache = { path = "../cache", default-features = false }
 model = { path = "../model" }
+cache-server = { path = "../cache-server", optional = true }
 common = { path = "../common" }
 database = { path = "../database" }
 tokio = { version = "1.2", features = ["full", "time", "sync", "signal"] }
@@ -34,12 +35,16 @@ env_logger = "0.9"
 envy = "0.4"
 sentry = { version = "0.23", features = ["log"] }
 sentry-log = "0.23"
+parking_lot = "0.11"
+dashmap = "5"
 
 [features]
-default = ["skip-initial-guild-creates"]
+default = ["skip-initial-guild-creates", "memory-cache"]
 compression = ["flate2", "reqwest/gzip"]
 whitelabel = []
 skip-initial-guild-creates = []
+postgres-cache = ["cache/postgres"]
+memory-cache = ["cache/memory", "cache-server"]
 
 [[bin]]
 name = "public"

@@ -8,20 +8,17 @@ use chrono::{DateTime, Utc};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Channel {
-    #[serde(skip_serializing)]
     pub id: Snowflake,
     #[serde(rename = "type")]
     pub channel_type: ChannelType,
-    #[serde(skip_serializing)]
     pub guild_id: Option<Snowflake>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_overwrites: Option<Vec<PermissionOverwrite>>,
+    pub name: Box<str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub topic: Option<String>,
+    pub topic: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nsfw: Option<bool>,
     #[serde(
@@ -38,7 +35,7 @@ pub struct Channel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recipients: Option<Vec<User>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon: Option<String>,
+    pub icon: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_id: Option<Snowflake>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,7 +45,7 @@ pub struct Channel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_pin_timestamp: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub rtc_region: Option<String>,
+    pub rtc_region: Option<Box<str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub video_quality_mode: Option<VideoQualityMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -58,7 +55,7 @@ pub struct Channel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_metadata: Option<ThreadMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_member: Option<ThreadMember>,
+    pub member: Option<ThreadMember>,
 }
 
 impl PartialEq for Channel {
