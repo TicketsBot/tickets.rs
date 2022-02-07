@@ -4,6 +4,9 @@ pub use shard::Shard;
 mod payloads;
 pub use payloads::Identify;
 
+mod close_event;
+pub use close_event::CloseEvent;
+
 mod error;
 pub use error::GatewayError;
 

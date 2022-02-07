@@ -1,7 +1,7 @@
 use crate::gateway::outbound_message::OutboundMessage;
+use crate::CloseEvent;
 use std::fmt::Display;
 use thiserror::Error;
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 #[derive(Error, Debug)]
 pub enum GatewayError {
@@ -73,12 +73,8 @@ pub enum GatewayError {
     #[error("error occurred while parsing utf8 bytes: {0}")]
     Utf8Error(#[from] std::str::Utf8Error),
 
-    #[error("[{error_code:?}] {error:?}")]
-    AuthenticationError {
-        bot_token: String,
-        error_code: CloseCode,
-        error: String,
-    },
+    #[error("[{:?}] {:?}", .data.status_code, .data.error)]
+    AuthenticationError { bot_token: String, data: CloseEvent },
 
     #[error("error occurred while forwarding event to worker over HTTP: {0}")]
     ReqwestError(#[from] reqwest::Error),

@@ -36,6 +36,7 @@ use super::payloads::event::Event;
 use super::payloads::{Dispatch, Opcode, Payload};
 use super::OutboundMessage;
 use crate::gateway::event_forwarding::{is_whitelisted, EventForwarder};
+use crate::CloseEvent;
 use serde_json::error::Category;
 use serde_json::Value;
 use std::error::Error;
@@ -271,12 +272,12 @@ impl<T: EventForwarder> Shard<T> {
 
                             if let Some(frame) = frame {
                                 if let CloseCode::Library(code) = frame.code {
-                                    let fatal_codes: [u16; 2] = [4004, 4014];
-                                    if fatal_codes.contains(&code) {
+                                    let close_event = CloseEvent::new(code, frame.reason.to_string());
+
+                                    if !close_event.should_reconnect() {
                                         return GatewayError::AuthenticationError {
                                             bot_token: self.identify.data.token.clone(),
-                                            error_code: frame.code,
-                                            error: frame.reason.to_string(),
+                                            data: close_event,
                                         }.into();
                                     }
                                 }

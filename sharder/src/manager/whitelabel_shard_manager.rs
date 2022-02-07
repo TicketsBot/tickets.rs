@@ -104,10 +104,10 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                 let res = Arc::clone(&shard).connect(None).await;
                 match res {
                     Ok(()) => shard.log("Exited with Ok"),
-                    Err(GatewayError::AuthenticationError { error, .. }) => {
+                    Err(GatewayError::AuthenticationError { data, .. }) => {
                         shard.log_err(
                             "Exited with authentication error, removing ",
-                            &GatewayError::custom(&error),
+                            &GatewayError::custom(&data.error),
                         );
 
                         let bot_id = Snowflake(bot.bot_id as u64);
@@ -119,7 +119,7 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                         if let Err(e) = self
                             .database
                             .whitelabel_errors
-                            .append(Snowflake(bot.user_id as u64), error)
+                            .append(Snowflake(bot.user_id as u64), data.error)
                             .await
                         {
                             shard.log_err(
