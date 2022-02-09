@@ -88,6 +88,7 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
                     let shard = Arc::clone(&shard);
                     shard.log("Starting...");
 
+                    // TODO: Skip ready_rx await on error
                     match Arc::clone(&shard).connect(ready_tx.take()).await {
                         Ok(()) => shard.log("Exited with Ok"),
                         Err(GatewayError::AuthenticationError { data, .. }) => {
