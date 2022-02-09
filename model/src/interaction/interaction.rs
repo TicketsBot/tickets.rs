@@ -142,7 +142,12 @@ pub struct ModalSubmitInteraction {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ModalInteractionData {
     pub custom_id: Box<str>,
-    pub title: Box<str>,
+    pub components: Vec<ModalInteractionActionRowData>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ModalInteractionActionRowData {
+    pub r#type: ComponentType,
     pub components: Vec<ModalInteractionComponentData>,
 }
 
