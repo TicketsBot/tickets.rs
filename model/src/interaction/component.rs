@@ -1,4 +1,4 @@
-use super::{ActionRow, Button, SelectMenu};
+use super::{ActionRow, Button, SelectMenu, InputText};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -8,9 +8,10 @@ use std::convert::TryFrom;
 #[derive(Serialize, Debug)]
 #[serde(untagged)]
 pub enum Component {
-    ActionRow(ActionRow),
+    ActionRow(Box<ActionRow>),
     Button(Box<Button>), // Clippy recommendation, large struct
-    SelectMenu(SelectMenu),
+    SelectMenu(Box<SelectMenu>),
+    InputText(Box<InputText>),
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Copy, Clone)]
@@ -19,6 +20,7 @@ pub enum ComponentType {
     ActionRow = 1,
     Button = 2,
     SelectMenu = 3,
+    InputText = 4,
 }
 
 impl TryFrom<u64> for ComponentType {
@@ -29,6 +31,7 @@ impl TryFrom<u64> for ComponentType {
             1 => Self::ActionRow,
             2 => Self::Button,
             3 => Self::SelectMenu,
+            4 => Self::InputText,
             _ => return Err(format!("invalid component type \"{}\"", value).into_boxed_str()),
         })
     }
@@ -49,6 +52,7 @@ impl<'de> Deserialize<'de> for Component {
             ComponentType::ActionRow => serde_json::from_value(value).map(Component::ActionRow),
             ComponentType::Button => serde_json::from_value(value).map(Component::Button),
             ComponentType::SelectMenu => serde_json::from_value(value).map(Component::SelectMenu),
+            ComponentType::InputText => serde_json::from_value(value).map(Component::InputText),
         }
         .map_err(D::Error::custom)?;
 

@@ -1,4 +1,4 @@
-use crate::interaction::{InteractionApplicationCommandCallbackData, ApplicationCommandOptionChoice};
+use crate::interaction::{InteractionApplicationCommandCallbackData, ApplicationCommandOptionChoice, Component};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -15,6 +15,7 @@ pub enum InteractionResponse {
     DeferredChannelMessageWithSource(DeferredApplicationCommandResponse),
     DeferredMessageUpdate(SimpleInteractionResponse),
     ApplicationCommandAutoCompleteResult(ApplicationCommandAutoCompleteResultResponse),
+    Modal(ModalResponse),
     // UpdateMessage is not yet supported
 }
 
@@ -51,6 +52,19 @@ pub struct ApplicationCommandAutoCompleteResultResponseData {
     pub choices: Vec<ApplicationCommandOptionChoice>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ModalResponse {
+    r#type: InteractionResponseType,
+    data: ModalResponseData,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ModalResponseData {
+    pub custom_id: Box<str>,
+    pub title: Box<str>,
+    pub components: Vec<Component>,
+}
+
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy)]
 #[repr(u8)]
 #[non_exhaustive]
@@ -61,6 +75,7 @@ pub enum InteractionResponseType {
     DeferredMessageUpdate = 6,
     UpdateMessage = 7,
     ApplicationCommandAutoCompleteResult = 8,
+    Modal = 9,
 }
 
 impl TryFrom<u64> for InteractionResponseType {
@@ -74,6 +89,7 @@ impl TryFrom<u64> for InteractionResponseType {
             6 => Self::DeferredMessageUpdate,
             7 => Self::UpdateMessage,
             8 => Self::ApplicationCommandAutoCompleteResult,
+            9 => Self::Modal,
             _ => return Err(format!("invalid interaction response type \"{}\"", value).into_boxed_str()),
         })
     }
@@ -136,6 +152,7 @@ impl<'de> Deserialize<'de> for InteractionResponse {
             InteractionResponseType::DeferredMessageUpdate => serde_json::from_value(value).map(InteractionResponse::DeferredMessageUpdate),
             InteractionResponseType::UpdateMessage => Err(Error::custom("UpdateMessage is not yet supported")),
             InteractionResponseType::ApplicationCommandAutoCompleteResult => serde_json::from_value(value).map(InteractionResponse::ApplicationCommandAutoCompleteResult),
+            InteractionResponseType::Modal => serde_json::from_value(value).map(InteractionResponse::Modal),
         }
             .map_err(D::Error::custom)?;
 
