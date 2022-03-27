@@ -60,6 +60,8 @@ impl Poller {
             .bytes()
             .await?;
 
+        debug!("Poll complete");
+
         let pledges =
             serde_json::from_slice::<PledgeResponse>(&res[..]).map_err(PatreonError::JsonError);
         let pledges = match pledges {
