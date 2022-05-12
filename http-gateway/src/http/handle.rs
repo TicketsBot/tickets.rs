@@ -135,7 +135,7 @@ pub async fn forward<T: Cache>(
     let json = str::from_utf8(data).map_err(Error::Utf8Error)?.to_owned();
 
     let token = get_token(server.clone(), bot_id).await?;
-    let is_whitelabel = bot_id == server.config.public_bot_id;
+    let is_whitelabel = bot_id != server.config.public_bot_id;
 
     let wrapped = ForwardedInteraction {
         bot_token: &token,
