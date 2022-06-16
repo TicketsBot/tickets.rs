@@ -16,6 +16,7 @@ pub enum Intents {
     DirectMessages = 1 << 12,
     DirectMessageReaction = 1 << 13,
     DirectMessageTyping = 1 << 14,
+    MessageContent = 1 << 15,
 }
 
 impl Intents {
