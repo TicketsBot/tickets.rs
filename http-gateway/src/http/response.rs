@@ -8,9 +8,7 @@ pub struct ErrorResponse<'a> {
 
 impl<'a> From<&'a Error> for ErrorResponse<'a> {
     fn from(e: &'a Error) -> Self {
-        Self {
-            error: e,
-        }
+        Self { error: e }
     }
 }
 

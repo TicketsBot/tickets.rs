@@ -1,6 +1,6 @@
-use async_trait::async_trait;
 use super::Updater;
 use crate::UpdaterError;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 pub struct DiscordBoatsUpdater {
@@ -18,7 +18,11 @@ impl DiscordBoatsUpdater {
         }
     }
 
-    pub fn new_with_client(token: String, bot_id: u64, http_client: reqwest::Client) -> DiscordBoatsUpdater {
+    pub fn new_with_client(
+        token: String,
+        bot_id: u64,
+        http_client: reqwest::Client,
+    ) -> DiscordBoatsUpdater {
         DiscordBoatsUpdater {
             token,
             bot_id,
@@ -47,7 +51,9 @@ impl Updater for DiscordBoatsUpdater {
             server_count: count,
         };
 
-        let res = self.http_client.post(url)
+        let res = self
+            .http_client
+            .post(url)
             .header("Authorization", &self.token[..])
             .json(&body)
             .send()
@@ -57,7 +63,8 @@ impl Updater for DiscordBoatsUpdater {
         if res.status().is_success() {
             Ok(())
         } else {
-            let body: DiscordBoatsResponse = res.json().await.map_err(UpdaterError::ReqwestError)?;
+            let body: DiscordBoatsResponse =
+                res.json().await.map_err(UpdaterError::ReqwestError)?;
             UpdaterError::ResponseError(body.message).into()
         }
     }

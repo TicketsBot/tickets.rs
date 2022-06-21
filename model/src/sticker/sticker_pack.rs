@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use crate::Snowflake;
 use super::Sticker;
+use crate::Snowflake;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StickerPack {

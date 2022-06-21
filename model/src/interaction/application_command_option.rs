@@ -1,7 +1,7 @@
+use crate::channel::ChannelType;
 use crate::interaction::ApplicationCommandOptionChoice;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
-use crate::channel::ChannelType;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ApplicationCommandOption {
@@ -15,7 +15,7 @@ pub struct ApplicationCommandOption {
     pub autocomplete: bool,
     pub options: Option<Vec<ApplicationCommandOption>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub channel_types: Option<Vec<ChannelType>>
+    pub channel_types: Option<Vec<ChannelType>>,
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug, Clone, Copy)]

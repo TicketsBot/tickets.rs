@@ -40,7 +40,7 @@ impl Default for Options {
             channels: true,
             roles: true,
             emojis: true,
-            voice_states: true
+            voice_states: true,
         }
     }
 }

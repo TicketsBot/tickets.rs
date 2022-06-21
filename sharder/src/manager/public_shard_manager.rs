@@ -15,12 +15,12 @@ use cache::PostgresCache;
 
 use crate::config::Config;
 use crate::gateway::event_forwarding::EventForwarder;
+use crate::GatewayError;
 use deadpool_redis::Pool;
 use std::time::Duration;
 use tokio::fs::File;
 use tokio::sync::oneshot;
 use tokio::time::sleep;
-use crate::GatewayError;
 
 pub struct PublicShardManager<T: EventForwarder> {
     config: Arc<Config>,
@@ -93,12 +93,18 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
                         Ok(()) => shard.log("Exited with Ok"),
                         Err(GatewayError::AuthenticationError { data, .. }) => {
                             if data.should_reconnect() {
-                                shard.log_err("Authentication error, reconnecting", &GatewayError::custom(&data.error));
+                                shard.log_err(
+                                    "Authentication error, reconnecting",
+                                    &GatewayError::custom(&data.error),
+                                );
                             } else {
-                                shard.log_err("Fatal authentication error, shutting down", &GatewayError::custom(&data.error));
+                                shard.log_err(
+                                    "Fatal authentication error, shutting down",
+                                    &GatewayError::custom(&data.error),
+                                );
                                 break;
                             }
-                        },
+                        }
                         Err(e) => shard.log_err("Exited with error", &e),
                     }
 

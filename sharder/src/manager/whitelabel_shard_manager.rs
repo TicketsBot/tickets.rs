@@ -60,8 +60,12 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
 
         tokio::spawn(async move {
             // retrieve bot status
-            let status = match self.database.whitelabel_status.get(bot_id).await {
-                Ok(status) => Some(status),
+            let (status, status_type) = match self.database.whitelabel_status.get(bot_id).await {
+                Ok((status, Some(status_type))) => Some((status, status_type)),
+                Ok((status, None)) => {
+                    eprintln!("Bot {} has invalid status type", bot_id);
+                    None
+                }
                 Err(database::sqlx::Error::RowNotFound) => None,
                 Err(e) => {
                     eprintln!(
@@ -71,10 +75,10 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                     None
                 }
             }
-            .unwrap_or_else(|| "/help".to_owned());
+            .unwrap_or_else(|| ("to /help".to_owned(), ActivityType::Listening));
 
             let shard_info = ShardInfo::new(0, 1);
-            let presence = StatusUpdate::new(ActivityType::Listening, status, StatusType::Online);
+            let presence = StatusUpdate::new(status_type, status, StatusType::Online);
             let identify = Identify::new(
                 bot.token.clone(),
                 None,
@@ -175,23 +179,23 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                             // retrieve new status
                             // TODO: New tokio::spawn for this?
                             match database.whitelabel_status.get(bot_id).await {
-                                Ok(status) => {
-                                    if let Err(e) = shard
-                                        .status_update_tx
-                                        .clone()
-                                        .send(StatusUpdate::new(
-                                            ActivityType::Listening,
-                                            status,
-                                            StatusType::Online,
-                                        ))
-                                        .await
-                                    {
+                                Ok((status, Some(status_type))) => {
+                                    let tx = shard.status_update_tx.clone();
+                                    let status =
+                                        StatusUpdate::new(status_type, status, StatusType::Online);
+
+                                    if let Err(e) = tx.send(status).await {
                                         eprintln!(
                                             "An error occured while updating status for {}: {}",
                                             bot_id, e
                                         );
                                     }
                                 }
+
+                                Ok((status, None)) => {
+                                    eprintln!("Bot {} has invalid status type", bot_id);
+                                }
+
                                 Err(e) => eprintln!("Error retrieving status from db: {}", e),
                             }
                         }

@@ -1,11 +1,11 @@
-use crate::{Options, Cache, Result};
-use dashmap::DashMap;
+use crate::model::{CachedChannel, GuildState};
+use crate::{Cache, Options, Result};
 use async_trait::async_trait;
-use model::Snowflake;
-use crate::model::{GuildState, CachedChannel};
-use model::guild::{Guild, Member, Role, Emoji, VoiceState};
+use dashmap::DashMap;
 use model::channel::Channel;
+use model::guild::{Emoji, Guild, Member, Role, VoiceState};
 use model::user::User;
+use model::Snowflake;
 
 pub struct MemoryCache {
     opts: Options,
@@ -31,7 +31,9 @@ impl Cache for MemoryCache {
     }
 
     async fn store_guilds(&self, guilds: Vec<Guild>) -> Result<()> {
-        guilds.into_iter().for_each(|g| { let _ = self.store_guild(g); });
+        guilds.into_iter().for_each(|g| {
+            let _ = self.store_guild(g);
+        });
         Ok(())
     }
 
@@ -49,12 +51,15 @@ impl Cache for MemoryCache {
     }
 
     async fn store_channel(&self, channel: Channel) -> Result<()> {
-        self.channels.insert(channel.id, CachedChannel::from(channel));
+        self.channels
+            .insert(channel.id, CachedChannel::from(channel));
         Ok(())
     }
 
     async fn store_channels(&self, channels: Vec<Channel>) -> Result<()> {
-        self.channels.into_iter().for_each(|c| { let _ = self.store_channel(c); });
+        self.channels.into_iter().for_each(|c| {
+            let _ = self.store_channel(c);
+        });
         Ok(())
     }
 
@@ -138,7 +143,11 @@ impl Cache for MemoryCache {
         todo!()
     }
 
-    async fn get_voice_state(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<Option<VoiceState>> {
+    async fn get_voice_state(
+        &self,
+        user_id: Snowflake,
+        guild_id: Snowflake,
+    ) -> Result<Option<VoiceState>> {
         todo!()
     }
 

@@ -1736,6 +1736,8 @@ name = "model"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "num-derive",
+ "num-traits",
  "serde",
  "serde_json",
  "serde_repr",
@@ -1799,6 +1801,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f6bb902e437b6d86e03cce10a7e2af662292c5dfef23b65899ea3ac9354ad44"
 dependencies = [
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "num-derive"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "876a53fff98e03a936a674b29568b0e605f06b29372c2489ff4de23f1949743d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

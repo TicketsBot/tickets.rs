@@ -13,7 +13,7 @@ pub use application_command_option_choice::ApplicationCommandOptionChoice;
 mod interaction;
 pub use interaction::{
     ApplicationCommandInteraction, Interaction, InteractionType, MessageComponentInteraction,
-    PingInteraction, ModalSubmitInteraction,
+    ModalSubmitInteraction, PingInteraction,
 };
 
 mod application_command_interaction_data;

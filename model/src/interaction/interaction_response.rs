@@ -1,4 +1,6 @@
-use crate::interaction::{InteractionApplicationCommandCallbackData, ApplicationCommandOptionChoice, Component};
+use crate::interaction::{
+    ApplicationCommandOptionChoice, Component, InteractionApplicationCommandCallbackData,
+};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -90,7 +92,11 @@ impl TryFrom<u64> for InteractionResponseType {
             7 => Self::UpdateMessage,
             8 => Self::ApplicationCommandAutoCompleteResult,
             9 => Self::Modal,
-            _ => return Err(format!("invalid interaction response type \"{}\"", value).into_boxed_str()),
+            _ => {
+                return Err(
+                    format!("invalid interaction response type \"{}\"", value).into_boxed_str()
+                )
+            }
         })
     }
 }
@@ -124,13 +130,15 @@ impl InteractionResponse {
         })
     }
 
-    pub fn new_application_command_auto_complete_result_response(choices: Vec<ApplicationCommandOptionChoice>) -> InteractionResponse {
-        InteractionResponse::ApplicationCommandAutoCompleteResult(ApplicationCommandAutoCompleteResultResponse {
-            r#type: InteractionResponseType::ApplicationCommandAutoCompleteResult,
-            data: ApplicationCommandAutoCompleteResultResponseData {
-                choices,
+    pub fn new_application_command_auto_complete_result_response(
+        choices: Vec<ApplicationCommandOptionChoice>,
+    ) -> InteractionResponse {
+        InteractionResponse::ApplicationCommandAutoCompleteResult(
+            ApplicationCommandAutoCompleteResultResponse {
+                r#type: InteractionResponseType::ApplicationCommandAutoCompleteResult,
+                data: ApplicationCommandAutoCompleteResultResponseData { choices },
             },
-        })
+        )
     }
 }
 
@@ -146,15 +154,31 @@ impl<'de> Deserialize<'de> for InteractionResponse {
             .map_err(D::Error::custom)?;
 
         let response = match response_type {
-            InteractionResponseType::Pong => serde_json::from_value(value).map(InteractionResponse::PongResponse),
-            InteractionResponseType::ChannelMessageWithSource => serde_json::from_value(value).map(InteractionResponse::ChannelMessageWithSource),
-            InteractionResponseType::DeferredChannelMessageWithSource => serde_json::from_value(value).map(InteractionResponse::DeferredChannelMessageWithSource),
-            InteractionResponseType::DeferredMessageUpdate => serde_json::from_value(value).map(InteractionResponse::DeferredMessageUpdate),
-            InteractionResponseType::UpdateMessage => Err(Error::custom("UpdateMessage is not yet supported")),
-            InteractionResponseType::ApplicationCommandAutoCompleteResult => serde_json::from_value(value).map(InteractionResponse::ApplicationCommandAutoCompleteResult),
-            InteractionResponseType::Modal => serde_json::from_value(value).map(InteractionResponse::Modal),
+            InteractionResponseType::Pong => {
+                serde_json::from_value(value).map(InteractionResponse::PongResponse)
+            }
+            InteractionResponseType::ChannelMessageWithSource => {
+                serde_json::from_value(value).map(InteractionResponse::ChannelMessageWithSource)
+            }
+            InteractionResponseType::DeferredChannelMessageWithSource => {
+                serde_json::from_value(value)
+                    .map(InteractionResponse::DeferredChannelMessageWithSource)
+            }
+            InteractionResponseType::DeferredMessageUpdate => {
+                serde_json::from_value(value).map(InteractionResponse::DeferredMessageUpdate)
+            }
+            InteractionResponseType::UpdateMessage => {
+                Err(Error::custom("UpdateMessage is not yet supported"))
+            }
+            InteractionResponseType::ApplicationCommandAutoCompleteResult => {
+                serde_json::from_value(value)
+                    .map(InteractionResponse::ApplicationCommandAutoCompleteResult)
+            }
+            InteractionResponseType::Modal => {
+                serde_json::from_value(value).map(InteractionResponse::Modal)
+            }
         }
-            .map_err(D::Error::custom)?;
+        .map_err(D::Error::custom)?;
 
         Ok(response)
     }

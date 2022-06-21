@@ -1,6 +1,9 @@
 use crate::channel::message::Message;
 use crate::guild::Member;
-use crate::interaction::{ApplicationCommandInteractionData, ComponentType, ApplicationCommandInteractionDataOption, ApplicationCommandType};
+use crate::interaction::{
+    ApplicationCommandInteractionData, ApplicationCommandInteractionDataOption,
+    ApplicationCommandType, ComponentType,
+};
 use crate::user::User;
 use crate::Snowflake;
 use serde::de::Error;
@@ -171,12 +174,20 @@ impl<'de> Deserialize<'de> for Interaction {
 
         let component = match interaction_type {
             InteractionType::Ping => serde_json::from_value(value).map(Interaction::Ping),
-            InteractionType::ApplicationCommand => serde_json::from_value(value).map(Interaction::ApplicationCommand),
-            InteractionType::MessageComponent => serde_json::from_value(value).map(Interaction::MessageComponent),
-            InteractionType::ApplicationCommandAutoComplete => serde_json::from_value(value).map(Interaction::ApplicationCommandAutoComplete),
-            InteractionType::ModalSubmit => serde_json::from_value(value).map(Interaction::ModalSubmit),
+            InteractionType::ApplicationCommand => {
+                serde_json::from_value(value).map(Interaction::ApplicationCommand)
+            }
+            InteractionType::MessageComponent => {
+                serde_json::from_value(value).map(Interaction::MessageComponent)
+            }
+            InteractionType::ApplicationCommandAutoComplete => {
+                serde_json::from_value(value).map(Interaction::ApplicationCommandAutoComplete)
+            }
+            InteractionType::ModalSubmit => {
+                serde_json::from_value(value).map(Interaction::ModalSubmit)
+            }
         }
-            .map_err(D::Error::custom)?;
+        .map_err(D::Error::custom)?;
 
         Ok(component)
     }

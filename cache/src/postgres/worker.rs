@@ -230,11 +230,7 @@ impl Worker {
             }
 
             if let Some(members) = guild.members {
-                let users = members
-                    .iter()
-                    .map(|m| m.user.clone())
-                    .flatten()
-                    .collect();
+                let users = members.iter().map(|m| m.user.clone()).flatten().collect();
 
                 if let Err(e) = self.store_members(members, guild.id).await {
                     res = Err(e);
@@ -288,7 +284,8 @@ impl Worker {
     async fn get_guild_count(&self) -> Result<usize> {
         let query = r#"SELECT COUNT(guild_id) FROM guilds;"#;
 
-        let row = self.client
+        let row = self
+            .client
             .query_one(query, &[])
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -417,11 +414,7 @@ impl Worker {
         Ok(())
     }
 
-    async fn store_members(
-        &self,
-        members: Vec<Member>,
-        guild_id: Snowflake,
-    ) -> Result<()> {
+    async fn store_members(&self, members: Vec<Member>, guild_id: Snowflake) -> Result<()> {
         let mut members = members
             .into_iter()
             .filter(|m| m.user.is_some())
@@ -479,19 +472,11 @@ impl Worker {
         Ok(())
     }
 
-    async fn get_member(
-        &self,
-        user_id: Snowflake,
-        guild_id: Snowflake,
-    ) -> Result<Option<Member>> {
+    async fn get_member(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<Option<Member>> {
         unimplemented!()
     }
 
-    async fn delete_member(
-        &self,
-        user_id: Snowflake,
-        guild_id: Snowflake,
-    ) -> Result<()> {
+    async fn delete_member(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM members WHERE "guild_id" = $1 AND "user_id" = $2;"#;
         self.client
             .execute(query, &[&(guild_id.0 as i64), &(user_id.0 as i64)])
@@ -500,11 +485,7 @@ impl Worker {
         Ok(())
     }
 
-    async fn store_roles(
-        &self,
-        mut roles: Vec<Role>,
-        guild_id: Snowflake,
-    ) -> Result<()> {
+    async fn store_roles(&self, mut roles: Vec<Role>, guild_id: Snowflake) -> Result<()> {
         if roles.is_empty() {
             return Ok(());
         }
@@ -556,11 +537,7 @@ impl Worker {
         Ok(())
     }
 
-    async fn store_emojis(
-        &self,
-        emojis: Vec<Emoji>,
-        guild_id: Snowflake,
-    ) -> Result<()> {
+    async fn store_emojis(&self, emojis: Vec<Emoji>, guild_id: Snowflake) -> Result<()> {
         let mut emojis = emojis
             .into_iter()
             .filter(|e| e.id.is_some())
@@ -671,11 +648,7 @@ impl Worker {
         unimplemented!()
     }
 
-    async fn delete_voice_state(
-        &self,
-        user_id: Snowflake,
-        guild_id: Snowflake,
-    ) -> Result<()> {
+    async fn delete_voice_state(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM voice_states WHERE "guild_id" = $1 AND "user_id" = $2;"#;
         self.client
             .execute(query, &[&(guild_id.0 as i64), &(user_id.0 as i64)])

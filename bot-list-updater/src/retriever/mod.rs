@@ -30,7 +30,9 @@ impl Retriever {
     pub async fn get_count(&self) -> Result<usize, UpdaterError> {
         let url = format!("{}/total", self.base_url);
 
-        let res: ServerCounterResponse = self.http_client.get(url)
+        let res: ServerCounterResponse = self
+            .http_client
+            .get(url)
             .send()
             .await
             .map_err(UpdaterError::ReqwestError)?

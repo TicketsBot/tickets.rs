@@ -1,6 +1,6 @@
+use crate::interaction::ApplicationCommandOptionType;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use crate::interaction::ApplicationCommandOptionType;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ApplicationCommandInteractionDataOption {

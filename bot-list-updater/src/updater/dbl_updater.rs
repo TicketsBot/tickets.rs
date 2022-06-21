@@ -1,6 +1,6 @@
-use async_trait::async_trait;
 use super::Updater;
 use crate::UpdaterError;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 pub struct DblUpdater {
@@ -46,7 +46,10 @@ pub struct DblResponse {
 #[async_trait]
 impl Updater for DblUpdater {
     async fn update(&self, count: usize) -> Result<(), UpdaterError> {
-        let url = format!("https://discordbotlist.com/api/v1/bots/{}/stats", self.bot_id);
+        let url = format!(
+            "https://discordbotlist.com/api/v1/bots/{}/stats",
+            self.bot_id
+        );
 
         let body = DblRequest {
             voice_connections: None,
@@ -55,7 +58,9 @@ impl Updater for DblUpdater {
             shard_id: None,
         };
 
-        let res = self.http_client.post(url)
+        let res = self
+            .http_client
+            .post(url)
             .header("Authorization", &self.token[..])
             .json(&body)
             .send()

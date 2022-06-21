@@ -1,8 +1,8 @@
-use bot_list_updater::Config;
-use bot_list_updater::updater::{DblUpdater, Updater, DiscordBoatsUpdater};
-use tokio::time::{sleep, Duration};
-use log::{debug, error, info};
 use bot_list_updater::retriever::Retriever;
+use bot_list_updater::updater::{DblUpdater, DiscordBoatsUpdater, Updater};
+use bot_list_updater::Config;
+use log::{debug, error, info};
+use tokio::time::{sleep, Duration};
 
 #[tokio::main]
 async fn main() {
@@ -14,7 +14,8 @@ async fn main() {
 
     let retriever = Retriever::new_with_client(conf.base_url, http_client.clone());
     let dbl_updater = DblUpdater::new_with_client(conf.dbl_token, conf.bot_id, http_client.clone());
-    let discord_boats_updater = DiscordBoatsUpdater::new_with_client(conf.dboats_token, conf.bot_id, http_client);
+    let discord_boats_updater =
+        DiscordBoatsUpdater::new_with_client(conf.dboats_token, conf.bot_id, http_client);
 
     loop {
         sleep(Duration::from_secs(conf.delay)).await;
@@ -24,7 +25,7 @@ async fn main() {
             Ok(v) => count = v,
             Err(e) => {
                 error!("Error while retrieving count: {}", e);
-                continue
+                continue;
             }
         }
 

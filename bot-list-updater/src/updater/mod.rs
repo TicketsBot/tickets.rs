@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use crate::UpdaterError;
+use async_trait::async_trait;
 
 mod dbl_updater;
 pub use dbl_updater::DblUpdater;

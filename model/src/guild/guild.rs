@@ -3,11 +3,11 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use super::{Emoji, Member, Role, VoiceState};
 use crate::channel::Channel;
+use crate::stage::StageInstance;
+use crate::sticker::Sticker;
 use crate::user::PresenceUpdate;
 use crate::{ImageHash, PermissionBitSet, Snowflake};
 use chrono::{DateTime, Utc};
-use crate::stage::StageInstance;
-use crate::sticker::Sticker;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Guild {

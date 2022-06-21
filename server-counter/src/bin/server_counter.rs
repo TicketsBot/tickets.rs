@@ -9,7 +9,8 @@ async fn main() -> Result<(), Error> {
     let config = Config::new();
 
     let cache = PostgresCache::connect(config.cache_uri.clone(), cache::Options::default(), 1)
-        .await.map_err(Error::CacheError)?;
+        .await
+        .map_err(Error::CacheError)?;
 
     let server = Server::new(config, cache);
     info!("Starting server...");

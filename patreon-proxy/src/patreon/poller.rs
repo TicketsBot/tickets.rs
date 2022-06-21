@@ -49,7 +49,8 @@ impl Poller {
     async fn poll_page(&self, uri: String) -> Result<PledgeResponse, PatreonError> {
         debug!("Polling {}", uri);
 
-        let res = self.client
+        let res = self
+            .client
             .get(&uri)
             .header(
                 "Authorization",

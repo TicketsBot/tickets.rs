@@ -25,21 +25,9 @@ pub trait Cache: Send + Sync + 'static {
     async fn delete_user(&self, id: Snowflake) -> Result<()>;
 
     async fn store_member(&self, member: Member, guild_id: Snowflake) -> Result<()>;
-    async fn store_members(
-        &self,
-        members: Vec<Member>,
-        guild_id: Snowflake,
-    ) -> Result<()>;
-    async fn get_member(
-        &self,
-        user_id: Snowflake,
-        guild_id: Snowflake,
-    ) -> Result<Option<Member>>;
-    async fn delete_member(
-        &self,
-        user_id: Snowflake,
-        guild_id: Snowflake,
-    ) -> Result<()>;
+    async fn store_members(&self, members: Vec<Member>, guild_id: Snowflake) -> Result<()>;
+    async fn get_member(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<Option<Member>>;
+    async fn delete_member(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<()>;
 
     async fn store_role(&self, role: Role, guild_id: Snowflake) -> Result<()>;
     async fn store_roles(&self, roles: Vec<Role>, guild_id: Snowflake) -> Result<()>;
@@ -47,8 +35,7 @@ pub trait Cache: Send + Sync + 'static {
     async fn delete_role(&self, id: Snowflake) -> Result<()>;
 
     async fn store_emoji(&self, emoji: Emoji, guild_id: Snowflake) -> Result<()>;
-    async fn store_emojis(&self, emojis: Vec<Emoji>, guild_id: Snowflake)
-        -> Result<()>;
+    async fn store_emojis(&self, emojis: Vec<Emoji>, guild_id: Snowflake) -> Result<()>;
     async fn get_emoji(&self, emoji_id: Snowflake) -> Result<Option<Emoji>>;
     async fn delete_emoji(&self, emoji_id: Snowflake) -> Result<()>;
 
@@ -59,9 +46,5 @@ pub trait Cache: Send + Sync + 'static {
         user_id: Snowflake,
         guild_id: Snowflake,
     ) -> Result<Option<VoiceState>>;
-    async fn delete_voice_state(
-        &self,
-        user_id: Snowflake,
-        guild_id: Snowflake,
-    ) -> Result<()>;
+    async fn delete_voice_state(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<()>;
 }

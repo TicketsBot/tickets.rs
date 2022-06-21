@@ -1,4 +1,7 @@
-use crate::interaction::{ApplicationCommandInteractionDataOption, ApplicationCommandInteractionDataResolved, ComponentType, ApplicationCommandType};
+use crate::interaction::{
+    ApplicationCommandInteractionDataOption, ApplicationCommandInteractionDataResolved,
+    ApplicationCommandType, ComponentType,
+};
 use crate::Snowflake;
 use serde::{Deserialize, Serialize};
 

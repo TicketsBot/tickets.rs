@@ -1,7 +1,9 @@
-use model::Snowflake;
-use model::channel::{ChannelType, PermissionOverwrite, VideoQualityMode, ThreadMetadata, ThreadMember, Channel};
-use model::user::User;
 use chrono::{DateTime, Utc};
+use model::channel::{
+    Channel, ChannelType, PermissionOverwrite, ThreadMember, ThreadMetadata, VideoQualityMode,
+};
+use model::user::User;
+use model::Snowflake;
 
 #[derive(Debug)]
 pub struct CachedChannel {

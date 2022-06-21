@@ -1,6 +1,9 @@
-use model::{Snowflake, ImageHash, PermissionBitSet};
-use model::guild::{VerificationLevel, DefaultMessageNotifications, ExplicitContentFilterLevel, MFALevel, PremiumTier, WelcomeScreen, NsfwLevel, Guild};
 use chrono::{DateTime, Utc};
+use model::guild::{
+    DefaultMessageNotifications, ExplicitContentFilterLevel, Guild, MFALevel, NsfwLevel,
+    PremiumTier, VerificationLevel, WelcomeScreen,
+};
+use model::{ImageHash, PermissionBitSet, Snowflake};
 
 #[derive(Debug)]
 pub struct CachedGuild {
