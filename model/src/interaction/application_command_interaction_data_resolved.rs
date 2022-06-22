@@ -4,6 +4,7 @@ use crate::user::User;
 use crate::Snowflake;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use crate::channel::message::{Attachment, Message};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ApplicationCommandInteractionDataResolved {
@@ -15,6 +16,10 @@ pub struct ApplicationCommandInteractionDataResolved {
     pub roles: HashMap<Snowflake, Role>,
     #[serde(default = "HashMap::new")]
     pub channels: HashMap<Snowflake, Channel>,
+    #[serde(default = "HashMap::new")]
+    pub messages: HashMap<Snowflake, Message>,
+    #[serde(default = "HashMap::new")]
+    pub attachments: HashMap<Snowflake, Attachment>,
 }
 
 impl Default for ApplicationCommandInteractionDataResolved {

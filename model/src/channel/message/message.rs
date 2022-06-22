@@ -77,11 +77,15 @@ pub struct ChannelMention {
 pub struct Attachment {
     pub id: Snowflake,
     pub filename: String,
+    pub description: Option<String>,
+    pub content_type: Option<String>,
     pub size: usize,
     pub url: String,
     pub proxy_url: String,
     pub height: Option<usize>,
     pub width: Option<usize>,
+    #[serde(default)]
+    pub ephemeral: bool,
 }
 
 #[derive(Serialize_repr, Deserialize_repr, Debug)]
