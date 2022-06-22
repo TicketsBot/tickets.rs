@@ -29,6 +29,8 @@ impl Default for ApplicationCommandInteractionDataResolved {
             members: HashMap::with_capacity(0),
             roles: HashMap::with_capacity(0),
             channels: HashMap::with_capacity(0),
+            messages: HashMap::with_capacity(0),
+            attachments: HashMap::with_capacity(0),
         }
     }
 }
