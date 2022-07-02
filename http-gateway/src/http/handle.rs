@@ -46,7 +46,11 @@ pub async fn handle<T: Cache>(
         .map_err(warp::reject::custom)?;
 
     match interaction {
-        Interaction::Ping(_) => {
+        Interaction::Ping(data) => {
+            if data.application_id != bot_id {
+                return Err(Error::InvalidApplicationId(data.application_id, bot_id).into());
+            }
+
             let response = InteractionResponse::new_pong();
             Ok(warp::reply::json(&response).into_response())
         }

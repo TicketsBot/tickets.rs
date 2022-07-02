@@ -14,6 +14,9 @@ pub enum Error {
     #[error("invalid ed25519 signature: {0}")]
     InvalidSignature(#[from] ed25519_dalek::SignatureError),
 
+    #[error("application_id does not match. got {0}, expected {1}")]
+    InvalidApplicationId(Snowflake, Snowflake),
+
     #[error("error while decoding json payload: {0}")]
     JsonError(#[from] serde_json::Error),
 

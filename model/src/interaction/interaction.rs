@@ -5,7 +5,7 @@ use crate::interaction::{
     ApplicationCommandType, ComponentType,
 };
 use crate::user::User;
-use crate::Snowflake;
+use crate::{PermissionBitSet, Snowflake};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -54,6 +54,8 @@ impl TryFrom<u64> for InteractionType {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PingInteraction {
+    pub id: Snowflake,
+    pub application_id: Snowflake,
     pub r#type: InteractionType,
 }
 
@@ -73,6 +75,7 @@ pub struct ApplicationCommandInteraction {
     pub user: Option<User>,
     pub token: Box<str>,
     pub version: u8,
+    pub app_permissions: Option<PermissionBitSet>,
 }
 
 // ============================================================================
