@@ -29,8 +29,8 @@ async fn main() {
     let shard_count = get_shard_count(&config);
 
     let presence = StatusUpdate::new(
-        ActivityType::Listening,
-        "/help".to_owned(),
+        ActivityType::Game,
+        "with Bloxlink".to_owned(),
         StatusType::Online,
     );
     let options = sharder::Options {
@@ -43,7 +43,6 @@ async fn main() {
 
     // init cache
     let cache = Arc::new(build_cache(&config).await);
-    //cache.create_schema().await.unwrap();
 
     // init redis
     let redis = Arc::new(build_redis(&config));

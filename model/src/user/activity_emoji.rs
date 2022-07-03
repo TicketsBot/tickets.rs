@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Snowflake;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ActivityEmoji {
     pub name: String,
     pub id: Option<Snowflake>,

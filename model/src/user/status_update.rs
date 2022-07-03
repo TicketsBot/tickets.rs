@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Activity, ActivityType, StatusType};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StatusUpdate {
     pub since: Option<u64>,
     pub game: Option<Activity>,

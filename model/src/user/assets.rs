@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Assets {
     pub large_image: Option<String>, // *usually* a snowflake
     pub large_text: Option<String>,

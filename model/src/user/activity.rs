@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::{ActivityEmoji, ActivityType, Assets, Party, Secrets, Timestamps};
 use crate::Snowflake;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Activity {
     pub name: String,
 

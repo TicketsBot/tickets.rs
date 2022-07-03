@@ -5,8 +5,6 @@ use super::ShardManager;
 
 use crate::gateway::{Identify, Shard, ShardInfo};
 
-use model::user::{ActivityType, StatusType, StatusUpdate};
-
 use std::sync::Arc;
 
 use std::collections::HashMap;
@@ -27,7 +25,6 @@ pub struct PublicShardManager<T: EventForwarder> {
     shards: HashMap<u16, Arc<Shard<T>>>,
 }
 
-#[cfg(not(feature = "whitelabel"))]
 impl<T: EventForwarder> PublicShardManager<T> {
     pub async fn new(
         config: Config,
@@ -43,16 +40,12 @@ impl<T: EventForwarder> PublicShardManager<T> {
 
         for i in options.shard_count.lowest..options.shard_count.highest {
             let shard_info = ShardInfo::new(i, options.shard_count.total);
-            let status = StatusUpdate::new(
-                ActivityType::Listening,
-                "/help | /setup".to_owned(),
-                StatusType::Online,
-            );
+
             let identify = Identify::new(
                 options.token.clone().into_string(),
                 None,
                 shard_info,
-                Some(status),
+                Some(options.presence.clone()),
                 super::get_intents(),
             );
 
