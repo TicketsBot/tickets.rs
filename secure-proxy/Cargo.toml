@@ -1,0 +1,23 @@
+[package]
+name = "secure-proxy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+global-resolver = { path = "../global-resolver" }
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.5" }
+tower = "0.4"
+url = "2.2"
+hyper = { version = "0.14", features = ["client", "http1", "http2", "stream"] }
+hyper-rustls = { version = "0.23", features = ["http2", "webpki-roots"] }
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+envy = "0.4"
+log = "0.4"
+env_logger = "0.9"
+
+[features]
+default = []
+pre-resolve = []

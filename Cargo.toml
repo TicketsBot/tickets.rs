@@ -12,5 +12,6 @@ members = [
     "server-counter",
     "stats-channel-updater",
     "global-resolver",
-    "image-proxy"
+    "image-proxy",
+    "secure-proxy"
 ]
