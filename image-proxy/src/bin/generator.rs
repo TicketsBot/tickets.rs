@@ -4,6 +4,8 @@ use hmac::Hmac;
 use jwt::SignWithKey;
 use sha2::Sha256;
 use std::collections::BTreeMap;
+use std::ops::Add;
+use std::time::{Duration, SystemTime};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -23,6 +25,8 @@ fn main() {
 
     let mut claims = BTreeMap::new();
     claims.insert("url", args.url);
+    claims.insert("request_id", uuid::Uuid::new_v4().to_string());
+    claims.insert("exp", SystemTime::now().add(Duration::from_secs(60)).duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs().to_string());
 
     let token = claims.sign_with_key(&key).unwrap();
     println!("{token}");

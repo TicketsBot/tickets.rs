@@ -3,21 +3,26 @@ use crate::Config;
 use axum::http::{HeaderValue, Method};
 use axum::routing::get;
 use axum::{Extension, Router};
+use global_resolver::GlobalResolver;
 use hmac::digest::KeyInit;
 use hmac::Hmac;
+use hyper::client::HttpConnector;
+use hyper::Body;
+use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use log::info;
 use sha2::Sha256;
 use std::sync::Arc;
-use std::time::Duration;
 use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::AllowMethods;
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use super::UsedTokenStore;
 
 pub struct Server {
     config: Config,
     pub jwt_key: Hmac<Sha256>,
-    pub http_client: reqwest::Client,
+    pub used_token_store: UsedTokenStore,
+    pub http_client: hyper::Client<HttpsConnector<HttpConnector<GlobalResolver>>, Body>,
 }
 
 impl Server {
@@ -25,15 +30,21 @@ impl Server {
         let jwt_key = Hmac::new_from_slice(config.jwt_key.clone().as_bytes())
             .expect("Failed to parse HMAC key");
 
+        let mut http_connector = HttpConnector::new_with_resolver(GlobalResolver::new());
+        http_connector.enforce_http(false);
+
+        let https_connector = HttpsConnectorBuilder::new()
+            .with_webpki_roots()
+            .https_or_http()
+            .enable_http1()
+            .enable_http2()
+            .wrap_connector(http_connector);
+
         Server {
             config,
             jwt_key,
-            http_client: reqwest::ClientBuilder::new()
-                .timeout(Duration::from_secs(3))
-                .gzip(true)
-                .resolve()
-                .build()
-                .expect("Failed to build HTTP client"),
+            used_token_store: UsedTokenStore::new(),
+            http_client: hyper::Client::builder().build(https_connector),
         }
     }
 
