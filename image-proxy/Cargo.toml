@@ -2,7 +2,7 @@
 name = "image-proxy"
 version = "0.1.0"
 edition = "2021"
-default-run = "main"
+default-run = "image-proxy"
 
 [dependencies]
 global-resolver = { path = "../global-resolver" }
@@ -29,7 +29,8 @@ default = []
 generator = ["clap"]
 
 [[bin]]
-name = "main"
+name = "image-proxy"
+path = "src/bin/main.rs"
 
 [[bin]]
 name = "generator"
