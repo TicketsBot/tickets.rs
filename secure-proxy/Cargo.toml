@@ -21,3 +21,7 @@ env_logger = "0.9"
 [features]
 default = []
 pre-resolve = []
+
+[[bin]]
+name = "secure-proxy"
+path = "src/bin/main.rs"
