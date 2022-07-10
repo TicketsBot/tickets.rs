@@ -18,6 +18,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 #[cfg(feature = "pre-resolve")]
 use tower::Service;
+use url::form_urlencoded::Serializer;
 #[cfg(feature = "pre-resolve")]
 use url::Host;
 use url::Url;
@@ -74,8 +75,12 @@ pub(crate) async fn proxy(
         _ => return Err((StatusCode::METHOD_NOT_ALLOWED, "Unsupported method").into()),
     };
 
+    let url_params = Serializer::new(String::new())
+        .append_pair("url", data.url.as_str())
+        .finish();
+
     let mut proxy_url = Url::parse(server.config.worker_url.as_str()).unwrap();
-    proxy_url.set_query(Some(format!("url={}", data.url).as_str()));
+    proxy_url.set_query(Some(url_params.as_str()));
 
     let mut req = Request::builder()
         .method(method)

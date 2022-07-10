@@ -72,6 +72,7 @@ impl PostgresCache {
         let (client, conn) = tokio_postgres::connect(uri, NoTls)
             .await
             .map_err(CacheError::DatabaseError)?;
+
         let (kill_tx, kill_rx) = oneshot::channel();
 
         let worker = Worker::new(id, client, payload_rx, kill_rx);
