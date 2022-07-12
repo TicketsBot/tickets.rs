@@ -47,7 +47,7 @@ impl Client {
         };
 
         let url = format!(
-            "https://discord.com/api/v9/channels/{}",
+            "https://discord.com/api/v10/channels/{}",
             self.config.channel_id
         );
         let res = self

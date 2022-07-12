@@ -132,7 +132,10 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                             );
                         }
 
-                        self.delete_from_db(&bot.token).await;
+                        // TODO: Remove if statement
+                        if data.status_code != 4014 {
+                            self.delete_from_db(&bot.token).await;
+                        }
                     }
                     Err(e) => shard.log_err("Exited with error", &e),
                 }

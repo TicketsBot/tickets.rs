@@ -20,5 +20,6 @@ fn get_intents() -> u64 {
         Intents::Guilds,
         Intents::GuildMembers,
         Intents::GuildMessages,
+        Intents::MessageContent,
     ])
 }

@@ -17,6 +17,9 @@ pub enum Intents {
     DirectMessageReaction = 1 << 13,
     DirectMessageTyping = 1 << 14,
     MessageContent = 1 << 15,
+    GuildScheduledEvents = 1 << 16,
+    AutoModerationConfiguration = 1 << 20,
+    AutoModerationExecution = 1 << 21,
 }
 
 impl Intents {

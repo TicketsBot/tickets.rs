@@ -45,7 +45,7 @@ use tokio_tungstenite::{
     tungstenite::{protocol::frame::coding::CloseCode, Message},
 };
 
-const GATEWAY_VERSION: u8 = 9;
+const GATEWAY_VERSION: u8 = 10;
 const SEQ_SAVE_DELAY: Duration = Duration::from_secs(5);
 
 pub struct Shard<T: EventForwarder> {
