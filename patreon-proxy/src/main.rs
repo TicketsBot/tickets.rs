@@ -47,7 +47,7 @@ pub async fn main() -> Result<(), PatreonError> {
 
     loop {
         info!("Starting loop");
-        if (current_time_seconds() - 86400) > tokens.expires {
+        if (current_time_seconds() + 86400) > tokens.expires {
             info!("Needs new credentials");
             tokens = Arc::new(handle_refresh(&tokens, &config, &db_client).await?);
             poller.tokens = Arc::clone(&tokens);
