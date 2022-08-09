@@ -8,7 +8,7 @@ mod close_event;
 pub use close_event::CloseEvent;
 
 mod error;
-pub use error::GatewayError;
+pub use error::*;
 
 mod outbound_message;
 use outbound_message::OutboundMessage;

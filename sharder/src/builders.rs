@@ -26,7 +26,8 @@ pub fn build_redis(config: &Config) -> Pool {
     let mut cfg = RedisConfig::from_url(config.get_redis_uri());
     cfg.pool = Some(PoolConfig::new(config.redis_threads));
 
-    cfg.create_pool(Some(Runtime::Tokio1)).expect("Failed to create Redis pool")
+    cfg.create_pool(Some(Runtime::Tokio1))
+        .expect("Failed to create Redis pool")
 }
 
 pub fn setup_sentry(config: &Config) -> sentry::ClientInitGuard {

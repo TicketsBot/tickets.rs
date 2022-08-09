@@ -3,6 +3,8 @@ use crate::CloseEvent;
 use std::fmt::Display;
 use thiserror::Error;
 
+pub type Result<T, E = GatewayError> = std::result::Result<T, E>;
+
 #[derive(Error, Debug)]
 pub enum GatewayError {
     #[error("t value on dispatch was not a string")]
@@ -92,7 +94,7 @@ impl GatewayError {
     }
 }
 
-impl<T> From<GatewayError> for Result<T, GatewayError> {
+impl<T> From<GatewayError> for Result<T> {
     fn from(e: GatewayError) -> Self {
         Err(e)
     }

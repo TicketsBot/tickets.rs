@@ -1,6 +1,6 @@
 use crate::event_forwarding::EventForwarder;
 use crate::gateway::worker_response::WorkerResponse;
-use crate::{Config, GatewayError};
+use crate::{Config, GatewayError, Result};
 use async_trait::async_trait;
 use common::event_forwarding;
 use model::Snowflake;
@@ -36,7 +36,7 @@ impl EventForwarder for HttpEventForwarder {
         config: &Config,
         event: event_forwarding::Event<'_>,
         _guild_id: Option<Snowflake>,
-    ) -> Result<(), GatewayError> {
+    ) -> Result<()> {
         let uri = config.get_worker_svc_uri();
 
         // reqwest::Client uses Arcs internally, meaning this method clones the same client but
