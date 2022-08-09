@@ -16,6 +16,7 @@ pub struct Ready {
     pub user: User,
     pub guilds: Vec<UnavailableGuild>,
     pub session_id: String,
+    pub resume_gateway_url: String,
     pub shard: ShardInfo,
 }
 

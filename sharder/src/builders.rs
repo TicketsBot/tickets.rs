@@ -1,6 +1,7 @@
 use crate::Config;
 use cache::{Options, PostgresCache};
 use deadpool::managed::PoolConfig;
+use deadpool::Runtime;
 use deadpool_redis::{Config as RedisConfig, Pool};
 
 /// panics on err
@@ -22,12 +23,10 @@ pub async fn build_cache(config: &Config) -> PostgresCache {
 
 /// panics on err
 pub fn build_redis(config: &Config) -> Pool {
-    let cfg = RedisConfig {
-        url: Some(config.get_redis_uri()),
-        pool: Some(PoolConfig::new(config.redis_threads)),
-    };
+    let mut cfg = RedisConfig::from_url(config.get_redis_uri());
+    cfg.pool = Some(PoolConfig::new(config.redis_threads));
 
-    cfg.create_pool().expect("Failed to create Redis pool")
+    cfg.create_pool(Some(Runtime::Tokio1)).expect("Failed to create Redis pool")
 }
 
 pub fn setup_sentry(config: &Config) -> sentry::ClientInitGuard {

@@ -10,9 +10,9 @@ cache = { path = "../cache" }
 model = { path = "../model" }
 common = { path = "../common" }
 database = { path = "../database" }
-tokio = { version = "1.2", features = ["full", "time", "sync", "signal"] }
-tokio-tungstenite = { version = "0.15", features = ["rustls-tls", "webpki-roots"] }
-webpki = "0.21.4"
+tokio = { version = "^1.20", features = ["full", "time", "sync", "signal"] }
+tokio-tungstenite = { version = "0.17", features = ["rustls-tls-webpki-roots"] }
+webpki = "0.22"
 url = "2.1"
 futures = "0.3"
 futures-util = "0.3"
@@ -22,9 +22,9 @@ serde_repr = "0.1"
 thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
-redis = { version = "0.17", features = ["tokio-rt-core", "connection-manager"] }
-deadpool = { version = "0.5", features = ["managed"] }
-deadpool-redis = "0.6"
+redis = { version = "0.21", features = ["tokio-comp", "connection-manager"] }
+deadpool = { version = "0.9", features = ["managed"] }
+deadpool-redis = "0.10"
 jemallocator = "0.3"
 simd-json = "0.3"
 reqwest = { version = "0.11", features = ["json", "rustls-tls-webpki-roots"] }
@@ -34,6 +34,7 @@ env_logger = "0.9"
 envy = "0.4"
 sentry = { version = "0.23", features = ["log"] }
 sentry-log = "0.23"
+parking_lot = "0.12"
 
 [features]
 default = ["skip-initial-guild-creates"]

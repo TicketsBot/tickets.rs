@@ -81,6 +81,9 @@ pub enum GatewayError {
 
     #[error("Received error response from worker: {0}")]
     WorkerError(String),
+
+    #[error("error occurred while parsing URL: {0}")]
+    UrlParseError(#[from] url::ParseError),
 }
 
 impl GatewayError {

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
-use deadpool_redis::{cmd, Pool};
+use deadpool_redis::{redis::cmd, Pool};
 #[cfg(feature = "compression")]
 use flate2::{Decompress, FlushDecompress, Status};
 use futures::StreamExt;
@@ -61,6 +61,7 @@ pub struct Shard<T: EventForwarder> {
     seq: RwLock<Option<usize>>,
     last_seq_update: Mutex<Instant>,
     session_id: RwLock<Option<String>>,
+    gateway_url: RwLock<String>,
     writer: RwLock<Option<mpsc::Sender<OutboundMessage>>>,
     kill_heartbeat: Mutex<Option<oneshot::Sender<()>>>,
     pub kill_shard_tx: Mutex<Option<oneshot::Sender<()>>>,
@@ -108,6 +109,7 @@ impl<T: EventForwarder> Shard<T> {
             seq: RwLock::new(None),
             last_seq_update: Mutex::new(Instant::now()),
             session_id: RwLock::new(None),
+            gateway_url: RwLock::new(format!("wss://gateway.discord.gg/")),
             writer: RwLock::new(None),
             kill_heartbeat: Mutex::new(None),
             kill_shard_tx: Mutex::new(Some(kill_shard_tx)),
@@ -145,15 +147,22 @@ impl<T: EventForwarder> Shard<T> {
         *self.last_ack.write().await = Instant::now();
         // rst
 
-        let mut uri = format!(
-            "wss://gateway.discord.gg/?v={}&encoding=json",
-            GATEWAY_VERSION
-        );
+        let mut uri = format!("{}?v={GATEWAY_VERSION}&encoding=json", self.gateway_url.read().await);
         if cfg!(feature = "compression") {
             uri.push_str("&compress=zlib-stream");
         }
 
-        let uri = Url::parse(&uri[..]).expect("Failed to parse websocket uri");
+        let uri = match Url::parse(&uri[..]) {
+            Ok(uri) => uri,
+            Err(e) => {
+                self.log_err(format!("Error parsing gateway URI ({uri})"), &GatewayError::UrlParseError(e));
+
+                let fallback_url = format!("wss://gateway.discord.gg/?v={GATEWAY_VERSION}&encoding=json");
+                Url::parse(fallback_url.as_str()).expect("Error parsing fallback gateway URI")
+            }
+        };
+
+        self.log(format!("Connecting to gateway at {}", uri));
 
         let (wss, _) = connect_async(uri).await?;
         let (ws_tx, ws_rx) = wss.split();
@@ -237,7 +246,7 @@ impl<T: EventForwarder> Shard<T> {
         >,
     ) -> Result<(), GatewayError> {
         #[cfg(feature = "compression")]
-        let mut decoder = Decompress::new(true);
+            let mut decoder = Decompress::new(true);
 
         loop {
             let shard = Arc::clone(&self);
@@ -267,7 +276,7 @@ impl<T: EventForwarder> Shard<T> {
                         }
 
                         Some(Ok(Message::Close(frame))) => {
-                            self.log(format!("Got close from gateway: {:?}", frame));
+                            self.log(format!("Got close from gateway: {frame:?}"));
                             Arc::clone(&self).kill();
 
                             if let Some(frame) = frame {
@@ -558,6 +567,8 @@ impl<T: EventForwarder> Shard<T> {
         // Gateway events
         match &payload.data {
             Event::Ready(ready) => {
+                *self.gateway_url.write().await = ready.resume_gateway_url.clone();
+
                 *self.session_id.write().await = Some(ready.session_id.clone());
                 if let Err(e) = self.save_session_id().await {
                     self.log_err("Error saving session ID to Redis", &e);
