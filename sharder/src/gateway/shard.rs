@@ -932,7 +932,7 @@ impl<T: EventForwarder> Shard<T> {
 
     async fn save_gateway_url(&self) -> Result<()> {
         let value = self.gateway_url.read().clone();
-        self.redis_write(self.get_redis_gateway_url_key().as_ref(), value, None)
+        self.redis_write(self.get_redis_gateway_url_key().as_ref(), value, Some(60 * 60 * 72))
             .await
     }
 
