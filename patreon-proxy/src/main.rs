@@ -16,7 +16,7 @@ use chrono::prelude::*;
 
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tokio::time::delay_for;
+use tokio::time::sleep;
 
 use crate::error::PatreonError;
 use log::{debug, error, info};
@@ -77,7 +77,7 @@ pub async fn main() -> Result<(), PatreonError> {
             Err(e) => error!("An error occured whilst polling Patreon: {}", e),
         };
 
-        delay_for(Duration::from_secs(30)).await;
+        sleep(Duration::from_secs(30)).await;
     }
 }
 
