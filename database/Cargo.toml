@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 model = { path = "../model" }
-tokio = { version = "1.2", features = ["full"] }
+tokio = { version = "^1.20", features = ["full"] }
 futures = "0.3"
 thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
