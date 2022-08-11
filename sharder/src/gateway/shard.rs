@@ -84,6 +84,8 @@ pub struct Shard<T: EventForwarder> {
 #[cfg(feature = "compression")]
 const CHUNK_SIZE: usize = 16 * 1024; // 16KiB
 
+static DEFAULT_GATEWAY_URL: &str = "wss://gateway.discord.gg";
+
 impl<T: EventForwarder> Shard<T> {
     pub fn new(
         config: Arc<Config>,
@@ -111,7 +113,7 @@ impl<T: EventForwarder> Shard<T> {
             seq: RwLock::new(None),
             last_seq_update: Mutex::new(Instant::now()),
             session_id: RwLock::new(None),
-            gateway_url: RwLock::new(format!("wss://gateway.discord.gg/")),
+            gateway_url: RwLock::new(DEFAULT_GATEWAY_URL.to_string()),
             writer: RwLock::new(None),
             kill_heartbeat: Mutex::new(None),
             kill_shard_tx: Mutex::new(Some(kill_shard_tx)),
@@ -145,7 +147,7 @@ impl<T: EventForwarder> Shard<T> {
         *self.last_heartbeat.write() = Instant::now();
         *self.last_ack.write() = Instant::now();
 
-        *self.gateway_url.write() = "wss://gateway.discord.gg/".to_string();
+        *self.gateway_url.write() = DEFAULT_GATEWAY_URL.to_string();
         // rst
 
         // Load gateway URL
@@ -174,7 +176,7 @@ impl<T: EventForwarder> Shard<T> {
                 );
 
                 let fallback_url =
-                    format!("wss://gateway.discord.gg/?v={GATEWAY_VERSION}&encoding=json");
+                    format!("{DEFAULT_GATEWAY_URL}?v={GATEWAY_VERSION}&encoding=json");
                 Url::parse(fallback_url.as_str()).expect("Error parsing fallback gateway URI")
             }
         };
@@ -486,6 +488,7 @@ impl<T: EventForwarder> Shard<T> {
 
                 *self.session_id.write() = None;
                 *self.seq.write() = None;
+                *self.gateway_url.write() = DEFAULT_GATEWAY_URL.to_string(); // Reconnect to main gateway on INVALID_SESSION
 
                 // delete session ID from Redis
                 if let Err(e) = self.delete_session_id().await {
@@ -497,7 +500,7 @@ impl<T: EventForwarder> Shard<T> {
                     self.log_err("Error deleting seq from Redis", &e);
                 }
 
-                // delete seq from Redis
+                // delete gateway url from Redis
                 if let Err(e) = self.delete_gateway_url().await {
                     self.log_err("Error deleting gateway URL from Redis", &e);
                 }
