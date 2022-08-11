@@ -1,7 +1,7 @@
 use super::routes;
 use crate::{Config, Database, Error};
-use axum::handler::{get, post};
-use axum::{AddExtensionLayer, Router};
+use axum::routing::{get, post};
+use axum::{Extension, Router};
 use std::sync::Arc;
 
 pub struct Server {
@@ -19,9 +19,8 @@ impl Server {
 
         let app = Router::new()
             .route("/", get(routes::index_handler))
-            .layer(AddExtensionLayer::new(server.clone()))
             .route("/vote/dbl", post(routes::vote_dbl_handler))
-            .layer(AddExtensionLayer::new(server.clone()));
+            .layer(Extension(server.clone()));
 
         let addr = &server.config.server_addr[..].parse()?;
 

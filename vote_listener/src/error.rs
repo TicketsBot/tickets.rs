@@ -1,3 +1,4 @@
+use bb8_postgres::tokio_postgres;
 use std::{io, net};
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -12,6 +13,9 @@ pub enum Error {
 
     #[error("error occurred during database operation: {0}")]
     DatabaseError(#[from] tokio_postgres::Error),
+
+    #[error("error occurred during database pool operation: {0}")]
+    PoolError(#[from] bb8::RunError<tokio_postgres::Error>),
 
     #[error("error occurred during JSON operation: {0}")]
     JsonError(#[from] serde_json::Error),

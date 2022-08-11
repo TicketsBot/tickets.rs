@@ -10,7 +10,7 @@ cache = { path = "../cache" }
 model = { path = "../model" }
 common = { path = "../common" }
 database = { path = "../database" }
-tokio = { version = "^1.20", features = ["full", "time", "sync", "signal"] }
+tokio = { version = "~1", features = ["full", "time", "sync", "signal"] }
 tokio-tungstenite = { version = "0.17", features = ["rustls-tls-webpki-roots"] }
 webpki = "0.22"
 url = "2.1"

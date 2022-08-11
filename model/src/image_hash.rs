@@ -9,13 +9,11 @@ pub struct ImageHash {
 
 impl Serialize for ImageHash {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = String::new();
-
-        if self.animated {
-            s.push_str("a_");
-        }
-
-        s.push_str(&format!("{:x}", self.data));
+        let s = if self.animated {
+            format!("a_{:x}", self.data)
+        } else {
+            format!("{:x}", self.data)
+        };
 
         serializer.serialize_str(&s)
     }

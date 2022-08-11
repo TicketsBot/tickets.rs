@@ -1,17 +1,18 @@
 use crate::http::response::Response;
 use crate::http::Server;
-use axum::extract;
+use axum::extract::Extension;
 use axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN;
 use axum::http::{HeaderMap, HeaderValue};
 use axum::response::Json;
 use cache::Cache;
 use hyper::http::StatusCode;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 pub async fn total_handler<T: Cache>(
-    server: extract::Extension<Arc<Server<T>>>,
+    server: Extension<Arc<Server<T>>>,
 ) -> (StatusCode, HeaderMap, Json<Response>) {
-    let count = *server.0.count.read();
+    let count = server.0.count.load(Ordering::Relaxed);
 
     let mut headers = HeaderMap::new();
     headers.insert(

@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 model = { path = "../model" }
-tokio = { version = "^1.20", features = ["full"] }
+tokio = { version = "~1", features = ["full"] }
 futures-util = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value"] }

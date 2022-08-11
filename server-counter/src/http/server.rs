@@ -1,17 +1,18 @@
 use super::routes;
 use crate::{Config, Error};
-use axum::handler::get;
-use axum::{AddExtensionLayer, Router};
+use axum::routing::get;
+use axum::{Extension, Router};
 use cache::Cache;
 use log::error;
-use parking_lot::RwLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::time::sleep;
 
 pub struct Server<T: Cache> {
     pub config: Config,
     pub cache: T,
-    pub count: RwLock<usize>,
+    pub count: AtomicUsize,
 }
 
 impl<T: Cache> Server<T> {
@@ -19,7 +20,7 @@ impl<T: Cache> Server<T> {
         Server {
             config,
             cache,
-            count: RwLock::new(0),
+            count: AtomicUsize::new(0),
         }
     }
 
@@ -30,9 +31,8 @@ impl<T: Cache> Server<T> {
 
         let app = Router::new()
             .route("/total", get(routes::total_handler::<T>))
-            .layer(AddExtensionLayer::new(server.clone()))
             .route("/total/prometheus", get(routes::prometheus_handler::<T>))
-            .layer(AddExtensionLayer::new(server.clone()));
+            .layer(Extension(server.clone()));
 
         let addr = &server.config.server_addr[..].parse()?;
 
@@ -54,11 +54,9 @@ impl<T: Cache> Server<T> {
                     }
                 };
 
-                {
-                    *self.count.write() = count;
-                }
+                self.count.store(count, Ordering::Relaxed);
 
-                tokio::time::sleep(Duration::from_secs(15)).await;
+                sleep(Duration::from_secs(15)).await;
             }
         });
     }

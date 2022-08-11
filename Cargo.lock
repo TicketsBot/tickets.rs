@@ -117,33 +117,6 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "axum"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e2423522684032529c51d209740c77d57cc56bfef7b9a18630f919a974d2616"
-dependencies = [
- "async-trait",
- "bitflags",
- "bytes 1.1.0",
- "futures-util",
- "http",
- "http-body 0.4.5",
- "hyper 0.14.16",
- "pin-project-lite 0.2.7",
- "regex",
- "serde",
- "serde_json",
- "serde_urlencoded 0.7.0",
- "sync_wrapper",
- "tokio 1.20.1",
- "tokio-util 0.6.7",
- "tower",
- "tower-http 0.1.1",
- "tower-layer",
- "tower-service",
-]
-
-[[package]]
-name = "axum"
 version = "0.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2cc6e8e8c993cb61a005fab8c1e5093a29199b7253b05a6883999312935c1ff"
@@ -168,7 +141,7 @@ dependencies = [
  "sync_wrapper",
  "tokio 1.20.1",
  "tower",
- "tower-http 0.3.4",
+ "tower-http",
  "tower-layer",
  "tower-service",
 ]
@@ -221,6 +194,31 @@ name = "base64"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
+
+[[package]]
+name = "bb8"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1627eccf3aa91405435ba240be23513eeca466b5dc33866422672264de061582"
+dependencies = [
+ "async-trait",
+ "futures-channel",
+ "futures-util",
+ "parking_lot 0.12.1",
+ "tokio 1.20.1",
+]
+
+[[package]]
+name = "bb8-postgres"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56ac82c42eb30889b5c4ee4763a24b8c566518171ebea648cd7e3bc532c60680"
+dependencies = [
+ "async-trait",
+ "bb8",
+ "tokio 1.20.1",
+ "tokio-postgres",
+]
 
 [[package]]
 name = "bitflags"
@@ -1346,7 +1344,7 @@ dependencies = [
 name = "image-proxy"
 version = "0.1.0"
 dependencies = [
- "axum 0.5.11",
+ "axum",
  "clap",
  "dashmap",
  "env_logger 0.9.0",
@@ -1361,7 +1359,7 @@ dependencies = [
  "sha2 0.10.2",
  "tokio 1.20.1",
  "tower",
- "tower-http 0.3.4",
+ "tower-http",
  "url",
  "uuid 1.1.2",
 ]
@@ -2409,7 +2407,7 @@ dependencies = [
 name = "secure-proxy"
 version = "0.1.0"
 dependencies = [
- "axum 0.5.11",
+ "axum",
  "env_logger 0.9.0",
  "envy",
  "global-resolver",
@@ -2615,14 +2613,13 @@ dependencies = [
 name = "server_counter"
 version = "0.1.0"
 dependencies = [
- "axum 0.2.3",
+ "axum",
  "cache",
  "env_logger 0.9.0",
  "envy",
  "hyper 0.14.16",
  "log",
  "model",
- "parking_lot 0.11.2",
  "serde",
  "serde_json",
  "thiserror",
@@ -3224,26 +3221,9 @@ dependencies = [
  "pin-project 1.0.8",
  "pin-project-lite 0.2.7",
  "tokio 1.20.1",
- "tokio-util 0.7.2",
  "tower-layer",
  "tower-service",
  "tracing",
-]
-
-[[package]]
-name = "tower-http"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b7b56efe69aa0ad2b5da6b942e57ea9f6fe683b7a314d4ff48662e2c8838de1"
-dependencies = [
- "bytes 1.1.0",
- "futures-core",
- "futures-util",
- "http",
- "http-body 0.4.5",
- "pin-project 1.0.8",
- "tower-layer",
- "tower-service",
 ]
 
 [[package]]
@@ -3536,7 +3516,9 @@ checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
 name = "vote_listener"
 version = "0.1.0"
 dependencies = [
- "axum 0.2.3",
+ "axum",
+ "bb8",
+ "bb8-postgres",
  "env_logger 0.9.0",
  "envy",
  "hyper 0.14.16",
@@ -3546,7 +3528,6 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio 1.20.1",
- "tokio-postgres",
 ]
 
 [[package]]

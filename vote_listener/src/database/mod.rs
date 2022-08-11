@@ -1,24 +1,22 @@
 use crate::{Config, Error};
+use bb8::Pool;
+use bb8_postgres::tokio_postgres::NoTls;
+use bb8_postgres::PostgresConnectionManager;
 use model::Snowflake;
-use tokio_postgres::{Client, NoTls};
+
+pub type ConnectionPool = Pool<PostgresConnectionManager<NoTls>>;
 
 pub struct Database {
-    client: Client,
+    pool: ConnectionPool,
 }
 
 impl Database {
-    pub async fn connect(config: &Config) -> Result<Database, Error> {
-        let (client, connection) = tokio_postgres::connect(&*config.database_uri, NoTls)
-            .await
-            .map_err(Error::DatabaseError)?;
+    pub async fn connect(config: &Config) -> Result<Self, Error> {
+        let manager =
+            PostgresConnectionManager::new_from_stringlike(config.database_uri.as_str(), NoTls)?;
 
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                panic!("db connection error: {}", e);
-            }
-        });
-
-        Ok(Database { client })
+        let pool = Pool::builder().max_size(1).build(manager).await?;
+        Ok(Self { pool })
     }
 
     pub async fn add_vote(&self, user_id: Snowflake) -> Result<(), Error> {
@@ -31,10 +29,8 @@ ON CONFLICT("user_id") DO
     UPDATE SET "vote_time" = NOW()
 ;"#;
 
-        self.client
-            .execute(query, &[&(user_id.0 as i64)])
-            .await
-            .map_err(Error::DatabaseError)?;
+        let conn = self.pool.get().await?;
+        conn.execute(query, &[&(user_id.0 as i64)]).await?;
 
         Ok(())
     }

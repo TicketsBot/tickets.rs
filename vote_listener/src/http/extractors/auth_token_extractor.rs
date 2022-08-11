@@ -18,8 +18,8 @@ where
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
         let token = req
             .headers()
-            .and_then(|headers| headers.get(header::AUTHORIZATION))
-            .and_then(|header| header.to_str().ok());
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok());
 
         if let Some(token) = token {
             Ok(Self(token.to_owned()))

@@ -6,10 +6,11 @@ edition = "2018"
 
 [dependencies]
 model = { path = "../model" }
-tokio = { version = "1.2", features = ["full"] }
-axum = "0.2"
+tokio = { version = "~1", features = ["full"] }
+axum = "0.5"
 hyper = { version = "0.14", features = ["http1", "http2", "server", "runtime", "stream"] }
-tokio-postgres = "0.7"
+bb8 = "0.8"
+bb8-postgres = "0.8"
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
