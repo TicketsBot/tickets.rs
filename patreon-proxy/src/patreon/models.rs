@@ -1,53 +1,58 @@
-use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
+use crate::patreon::Tier;
 use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 pub struct PledgeResponse {
-    pub data: Vec<Pledge>,
+    pub data: Vec<Member>,
     pub included: Vec<PatronMetadata>,
-    pub links: Links,
+    pub links: Option<Links>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Pledge {
-    id: String,
-    attributes: PledgeAttributes,
+pub struct Member {
+    attributes: MemberAttributes,
     relationships: Relationships,
 }
 
 #[derive(Debug, Deserialize)]
-struct PledgeAttributes {
-    amount_cents: i32,
-    created_at: DateTime<Utc>,
-    declined_since: Option<DateTime<Utc>>,
+struct MemberAttributes {
+    patron_status: Option<PatronStatus>, // null = never pledged
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PatronStatus {
+    ActivePatron,
+    FormerPatron,
+    DeclinedPatron,
 }
 
 #[derive(Debug, Deserialize)]
 struct Relationships {
-    patron: Patron,
-    reward: Option<Reward>,
+    user: User,
+    currently_entitled_tiers: EntitledTiers,
 }
 
 #[derive(Debug, Deserialize)]
-struct Patron {
-    data: PatronData,
+struct User {
+    data: UserData,
 }
 
 #[derive(Debug, Deserialize)]
-struct PatronData {
+struct UserData {
     id: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct Reward {
-    data: Option<RewardData>,
+struct EntitledTiers {
+    data: Vec<EntitledTier>,
 }
 
 #[derive(Debug, Deserialize)]
-struct RewardData {
-    id: String, // tier ID
+struct EntitledTier {
+    id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,28 +83,38 @@ pub struct Links {
 
 impl PledgeResponse {
     // returns user ID -> tier
-    pub fn convert(&self) -> HashMap<String, super::Tier> {
+    pub fn convert(&self) -> HashMap<String, Tier> {
         self.data
             .iter()
-            .filter(|pledge| {
-                pledge.attributes.declined_since.is_none() && pledge.relationships.reward.is_some()
+            .filter(|member| {
+                member.attributes.patron_status == Some(PatronStatus::ActivePatron)
+                    && !member
+                        .relationships
+                        .currently_entitled_tiers
+                        .data
+                        .is_empty() // Make sure the user is subscribed to a tier
             })
-            .map(|pledge| -> Option<(String, super::Tier)> {
-                let meta = self.get_meta_by_id(&pledge.relationships.patron.data.id)?;
-                let discord_id = &meta
+            .filter_map(|member| -> Option<(String, super::Tier)> {
+                let meta = self.get_meta_by_id(member.relationships.user.data.id.as_str())?;
+
+                // Find all subscribed tiers (is this possible?)
+                let tier = member
+                    .relationships
+                    .currently_entitled_tiers
+                    .data
+                    .iter()
+                    .filter_map(|tier| Tier::get_by_patreon_id(tier.id.as_str()))
+                    .max_by_key(|tier| tier.tier_id())?;
+
+                let discord_id = meta
                     .attributes
                     .social_connections
-                    .as_ref()?
-                    .discord
-                    .as_ref()?
-                    .user_id;
-                let tier = super::Tier::get_by_patreon_id(
-                    &pledge.relationships.reward.as_ref()?.data.as_ref()?.id,
-                )?;
+                    .as_ref()
+                    .and_then(|sc| sc.discord.as_ref())
+                    .map(|d| d.user_id.clone())?;
 
-                Some((discord_id.to_string(), tier))
+                Some((discord_id, tier))
             })
-            .flatten()
             .collect()
     }
 

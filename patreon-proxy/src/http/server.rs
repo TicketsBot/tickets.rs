@@ -2,13 +2,15 @@ use crate::config::Config;
 use crate::patreon::Tier;
 
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use std::collections::HashMap;
 
+use parking_lot::RwLock;
+use reply::Json;
 use serde::Serialize;
+use serde_json::json;
 use warp::http::StatusCode;
-use warp::reply::Json;
+use warp::reply;
 use warp::Filter;
 
 use std::net::SocketAddr;
@@ -30,18 +32,6 @@ struct PremiumResponse {
     user_id: Option<String>,
 }
 
-macro_rules! map (
-    { $($key:expr => $value:expr),+ } => {
-        {
-            let mut m = ::std::collections::HashMap::new();
-            $(
-                m.insert($key, $value);
-            )+
-            m
-        }
-     };
-);
-
 pub async fn listen(config: Arc<Config>, data: Arc<RwLock<HashMap<String, Tier>>>) {
     let addr = SocketAddr::from_str(&config.server_addr).unwrap();
 
@@ -56,11 +46,17 @@ pub async fn listen(config: Arc<Config>, data: Arc<RwLock<HashMap<String, Tier>>
         .and(warp::query::<HashMap<String, String>>())
         .and_then(is_premium);
 
-    warp::serve(ping.or(is_premium)).run(addr).await;
+    let count = warp::path("count")
+        .and(config.clone())
+        .and(data.clone())
+        .and(warp::query::<HashMap<String, String>>())
+        .and_then(patron_count);
+
+    warp::serve(ping.or(is_premium).or(count)).run(addr).await;
 }
 
 async fn ping() -> Result<Json, warp::Rejection> {
-    Ok(warp::reply::json(&PingResponse { success: true }))
+    Ok(reply::json(&PingResponse { success: true }))
 }
 
 async fn is_premium(
@@ -69,8 +65,10 @@ async fn is_premium(
     query: HashMap<String, String>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     if query.get("key") != Some(&config.server_key) {
-        return Ok(warp::reply::with_status(
-            warp::reply::json(&map! { "error" => "Invalid secret key" }),
+        return Ok(reply::with_status(
+            reply::json(&json!({
+                "error": "Invalid secret key"
+            })),
             StatusCode::FORBIDDEN,
         ));
     }
@@ -78,10 +76,12 @@ async fn is_premium(
     let mut ids = match query.get("id") {
         Some(joined) => joined.split(','),
         None => {
-            return Ok(warp::reply::with_status(
-                warp::reply::json(&map! { "error" => "User ID is missing" }),
+            return Ok(reply::with_status(
+                reply::json(&json!({
+                    "error": "User ID is missing"
+                })),
                 StatusCode::BAD_REQUEST,
-            ))
+            ));
         }
     };
 
@@ -90,7 +90,7 @@ async fn is_premium(
     let mut guild_highest_tier: Option<&Tier> = None;
     let mut user_id: Option<&str> = None;
 
-    let patrons = patrons.read().await;
+    let patrons = patrons.read();
 
     // any so we stop at the first true
     // we need to find the highest tier, so we need to only break at
@@ -121,8 +121,32 @@ async fn is_premium(
         user_id: user_id.map(|id| id.to_owned()),
     };
 
-    Ok(warp::reply::with_status(
-        warp::reply::json(&response),
+    Ok(reply::with_status(
+        reply::json(&response),
         StatusCode::BAD_REQUEST,
+    ))
+}
+
+async fn patron_count(
+    config: Arc<Config>,
+    patrons: Arc<RwLock<HashMap<String, Tier>>>,
+    query: HashMap<String, String>,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    if query.get("key") != Some(&config.server_key) {
+        return Ok(reply::with_status(
+            reply::json(&json!({
+                "error": "Invalid secret key"
+            })),
+            StatusCode::FORBIDDEN,
+        ));
+    }
+
+    let count = patrons.read().len();
+
+    Ok(reply::with_status(
+        reply::json(&json!({
+            "count": count
+        })),
+        StatusCode::OK,
     ))
 }

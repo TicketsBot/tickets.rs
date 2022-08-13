@@ -1723,6 +1723,7 @@ dependencies = [
  "chrono",
  "env_logger",
  "log",
+ "parking_lot 0.12.1",
  "reqwest",
  "rustls 0.20.6",
  "serde",

@@ -2,8 +2,8 @@ use super::PledgeResponse;
 use super::Tier;
 use crate::config::Config;
 use crate::database::Tokens;
-
 use std::collections::HashMap;
+
 use std::sync::Arc;
 
 use crate::error::PatreonError;
@@ -33,12 +33,14 @@ impl Poller {
 
     pub async fn poll(&self) -> Result<HashMap<String, Tier>, PatreonError> {
         let mut patrons: HashMap<String, Tier> = HashMap::new();
-        let first = format!("https://www.patreon.com/api/oauth2/api/campaigns/{}/pledges?page%5Bcount%5D=25&sort=created", self.config.patreon_campaign_id);
 
-        let mut res = self.poll_page(first).await?;
-        while let Some(next) = &res.links.next {
+        let campaign_id = &self.config.patreon_campaign_id;
+        let first = format!("https://www.patreon.com/api/oauth2/v2/campaigns/{campaign_id}/members?include=currently_entitled_tiers,user&fields%5Bmember%5D=last_charge_date,last_charge_status,patron_status&fields%5Buser%5D=social_connections");
+
+        let mut res = self.poll_page(first.as_str()).await?;
+        while let Some(next) = res.links.as_ref().and_then(|l| l.next.as_ref()) {
             patrons.extend(res.convert().into_iter());
-            res = self.poll_page(next.to_string()).await?;
+            res = self.poll_page(next.as_str()).await?;
         }
 
         patrons.extend(res.convert().into_iter());
@@ -46,12 +48,12 @@ impl Poller {
         Ok(patrons)
     }
 
-    async fn poll_page(&self, uri: String) -> Result<PledgeResponse, PatreonError> {
+    async fn poll_page(&self, uri: &str) -> Result<PledgeResponse, PatreonError> {
         debug!("Polling {}", uri);
 
         let res = self
             .client
-            .get(&uri)
+            .get(uri)
             .header(
                 "Authorization",
                 format!("Bearer {}", self.tokens.access_token),

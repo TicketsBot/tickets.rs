@@ -14,8 +14,8 @@ use std::sync::Arc;
 
 use chrono::prelude::*;
 
+use parking_lot::RwLock;
 use std::time::Duration;
-use tokio::sync::RwLock;
 use tokio::time::sleep;
 
 use crate::error::PatreonError;
@@ -43,7 +43,7 @@ pub async fn main() -> Result<(), PatreonError> {
 
     let mut server_started = false;
 
-    let data = Arc::new(RwLock::new(HashMap::<String, patreon::Tier>::new()));
+    let data: Arc<RwLock<HashMap<String, patreon::Tier>>> = Arc::new(RwLock::new(HashMap::new()));
 
     loop {
         info!("Starting loop");
@@ -61,7 +61,7 @@ pub async fn main() -> Result<(), PatreonError> {
 
                 {
                     debug!("Acquiring lock");
-                    let mut map = data.write().await;
+                    let mut map = data.write();
                     debug!("Lock acquired");
                     *map = patrons;
                     debug!("Overridden data");

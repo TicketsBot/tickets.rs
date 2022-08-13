@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] } # 0.5.5
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 thiserror = "1"
 chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
@@ -16,3 +16,4 @@ warp = { version = "0.3", default-features = false }
 rustls = "0.20"
 log = "0.4"
 env_logger = "0.9"
+parking_lot = "0.12"
