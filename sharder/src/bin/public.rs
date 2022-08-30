@@ -28,15 +28,14 @@ async fn main() {
 
     let shard_count = get_shard_count(&config);
 
-    let presence = StatusUpdate::new(
-        ActivityType::Game,
-        "with Bloxlink".to_owned(),
-        StatusType::Online,
-    );
     let options = sharder::Options {
         token: Box::from(config.sharder_token.clone()),
         shard_count,
-        presence,
+        presence: StatusUpdate::new(
+            ActivityType::Listening,
+            "to /help".to_owned(),
+            StatusType::Online,
+        ),
         large_sharding_buckets: 1,
         user_id: config.bot_id,
     };
