@@ -56,5 +56,7 @@ pub fn is_whitelisted(event: &Event) -> bool {
             | Event::GuildMemberRemove(_)
             | Event::MessageCreate(_)
             | Event::GuildRoleDelete(_)
+            | Event::ThreadUpdate(_)
+            | Event::ThreadMembersUpdate(_)
     )
 }
