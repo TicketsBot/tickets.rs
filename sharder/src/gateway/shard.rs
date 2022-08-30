@@ -464,12 +464,10 @@ impl<T: EventForwarder> Shard<T> {
 
         match payload.opcode {
             Opcode::Dispatch => {
-                println!("{}", raw);
                 let payload = serde_json::from_value(raw)?;
 
                 if let Err(e) = Arc::clone(&self).handle_event(payload).await {
                     if let GatewayError::JsonError(ref err) = e {
-                        self.log_err("Error processing dispatch", &e);
                         // Ignore unknown payloads
                         if err.classify() != Category::Data {
                             self.log_err("Error processing dispatch", &e);
