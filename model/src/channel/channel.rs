@@ -52,9 +52,9 @@ pub struct Channel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub video_quality_mode: Option<VideoQualityMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub message_count: Option<u8>,
+    pub message_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub member_count: Option<u8>,
+    pub member_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_metadata: Option<ThreadMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]

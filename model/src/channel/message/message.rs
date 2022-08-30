@@ -114,6 +114,7 @@ pub enum MessageType {
     ThreadStarterMessage = 21,
     GuildInviteReminder = 22,
     ContextMenuCommand = 23,
+    AutoModerationAction = 24,
 }
 
 impl Default for MessageType {

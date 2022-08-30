@@ -25,8 +25,8 @@ pub struct CachedChannel {
     pub last_pin_timestamp: Option<DateTime<Utc>>,
     pub rtc_region: Option<String>,
     pub video_quality_mode: Option<VideoQualityMode>,
-    pub message_count: Option<u8>,
-    pub member_count: Option<u8>,
+    pub message_count: Option<usize>,
+    pub member_count: Option<usize>,
     pub thread_metadata: Option<ThreadMetadata>,
     pub thread_member: Option<ThreadMember>,
 }

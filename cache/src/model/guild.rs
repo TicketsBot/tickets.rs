@@ -26,7 +26,7 @@ pub struct CachedGuild {
     pub widget_enabled: Option<bool>,
     pub widget_channel_id: Option<Snowflake>,
     pub system_channel_id: Option<Snowflake>,
-    pub system_channels_flags: Option<u8>,
+    pub system_channels_flags: Option<u32>,
     pub rules_channel_id: Option<Snowflake>,
     pub joined_at: Option<DateTime<Utc>>,
     pub large: Option<bool>,
