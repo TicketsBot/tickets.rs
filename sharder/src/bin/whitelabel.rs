@@ -22,7 +22,11 @@ fn main() {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_envvar();
-    //let _guard = setup_sentry(&config);
+
+    #[cfg(feature = "use-sentry")]
+    let _guard = setup_sentry(&config);
+
+    #[cfg(not(feature = "use-sentry"))]
     env_logger::init();
 
     // init db

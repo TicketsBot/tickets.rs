@@ -22,9 +22,6 @@ pub enum GatewayError {
     #[error("error while operating on json (serde): {0}")]
     JsonError(#[from] serde_json::Error),
 
-    #[error("error while operating on json (simd): {0}")]
-    SimdJsonError(#[from] simd_json::Error),
-
     #[error("error while operating on Redis: {0}")]
     RedisError(#[from] redis::RedisError),
 

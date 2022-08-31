@@ -10,7 +10,7 @@ cache = { path = "../cache" }
 model = { path = "../model" }
 common = { path = "../common" }
 database = { path = "../database" }
-tokio = { version = "~1", features = ["full", "time", "sync", "signal"] }
+tokio = { version = "1", features = ["full", "time", "sync", "signal"] }
 tokio-tungstenite = { version = "0.17", features = ["rustls-tls-webpki-roots"] }
 webpki = "0.22"
 url = "2.2"
@@ -26,21 +26,21 @@ redis = { version = "0.21", features = ["tokio-comp", "connection-manager"] }
 deadpool = { version = "0.9", features = ["managed"] }
 deadpool-redis = "0.10"
 jemallocator = "0.5"
-simd-json = "0.3"
 reqwest = { version = "0.11", features = ["json", "rustls-tls-webpki-roots"] }
 flate2 = { version = "1.0", features = ["tokio", "zlib-ng-compat"], default-features = false, optional = true }
 log = "0.4"
 env_logger = "0.9"
 envy = "0.4"
-sentry = { version = "0.23", features = ["log"] }
-sentry-log = "0.23"
+sentry = { version = "0.27", features = ["log"], optional = true }
+sentry-log = { version = "0.27", optional = true }
 parking_lot = "0.12"
 
 [features]
-default = ["skip-initial-guild-creates"]
+default = ["skip-initial-guild-creates", "use-sentry"]
 compression = ["flate2", "reqwest/gzip"]
 whitelabel = []
 skip-initial-guild-creates = []
+use-sentry = ["sentry", "sentry-log"]
 
 [[bin]]
 name = "public"

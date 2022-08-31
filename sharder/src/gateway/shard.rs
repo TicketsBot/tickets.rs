@@ -1,3 +1,7 @@
+#[cfg(feature = "use-sentry")]
+use std::collections::BTreeMap;
+#[cfg(feature = "use-sentry")]
+use std::default::Default;
 use std::fmt::Display;
 use std::str;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
@@ -298,15 +302,40 @@ impl<T: EventForwarder> Shard<T> {
                             Arc::clone(&self).kill();
 
                             if let Some(frame) = frame {
-                                if let CloseCode::Library(code) = frame.code {
-                                    let close_event = CloseEvent::new(code, frame.reason.to_string());
+                                match frame.code {
+                                    // On code 1000, the session is invalidated
+                                    CloseCode::Normal => {
+                                        let (err1, err2, err3) = tokio::join!(
+                                                shard.delete_seq(),
+                                                shard.delete_session_id(),
+                                                shard.delete_gateway_url()
+                                        );
 
-                                    if !close_event.should_reconnect() {
-                                        return GatewayError::AuthenticationError {
-                                            bot_token: self.identify.data.token.clone(),
-                                            data: close_event,
-                                        }.into();
-                                    }
+                                        if let Err(e) = err1 {
+                                            self.log_err("Error deleting seq", &e);
+                                        }
+
+                                        if let Err(e) = err2 {
+                                            self.log_err("Error deleting session_id", &e);
+                                        }
+
+                                        if let Err(e) = err3 {
+                                            self.log_err("Error deleting gateway_url", &e);
+                                        }
+                                    },
+
+                                    CloseCode::Library(code) => {
+                                        let close_event = CloseEvent::new(code, frame.reason.to_string());
+
+                                        if !close_event.should_reconnect() {
+                                            return GatewayError::AuthenticationError {
+                                                bot_token: self.identify.data.token.clone(),
+                                                data: close_event,
+                                            }.into();
+                                        }
+                                    },
+
+                                    _ => {},
                                 }
                             }
 
@@ -324,7 +353,7 @@ impl<T: EventForwarder> Shard<T> {
                                 }
                             };
 
-                            if let Err(e) = Arc::clone(&self).process_payload(payload, value).await {
+                            if let Err(e) = Arc::clone(&self).process_payload(payload, value, data.as_bytes()).await {
                                 self.log_err("An error occurred while processing a payload", &e);
                             }
                         }
@@ -349,7 +378,7 @@ impl<T: EventForwarder> Shard<T> {
                                 }
                             };
 
-                            if let Err(e) = Arc::clone(&self).process_payload(payload, value).await {
+                            if let Err(e) = Arc::clone(&self).process_payload(payload, value, data.as_bytes()).await {
                                 self.log_err("An error occurred while processing a payload", &e);
                             }
                         }
@@ -440,7 +469,12 @@ impl<T: EventForwarder> Shard<T> {
         Ok(Payload { opcode, seq })
     }
 
-    async fn process_payload(self: Arc<Self>, payload: Payload, raw: Value) -> Result<()> {
+    async fn process_payload(
+        self: Arc<Self>,
+        payload: Payload,
+        raw: Value,
+        bytes: &[u8],
+    ) -> Result<()> {
         if let Some(seq) = payload.seq {
             *self.seq.write() = Some(seq);
 
@@ -469,7 +503,23 @@ impl<T: EventForwarder> Shard<T> {
                 if let Err(e) = Arc::clone(&self).handle_event(payload).await {
                     if let GatewayError::JsonError(ref err) = e {
                         // Ignore unknown payloads
-                        if err.classify() != Category::Data {
+                        if err.classify() == Category::Data {
+                            #[cfg(feature = "use-sentry")]
+                            {
+                                let payload_str =
+                                    str::from_utf8(bytes).unwrap_or_else(|_| "Invalid UTF-8");
+
+                                sentry::capture_event(sentry::protocol::Event {
+                                    level: sentry::Level::Warning,
+                                    message: Some("Payload deserializing data error".into()),
+                                    extra: BTreeMap::from([
+                                        ("payload".into(), Value::String(payload_str.into())),
+                                        ("error".into(), Value::String(err.to_string())),
+                                    ]),
+                                    ..Default::default()
+                                });
+                            }
+                        } else {
                             self.log_err("Error processing dispatch", &e);
                         }
                     } else {
@@ -937,8 +987,12 @@ impl<T: EventForwarder> Shard<T> {
         let value = self.gateway_url.read().clone();
 
         // We should reconnect more frequently than every 3 days, so expiring after 72 hours is fine
-        self.redis_write(self.get_redis_gateway_url_key().as_ref(), value, Some(60 * 60 * 72))
-            .await
+        self.redis_write(
+            self.get_redis_gateway_url_key().as_ref(),
+            value,
+            Some(60 * 60 * 72),
+        )
+        .await
     }
 
     async fn delete_gateway_url(&self) -> Result<()> {
@@ -953,10 +1007,7 @@ impl<T: EventForwarder> Shard<T> {
 
     async fn redis_read_delete<U: FromRedisValue>(&self, key: &str) -> Result<Option<U>> {
         let mut conn = self.redis.get().await?;
-        let res: redis::Value = cmd("GETDEL")
-            .arg(&[key])
-            .query_async(&mut conn)
-            .await?;
+        let res: redis::Value = cmd("GETDEL").arg(&[key]).query_async(&mut conn).await?;
 
         match res {
             redis::Value::Nil => Ok(None),

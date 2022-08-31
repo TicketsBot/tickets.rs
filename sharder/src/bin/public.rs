@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tokio::signal;
 
 use model::user::{ActivityType, StatusType, StatusUpdate};
-use sharder::{Config, PublicShardManager, ShardCount, ShardManager};
+use sharder::{setup_sentry, Config, PublicShardManager, ShardCount, ShardManager};
 
 use sharder::{build_cache, build_redis};
 
@@ -23,7 +23,11 @@ fn main() {
 async fn main() {
     // init sharder options
     let config = Config::from_envvar();
-    //let _guard = setup_sentry(&config);
+
+    #[cfg(feature = "use-sentry")]
+    let _guard = setup_sentry(&config);
+
+    #[cfg(not(feature = "use-sentry"))]
     env_logger::init();
 
     let shard_count = get_shard_count(&config);
