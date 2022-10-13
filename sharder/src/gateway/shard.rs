@@ -856,12 +856,14 @@ impl<T: EventForwarder> Shard<T> {
 
                 if has_done_heartbeat && (elapsed.is_none() || elapsed.unwrap() > interval) {
                     shard.log("Hasn't received heartbeat ack, killing");
+                    *self.kill_heartbeat.lock() = None;
                     shard.kill();
                     break;
                 }
 
                 if let Err(e) = Arc::clone(&shard).do_heartbeat().await {
                     shard.log_err("Error sending heartbeat, killing", &e);
+                    *self.kill_heartbeat.lock() = None;
                     shard.kill();
                     break;
                 }
