@@ -32,6 +32,11 @@ pub(crate) struct Payload {
     pub method: String,
     #[serde(default)]
     pub headers: HashMap<String, String>,
+
+    #[serde(default)]
+    pub json_body: Option<serde_json::Value>, // JSON body: takes precedence over body
+    #[serde(default)]
+    pub body: Option<String>, // base64 encoded
 }
 
 pub(crate) async fn proxy(
@@ -96,7 +101,29 @@ pub(crate) async fn proxy(
         req = req.header(key.as_str(), value.as_str());
     }
 
-    let req = req.body(hyper::Body::empty()).unwrap();
+    let body= if let Some(body) = data.json_body {
+        req = req.header(hyper::header::CONTENT_TYPE, "application/json");
+
+        let Ok(json) = serde_json::to_string(&body) else {
+            //return Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to serialize JSON").into());
+            return Err((StatusCode::METHOD_NOT_ALLOWED, "Unsupported method").into())
+        };
+
+        json.into()
+    } else if let Some(body) = data.body {
+        let Ok(decoded) = base64::decode(body.as_str()) else {
+            return Err((StatusCode::BAD_REQUEST, "Invalid base64 body").into());
+        };
+
+        decoded.into()
+    } else {
+        hyper::Body::empty()
+    };
+
+    let Ok(req) = req.body(body) else {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to set body").into());
+    };
+
     let future = server.http_client.request(req);
 
     let res = match timeout(Duration::from_secs(3), future).await {

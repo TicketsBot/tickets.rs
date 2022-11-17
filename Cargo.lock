@@ -2203,6 +2203,7 @@ name = "secure-proxy"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "env_logger",
  "envy",
  "global-resolver",
