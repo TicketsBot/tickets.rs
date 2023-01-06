@@ -37,7 +37,7 @@ async fn main() {
         shard_count,
         presence: StatusUpdate::new(
             ActivityType::Listening,
-            " /help".to_owned(),
+            "/help".to_owned(),
             StatusType::Online,
         ),
         large_sharding_buckets: 1,
