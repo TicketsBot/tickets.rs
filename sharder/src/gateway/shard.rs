@@ -502,19 +502,25 @@ impl<T: EventForwarder> Shard<T> {
 
                 if let Err(e) = Arc::clone(&self).handle_event(payload).await {
                     if let GatewayError::JsonError(ref err) = e {
-                        // Ignore unknown payloads
+                        // Log syntax or IO errors to stderr instead
                         if err.classify() == Category::Data {
                             #[cfg(feature = "use-sentry")]
                             {
                                 let payload_str =
                                     str::from_utf8(bytes).unwrap_or_else(|_| "Invalid UTF-8");
 
+                                // Ignore unknown payloads
+                                let err_str = err.to_string();
+                                if err_str.contains("unknown variant") {
+                                    return Ok(());
+                                }
+
                                 sentry::capture_event(sentry::protocol::Event {
                                     level: sentry::Level::Warning,
                                     message: Some("Payload deserializing data error".into()),
                                     extra: BTreeMap::from([
                                         ("payload".into(), Value::String(payload_str.into())),
-                                        ("error".into(), Value::String(err.to_string())),
+                                        ("error".into(), Value::String(err_str)),
                                     ]),
                                     ..Default::default()
                                 });
