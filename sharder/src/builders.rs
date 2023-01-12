@@ -42,6 +42,7 @@ pub fn setup_sentry(config: &Config) -> sentry::ClientInitGuard {
         &config.sentry_dsn[..],
         sentry::ClientOptions {
             attach_stacktrace: true,
+            sample_rate: 0.1,
             ..Default::default()
         },
     ))

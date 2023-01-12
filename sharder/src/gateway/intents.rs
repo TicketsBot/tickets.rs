@@ -3,7 +3,7 @@
 pub enum Intents {
     Guilds = 1 << 0,
     GuildMembers = 1 << 1,
-    GuildBans = 1 << 2,
+    GuildModeration = 1 << 2,
     GuildEmojis = 1 << 3,
     GuildIntegrations = 1 << 4,
     GuildWebhooks = 1 << 5,
