@@ -19,6 +19,7 @@ use parking_lot::{Mutex, RwLock};
 use serde::Serialize;
 use serde_json::value::RawValue;
 use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::RwLock as TokioRwLock;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use url::Url;
@@ -74,7 +75,7 @@ pub struct Shard<T: EventForwarder> {
     kill_shard_rx: TokioMutex<oneshot::Receiver<()>>,
     last_ack: RwLock<Instant>,
     last_heartbeat: RwLock<Instant>,
-    connect_time: RwLock<Instant>,
+    connect_time: TokioRwLock<Instant>,
     ready_tx: Mutex<Option<oneshot::Sender<()>>>,
     ready_guild_count: AtomicU16,
     received_count: AtomicU16,
@@ -124,7 +125,7 @@ impl<T: EventForwarder> Shard<T> {
             kill_shard_rx: TokioMutex::new(kill_shard_rx),
             last_ack: RwLock::new(Instant::now()),
             last_heartbeat: RwLock::new(Instant::now()),
-            connect_time: RwLock::new(Instant::now()), // will be overwritten
+            connect_time: TokioRwLock::new(Instant::now()), // will be overwritten
             ready_tx: Mutex::new(None),
             ready_guild_count: AtomicU16::new(0),
             received_count: AtomicU16::new(0),
@@ -185,11 +186,16 @@ impl<T: EventForwarder> Shard<T> {
             }
         };
 
+        if let Err(e) = self.wait_for_ratelimit().await {
+            self.log_err("Error while waiting for identify ratelimit, reconnecting", &e);
+            return Err(e);
+        }
+
         self.log(format!("Connecting to gateway at {}", uri));
 
         let (wss, _) = connect_async(uri).await?;
         let (ws_tx, ws_rx) = wss.split();
-        *self.connect_time.write() = Instant::now();
+        *self.connect_time.write().await = Instant::now();
 
         // start writer
         let (recv_broker_tx, recv_broker_rx) = futures::channel::mpsc::unbounded();
@@ -207,10 +213,7 @@ impl<T: EventForwarder> Shard<T> {
         });
 
         // start read loop
-        if let Err(e) = self.listen(recv_broker_rx).await {
-            return Err(e);
-        }
-
+        self.listen(recv_broker_rx).await?;
         Ok(())
     }
 
@@ -507,7 +510,7 @@ impl<T: EventForwarder> Shard<T> {
                             #[cfg(feature = "use-sentry")]
                             {
                                 let payload_str =
-                                    str::from_utf8(bytes).unwrap_or_else(|_| "Invalid UTF-8");
+                                    str::from_utf8(bytes).unwrap_or("Invalid UTF-8");
 
                                 // Ignore unknown payloads
                                 let err_str = err.to_string();
@@ -590,16 +593,26 @@ impl<T: EventForwarder> Shard<T> {
                         *self.session_id.write() = None;
                         *self.seq.write() = None;
 
-                        self.wait_for_ratelimit().await?;
+                        let connect_time = self.connect_time.read().await;
 
-                        if self.connect_time.read().elapsed() > interval {
-                            self.log(
-                                "Connected over 45s ago, Discord will kick us off. Reconnecting.",
-                            );
+                        if connect_time.elapsed() > interval {
+                            self.log("Connected over 45s ago, Discord will kick us off. Reconnecting.");
                             Arc::clone(&self).kill();
                             return Ok(());
                         } else {
+                            if connect_time.elapsed() > Duration::from_millis(5000) { // Need to wait for ratelimit again
+                                if let Err(e) = self.wait_for_ratelimit().await {
+                                    self.log_err("Error waiting for ratelimit, reconnecting", &e);
+                                    Arc::clone(&self).kill();
+                                    return Ok(());
+                                }
+                            }
+
                             should_identify = Arc::clone(&self).do_identify().await.is_err();
+
+                            if let Err(e) = self.update_ratelimit_after_identify().await {
+                                self.log_err("Error setting identify ratelimit value", &e);
+                            }
                         }
                     } else {
                         should_identify = false;
@@ -608,21 +621,33 @@ impl<T: EventForwarder> Shard<T> {
                 }
 
                 if should_identify {
-                    self.wait_for_ratelimit().await?;
+                    let connect_time = self.connect_time.read().await;
 
-                    if self.connect_time.read().elapsed() > interval {
+                    if connect_time.elapsed() > interval {
                         self.log("Connected over 45s ago, Discord will kick us off. Reconnecting.");
-                        self.kill();
+                        Arc::clone(&self).kill();
                         return Ok(());
+                    }
+
+                    if connect_time.elapsed() > Duration::from_millis(5000) { // Need to wait for ratelimit again
+                        if let Err(e) = self.wait_for_ratelimit().await {
+                            self.log_err("Error waiting for ratelimit, reconnecting", &e);
+                            Arc::clone(&self).kill();
+                            return Ok(());
+                        }
                     }
 
                     if let Err(e) = Arc::clone(&self).do_identify().await {
                         self.log_err("Error identifying, killing", &e);
-                        self.kill();
+                        Arc::clone(&self).kill();
                         return e.into();
                     }
 
                     self.log("Identified");
+
+                    if let Err(e) = self.update_ratelimit_after_identify().await {
+                        self.log_err("Error setting identify ratelimit value", &e);
+                    }
                 }
 
                 let kill_tx = Arc::clone(&self).start_heartbeat(interval).await;
@@ -791,7 +816,7 @@ impl<T: EventForwarder> Shard<T> {
 
                 if let Err(e) = self
                     .event_forwarder
-                    .forward_event(&*self.config, wrapped, guild_id)
+                    .forward_event(&self.config, wrapped, guild_id)
                     .await
                 {
                     self.log_err("Error while executing worker HTTP request", &e);
@@ -903,21 +928,16 @@ impl<T: EventForwarder> Shard<T> {
     }
 
     async fn wait_for_ratelimit(&self) -> Result<()> {
-        let key = if is_whitelabel() {
-            format!("ratelimiter:whitelabel:identify:{}", self.user_id)
-        } else {
-            format!(
-                "ratelimiter:public:identify:{}",
-                self.get_shard_id() % self.large_sharding_buckets
-            )
-        };
+        self.log("Waiting for IDENTIFY ratelimit");
+
+        let key = self.get_ratelimit_key();
 
         let mut res = redis::Value::Nil;
         while res == redis::Value::Nil {
             let mut conn = self.redis.get().await?;
 
             res = cmd("SET")
-                .arg(&[&key[..], "1", "NX", "PX", "6000"]) // some arbitrary value, set if not exist, set expiry, of 6s
+                .arg(&[&key[..], "1", "NX", "PX", "8000"]) // some arbitrary value, set if not exist, set expiry, of 8s to allow websocket connection
                 .query_async(&mut conn)
                 .await?;
 
@@ -936,7 +956,24 @@ impl<T: EventForwarder> Shard<T> {
             }
         }
 
+        self.log("Got IDENTIFY ratelimit token");
         Ok(())
+    }
+
+    async fn update_ratelimit_after_identify(&self) -> Result<()> {
+        let key = self.get_ratelimit_key();
+        self.redis_write(key.as_str(), "1", Some(5)).await
+    }
+
+    fn get_ratelimit_key(&self) -> String {
+        if is_whitelabel() {
+            format!("ratelimiter:whitelabel:identify:{}", self.user_id)
+        } else {
+            format!(
+                "ratelimiter:public:identify:{}",
+                self.get_shard_id() % self.large_sharding_buckets
+            )
+        }
     }
 
     /// Shard.session_id & Shard.seq should not be None when calling this function

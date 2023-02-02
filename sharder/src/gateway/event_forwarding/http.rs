@@ -50,7 +50,7 @@ impl EventForwarder for HttpEventForwarder {
         let res = match res {
             Ok(v) => v,
             Err(_) => {
-                let message = std::str::from_utf8(&*bytes)?;
+                let message = std::str::from_utf8(&bytes)?;
                 return GatewayError::WorkerError(message.to_owned()).into();
             }
         };
@@ -58,7 +58,7 @@ impl EventForwarder for HttpEventForwarder {
         if !res.success {
             return Err(GatewayError::WorkerError(
                 res.error
-                    .unwrap_or(std::str::from_utf8(&*bytes)?)
+                    .unwrap_or(std::str::from_utf8(&bytes)?)
                     .to_owned(),
             ));
         }
