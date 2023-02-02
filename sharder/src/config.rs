@@ -8,6 +8,7 @@ pub struct Config {
     // Required
     pub sharder_id: u16,
     pub sharder_total: u16,
+    pub large_sharding_buckets: u16,
     pub cache_uri: String,
     pub cache_threads: usize,
     pub redis_addr: String,

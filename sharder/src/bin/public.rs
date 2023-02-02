@@ -40,7 +40,7 @@ async fn main() {
             "/help".to_owned(),
             StatusType::Online,
         ),
-        large_sharding_buckets: 1,
+        large_sharding_buckets: config.large_sharding_buckets,
         user_id: config.bot_id,
     };
 
