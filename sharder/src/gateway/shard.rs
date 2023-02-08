@@ -346,9 +346,7 @@ impl<T: EventForwarder> Shard<T> {
                         }
 
                         Some(Ok(Message::Text(data))) => {
-                            let value: Value = serde_json::from_slice(data.as_bytes())?;
-
-                            let payload = match Arc::clone(&self).read_payload(&value).await {
+                            let payload = match self.read_payload(data.as_str()) {
                                 Ok(payload) => payload,
                                 Err(e) => {
                                     self.log_err("Error while deserializing payload", &e);
@@ -356,7 +354,7 @@ impl<T: EventForwarder> Shard<T> {
                                 }
                             };
 
-                            if let Err(e) = Arc::clone(&self).process_payload(payload, value, data.as_bytes()).await {
+                            if let Err(e) = Arc::clone(&self).process_payload(payload, data).await {
                                 self.log_err("An error occurred while processing a payload", &e);
                             }
                         }
@@ -456,27 +454,14 @@ impl<T: EventForwarder> Shard<T> {
         return Ok(output);
     }
 
-    // Manually deserialize since we only need 2 values
-    async fn read_payload(self: Arc<Self>, data: &Value) -> Result<Payload> {
-        let opcode = serde_json::from_value(
-            data.get("op")
-                .ok_or_else(|| GatewayError::MissingFieldError("op".to_owned()))?
-                .clone(),
-        )?;
-
-        let seq = match data.get("s") {
-            None => None,
-            Some(s) => serde_json::from_value(s.clone())?,
-        };
-
-        Ok(Payload { opcode, seq })
+    fn read_payload(&self, data: &str) -> Result<Payload> {
+        Ok(serde_json::from_str(&data)?)
     }
 
     async fn process_payload(
         self: Arc<Self>,
         payload: Payload,
-        raw: Value,
-        bytes: &[u8],
+        raw: String,
     ) -> Result<()> {
         if let Some(seq) = payload.seq {
             *self.seq.write() = Some(seq);
@@ -501,17 +486,12 @@ impl<T: EventForwarder> Shard<T> {
 
         match payload.opcode {
             Opcode::Dispatch => {
-                let payload = serde_json::from_value(raw)?;
-
-                if let Err(e) = Arc::clone(&self).handle_event(payload).await {
+                if let Err(e) = Arc::clone(&self).handle_event(raw).await {
                     if let GatewayError::JsonError(ref err) = e {
                         // Log syntax or IO errors to stderr instead
                         if err.classify() == Category::Data {
                             #[cfg(feature = "use-sentry")]
                             {
-                                let payload_str =
-                                    str::from_utf8(bytes).unwrap_or("Invalid UTF-8");
-
                                 // Ignore unknown payloads
                                 let err_str = err.to_string();
                                 if err_str.contains("unknown variant") {
@@ -522,7 +502,6 @@ impl<T: EventForwarder> Shard<T> {
                                     level: sentry::Level::Warning,
                                     message: Some("Payload deserializing data error".into()),
                                     extra: BTreeMap::from([
-                                        ("payload".into(), Value::String(payload_str.into())),
                                         ("error".into(), Value::String(err_str)),
                                     ]),
                                     ..Default::default()
@@ -568,7 +547,7 @@ impl<T: EventForwarder> Shard<T> {
             }
 
             Opcode::Hello => {
-                let hello: payloads::Hello = serde_json::from_value(raw)?;
+                let hello: payloads::Hello = serde_json::from_str(raw.as_str())?;
                 let interval = Duration::from_millis(hello.data.heartbeat_interval as u64);
 
                 let mut should_identify = true;
@@ -669,8 +648,8 @@ impl<T: EventForwarder> Shard<T> {
         Ok(())
     }
 
-    async fn handle_event(self: Arc<Self>, data: Box<RawValue>) -> Result<()> {
-        let payload: Dispatch = serde_json::from_str(data.get())?;
+    async fn handle_event(self: Arc<Self>, data: String) -> Result<()> {
+        let payload: Dispatch = serde_json::from_str(data.as_ref())?;
 
         // Gateway events
         match &payload.data {
@@ -738,7 +717,7 @@ impl<T: EventForwarder> Shard<T> {
         tokio::spawn(async move {
             let guild_id = super::event_forwarding::get_guild_id(&payload.data);
             let should_forward =
-                is_whitelisted(&payload.data) && self.meets_forward_threshold(&payload.data).await;
+                is_whitelisted(&payload.data) && self.meets_forward_threshold(&payload.data);
 
             // cache
             let res = match payload.data {
@@ -805,13 +784,21 @@ impl<T: EventForwarder> Shard<T> {
 
             // push to workers, even if error occurred
             if should_forward {
+                let raw_payload = match RawValue::from_string(data) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        self.log_err("Error convering JSON string to RawValue", &GatewayError::JsonError(e));
+                        return;
+                    }
+                };
+
                 // prepare payload
                 let wrapped = event_forwarding::Event {
                     bot_token: &self.identify.data.token[..],
                     bot_id: self.user_id.0,
                     is_whitelabel: is_whitelabel(),
                     shard_id: self.get_shard_id(),
-                    event: &data,
+                    event: raw_payload,
                 };
 
                 if let Err(e) = self
@@ -854,7 +841,7 @@ impl<T: EventForwarder> Shard<T> {
         }
     }
 
-    async fn meets_forward_threshold(&self, event: &Event) -> bool {
+    fn meets_forward_threshold(&self, event: &Event) -> bool {
         if cfg!(feature = "skip-initial-guild-creates") {
             if let Event::GuildCreate(_) = event {
                 // if not ready, don't forward event

@@ -10,7 +10,6 @@ use model::interaction::{
 };
 use model::user::User;
 use model::Snowflake;
-use serde_json::value::RawValue;
 use std::str;
 use std::sync::Arc;
 use warp::hyper::body::Bytes;
@@ -151,7 +150,7 @@ pub async fn forward<T: Cache>(
         bot_id: bot_id.0,
         is_whitelabel,
         interaction_type,
-        data: RawValue::from_string(json).map_err(Error::JsonError)?,
+        data: json.as_str(),
     };
 
     let req = server

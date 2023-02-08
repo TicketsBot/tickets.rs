@@ -10,5 +10,5 @@ pub struct ForwardedInteraction<'a> {
     pub bot_id: u64,
     pub is_whitelabel: bool,
     pub interaction_type: InteractionType,
-    pub data: Box<RawValue>,
+    pub data: &'a RawValue,
 }
