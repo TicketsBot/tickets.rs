@@ -4,6 +4,9 @@ pub use shard::Shard;
 mod payloads;
 pub use payloads::Identify;
 
+mod session_store;
+pub use session_store::RedisSessionStore;
+
 mod close_event;
 pub use close_event::CloseEvent;
 
