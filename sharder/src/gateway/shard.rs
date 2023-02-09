@@ -888,21 +888,6 @@ impl<T: EventForwarder> Shard<T> {
         Ok(rx.await??)
     }
 
-    async fn redis_read<U: FromRedisValue>(&self, key: &str) -> Result<Option<U>> {
-        let mut conn = self.redis.get().await?;
-        Ok(conn.get(key).await?)
-    }
-
-    async fn redis_read_delete<U: FromRedisValue>(&self, key: &str) -> Result<Option<U>> {
-        let mut conn = self.redis.get().await?;
-        let res: redis::Value = cmd("GETDEL").arg(&[key]).query_async(&mut conn).await?;
-
-        match res {
-            redis::Value::Nil => Ok(None),
-            other => Ok(Some(U::from_redis_value(&other)?)),
-        }
-    }
-
     async fn redis_write<U: ToString>(
         &self,
         key: &str,
@@ -915,12 +900,6 @@ impl<T: EventForwarder> Shard<T> {
             None => conn.set(key, value.to_string()).await?,
         }
 
-        Ok(())
-    }
-
-    async fn redis_delete(&self, key: &str) -> Result<()> {
-        let mut conn = self.redis.get().await?;
-        conn.del(key).await?;
         Ok(())
     }
 
