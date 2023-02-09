@@ -128,7 +128,7 @@ impl<T: EventForwarder> Shard<T> {
             last_ack: Instant::now(),
             last_heartbeat: Instant::now(),
             connect_time: Instant::now(), // will be overwritten
-            ready_tx: Mutex::new(None),
+            ready_tx: Mutex::new(ready_tx),
             ready_guild_count: 0,
             received_count: 0,
             is_ready: false,
@@ -261,9 +261,7 @@ impl<T: EventForwarder> Shard<T> {
                     break;
                 }
 
-                _ = heartbeat_rx.recv() => {
-                    self.log("Heartbeat interval elapsed");
-                    
+                _ = heartbeat_rx.recv() => {                    
                     let elapsed = self.last_ack.checked_duration_since(self.last_heartbeat);
 
                     if has_done_heartbeat && (elapsed.is_none() || elapsed.unwrap() > self.heartbeat_interval) {
@@ -284,7 +282,6 @@ impl<T: EventForwarder> Shard<T> {
                     }
 
                     has_done_heartbeat = true;
-                    self.log("HEARTBEAT send");
                 }
 
                 // handle incoming payload
