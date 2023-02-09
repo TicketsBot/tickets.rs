@@ -26,4 +26,7 @@ mod worker_response;
 
 mod whitelabel_utils;
 
+mod timer;
+pub use timer::timer;
+
 pub mod event_forwarding;

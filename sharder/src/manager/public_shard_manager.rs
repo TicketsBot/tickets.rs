@@ -48,11 +48,9 @@ impl<T: EventForwarder> PublicShardManager<T> {
         }
     }
 
-    pub async fn shutdown_gracefully() {
-        
-    }
+    pub async fn shutdown_gracefully() {}
 
-    fn build_shard(&self, shard_id: u16) -> Shard<T> {
+    fn build_shard(&self, shard_id: u16, ready_tx: Option<oneshot::Sender<()>>) -> Shard<T> {
         let shard_info = ShardInfo::new(shard_id, self.options.shard_count.total);
 
         let identify = Identify::new(
@@ -71,6 +69,7 @@ impl<T: EventForwarder> PublicShardManager<T> {
             Arc::clone(&self.redis),
             self.options.user_id,
             Arc::clone(&self.event_forwarder),
+            ready_tx,
         )
     }
 }
@@ -94,11 +93,11 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
                     .expect("Failed to fetch session data"); // TODO: Log, not panic
 
                 loop {
-                    let shard = sm.build_shard(shard_id);
+                    let mut shard = sm.build_shard(shard_id, ready_tx.take());
                     shard.log("Starting...");
 
                     // TODO: Skip ready_rx await on error
-                    match shard.connect(resume_data.clone(), ready_tx.take()).await {
+                    match shard.connect(resume_data.clone()).await {
                         Ok(session_data) => {
                             resume_data = session_data;
                             info!(shard_id = %shard_id, "Shard exited normally");

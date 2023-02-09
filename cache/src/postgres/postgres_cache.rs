@@ -22,7 +22,7 @@ pub struct PostgresCache {
 impl PostgresCache {
     /// panics if URI is invalid
     pub async fn connect(uri: String, opts: Options, workers: usize) -> Result<PostgresCache> {
-        let (worker_tx, worker_rx) = mpsc::channel(1); // TODO: Tweak
+        let (worker_tx, worker_rx) = mpsc::channel(256); // TODO: Tweak
         let worker_rx = Arc::new(Mutex::new(worker_rx));
 
         // start workers
