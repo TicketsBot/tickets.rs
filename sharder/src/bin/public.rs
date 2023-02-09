@@ -25,7 +25,7 @@ async fn main() {
     let _guard = setup_sentry(&config);
 
     #[cfg(not(feature = "use-sentry"))]
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     let shard_count = get_shard_count(&config);
 
@@ -58,7 +58,7 @@ async fn main() {
     assert_eq!(res, "PONG");
 
     let session_store =
-        RedisSessionStore::new(Arc::clone(&redis), format!("tickets:resume:public"), 300);
+        RedisSessionStore::new(Arc::clone(&redis), "tickets:resume:public".to_string(), 300);
 
     let event_forwarder = Arc::new(HttpEventForwarder::default());
 

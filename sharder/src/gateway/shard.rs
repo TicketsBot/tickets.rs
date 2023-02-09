@@ -71,7 +71,6 @@ pub struct Shard<T: EventForwarder> {
     heartbeat_tx: mpsc::Sender<()>,
     heartbeat_rx: Option<mpsc::Receiver<()>>,
     heartbeat_interval: Duration,
-    kill_heartbeat: Mutex<Option<oneshot::Sender<()>>>,
     pub kill_shard_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     kill_shard_rx: Arc<TokioMutex<oneshot::Receiver<()>>>,
     last_ack: Instant,
@@ -124,7 +123,6 @@ impl<T: EventForwarder> Shard<T> {
             heartbeat_tx,
             heartbeat_rx: Some(heartbeat_rx),
             heartbeat_interval: Duration::from_millis(42500), // This will be overwritten later by the HELLO payload
-            kill_heartbeat: Mutex::new(None),
             kill_shard_tx: Arc::new(Mutex::new(Some(kill_shard_tx))),
             kill_shard_rx: Arc::new(TokioMutex::new(kill_shard_rx)),
             last_ack: Instant::now(),
@@ -223,7 +221,6 @@ impl<T: EventForwarder> Shard<T> {
     pub fn kill(&self) {
         // TODO: panic?
         let kill_shard_tx = self.kill_shard_tx.lock().take();
-        let kill_heartbeat_tx = self.kill_heartbeat.lock().take();
         let shard_id = self.get_shard_id();
 
         tokio::spawn(async move {
@@ -234,15 +231,6 @@ impl<T: EventForwarder> Shard<T> {
                     }
                 }
                 None => warn!(shard_id = %shard_id, "Tried to kill but kill_shard_tx was None"),
-            }
-
-            match kill_heartbeat_tx {
-                Some(kill_heartbeat_tx) => {
-                    if kill_heartbeat_tx.send(()).is_err() {
-                        error!(shard_id = %shard_id, "Failed to kill heartbeat task, receiver already unallocated");
-                    }
-                }
-                None => warn!(shard_id = %shard_id, "Tried to kill but kill_heartbeat_tx was None"),
             }
         });
     }
@@ -256,19 +244,19 @@ impl<T: EventForwarder> Shard<T> {
         #[cfg(feature = "compression")]
         let mut decoder = Decompress::new(true);
 
+        let kill_shard_rx = Arc::clone(&self.kill_shard_rx);
+        let kill_shard_rx = &mut *kill_shard_rx.lock().await;
+
+        let status_update_rx = Arc::clone(&self.status_update_rx);
+        let status_update_rx = &mut status_update_rx.lock().await;
+    
+        let heartbeat_rx = &mut self.heartbeat_rx.take().ok_or_else(|| GatewayError::custom("heartbeat_rx is None"))?;
+        let mut has_done_heartbeat = false;
+
         loop {
-            let kill_shard_rx = Arc::clone(&self.kill_shard_rx);
-            let kill_shard_rx = &mut *kill_shard_rx.lock().await;
-
-            let status_update_rx = Arc::clone(&self.status_update_rx);
-            let status_update_rx = &mut status_update_rx.lock().await;
-
-            let heartbeat_rx = &mut self.heartbeat_rx.take().ok_or_else(|| GatewayError::custom("heartbeat_rx is None"))?;
-            let mut has_done_heartbeat = false;
-
             tokio::select! {
                 // handle kill
-                _ = kill_shard_rx => {
+                _ = &mut *kill_shard_rx => {
                     self.log("Received kill message");
                     break;
                 }
@@ -450,7 +438,7 @@ impl<T: EventForwarder> Shard<T> {
     }
 
     fn read_payload(&self, data: &str) -> Result<Payload> {
-        Ok(serde_json::from_str(&data)?)
+        Ok(serde_json::from_str(data)?)
     }
 
     async fn process_payload(&mut self, payload: Payload, raw: String) -> Result<()> {
@@ -943,17 +931,17 @@ impl<T: EventForwarder> Shard<T> {
 
     pub fn log(&self, msg: impl Display) {
         if is_whitelabel() {
-            info!("[shard:{}] {}", self.user_id, msg);
+            info!(bot_id = %self.user_id, "{msg}");
         } else {
-            info!("[shard:{:0>2}] {}", self.get_shard_id(), msg);
+            info!(shard_id = %self.get_shard_id(), "{msg}");
         }
     }
 
     pub fn log_err(&self, msg: impl Display, err: &GatewayError) {
         if is_whitelabel() {
-            error!("[shard:{}] {}: {}", self.user_id, msg, err);
+            error!(bot_id = %self.user_id, error = %err, "{msg}");
         } else {
-            error!("[shard:{:0>2}] {}: {}", self.get_shard_id(), msg, err);
+            error!(shard_id = %self.get_shard_id(), error = %err, "{msg}");
         }
     }
 
