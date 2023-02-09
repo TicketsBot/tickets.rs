@@ -16,13 +16,13 @@ use tokio_postgres::{Connection, NoTls, Socket};
 
 pub struct PostgresCache {
     opts: Options,
-    tx: mpsc::Sender<CachePayload>,
+    tx: mpsc::UnboundedSender<CachePayload>,
 }
 
 impl PostgresCache {
     /// panics if URI is invalid
     pub async fn connect(uri: String, opts: Options, workers: usize) -> Result<PostgresCache> {
-        let (worker_tx, worker_rx) = mpsc::channel(256); // TODO: Tweak
+        let (worker_tx, worker_rx) = mpsc::unbounded_channel(); // TODO: Tweak
         let worker_rx = Arc::new(Mutex::new(worker_rx));
 
         // start workers
@@ -108,7 +108,6 @@ impl PostgresCache {
         self.tx
             .clone()
             .send(CachePayload::Schema { queries, tx })
-            .await
             .map_err(CacheError::SendError)?;
         rx.await.map_err(CacheError::RecvError)??;
 
@@ -123,7 +122,6 @@ impl PostgresCache {
         self.tx
             .clone()
             .send(payload)
-            .await
             .map_err(CacheError::SendError)?;
         rx.await.map_err(CacheError::RecvError)?
     }

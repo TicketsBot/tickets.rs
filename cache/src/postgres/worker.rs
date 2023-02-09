@@ -17,7 +17,7 @@ pub struct Worker {
     kill_rx: Mutex<oneshot::Receiver<()>>,
 }
 
-pub(crate) type PayloadReceiver = Arc<Mutex<mpsc::Receiver<CachePayload>>>;
+pub(crate) type PayloadReceiver = Arc<Mutex<mpsc::UnboundedReceiver<CachePayload>>>;
 
 impl Worker {
     pub fn new(
