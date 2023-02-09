@@ -23,9 +23,9 @@ simd-json = { version = "0.7", features = ["allow-non-simd"] }
 thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
-redis = { version = "0.21", features = ["tokio-comp", "connection-manager"] }
+#redis = { version = "0.21", features = ["tokio-comp", "connection-manager"] }
 deadpool = { version = "0.9", features = ["managed"] }
-deadpool-redis = "0.10"
+deadpool-redis = "0.11"
 jemallocator = "0.5"
 reqwest = { version = "0.11", features = ["json", "rustls-tls-webpki-roots"] }
 flate2 = { version = "1.0", features = ["tokio", "zlib-ng-compat"], default-features = false, optional = true }
@@ -35,6 +35,8 @@ envy = "0.4"
 sentry = { version = "0.27", features = ["log"], optional = true }
 sentry-log = { version = "0.27", optional = true }
 parking_lot = "0.12"
+tracing = "0.1"
+tracing-subscriber = "0.3"
 
 [features]
 default = ["skip-initial-guild-creates", "use-sentry"]

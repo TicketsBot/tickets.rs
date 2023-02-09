@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+use deadpool_redis::redis;
 use deadpool_redis::{redis::cmd, Pool};
 #[cfg(feature = "compression")]
 use flate2::{Decompress, FlushDecompress, Status};
@@ -40,10 +41,11 @@ use crate::gateway::{GatewayError, Result};
 use super::payloads;
 use super::payloads::event::Event;
 use super::payloads::{Dispatch, Opcode, Payload};
+use super::session_store::SessionData;
 use super::OutboundMessage;
 use crate::gateway::event_forwarding::{is_whitelisted, EventForwarder};
 use crate::CloseEvent;
-use redis::{AsyncCommands, FromRedisValue};
+use deadpool_redis::redis::{AsyncCommands, FromRedisValue};
 use serde_json::error::Category;
 use serde_json::Value;
 use std::error::Error;
@@ -64,11 +66,10 @@ pub struct Shard<T: EventForwarder> {
     pub status_update_tx: mpsc::Sender<StatusUpdate>,
     status_update_rx: TokioMutex<mpsc::Receiver<StatusUpdate>>,
     pub(crate) user_id: Snowflake,
-    total_rx: Mutex<u64>,
-    seq: RwLock<Option<usize>>,
-    last_seq_update: Mutex<Instant>,
-    session_id: RwLock<Option<String>>,
-    gateway_url: RwLock<String>,
+    pub(crate) session_data: RwLock<Option<SessionData>>,
+    //seq: AtomicUsize,
+    //session_id: RwLock<Option<String>>,
+    //gateway_url: RwLock<String>,
     writer: RwLock<Option<mpsc::Sender<OutboundMessage>>>,
     kill_heartbeat: Mutex<Option<oneshot::Sender<()>>>,
     pub kill_shard_tx: Mutex<Option<oneshot::Sender<()>>>,
@@ -101,11 +102,11 @@ impl<T: EventForwarder> Shard<T> {
         user_id: Snowflake,
         event_forwarder: Arc<T>,
         #[cfg(feature = "whitelabel")] database: Arc<Database>,
-    ) -> Arc<Shard<T>> {
+    ) -> Shard<T> {
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
         let (status_update_tx, status_update_rx) = mpsc::channel(1);
 
-        Arc::new(Shard {
+        Shard {
             config,
             identify,
             large_sharding_buckets,
@@ -114,11 +115,10 @@ impl<T: EventForwarder> Shard<T> {
             status_update_tx,
             status_update_rx: TokioMutex::new(status_update_rx),
             user_id,
-            total_rx: Mutex::new(0),
-            seq: RwLock::new(None),
-            last_seq_update: Mutex::new(Instant::now()),
-            session_id: RwLock::new(None),
-            gateway_url: RwLock::new(DEFAULT_GATEWAY_URL.to_string()),
+            session_data: RwLock::new(None),
+            //seq: AtomicUsize::new(0),
+            // session_id: RwLock::new(None),
+            // gateway_url: RwLock::new(DEFAULT_GATEWAY_URL.to_string()),
             writer: RwLock::new(None),
             kill_heartbeat: Mutex::new(None),
             kill_shard_tx: Mutex::new(Some(kill_shard_tx)),
@@ -133,41 +133,41 @@ impl<T: EventForwarder> Shard<T> {
             event_forwarder,
             #[cfg(feature = "whitelabel")]
             database,
-        })
+        }
     }
 
-    pub async fn connect(self: Arc<Self>, ready_tx: Option<oneshot::Sender<()>>) -> Result<()> {
+    pub async fn connect(
+        self,
+        resume_data: Option<SessionData>,
+        ready_tx: Option<oneshot::Sender<()>>,
+    ) -> Result<Option<SessionData>> {
         //rst
         *self.ready_tx.lock() = ready_tx;
+        *self.session_data.write() = resume_data;
 
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
         *self.kill_shard_tx.lock() = Some(kill_shard_tx);
         *self.kill_shard_rx.lock().await = kill_shard_rx;
 
-        *self.total_rx.lock() = 0;
         self.ready_guild_count.store(0, Ordering::Relaxed);
         self.received_count.store(0, Ordering::Relaxed);
         self.is_ready.store(false, Ordering::Relaxed);
 
         *self.last_heartbeat.write() = Instant::now();
         *self.last_ack.write() = Instant::now();
-
-        *self.gateway_url.write() = DEFAULT_GATEWAY_URL.to_string();
         // rst
 
-        // Load gateway URL
-        match self.load_gateway_url().await {
-            Ok(Some(gateway_url)) => *self.gateway_url.write() = gateway_url,
-            Ok(None) => {}
-            Err(e) => {
-                error!("Error loading gateway URL, using default. {}", e);
-            }
+        // Build gateway URL
+        let gateway_url: String;
+        {
+            let mu = self.session_data.read();
+            gateway_url = mu
+                .as_ref()
+                .and_then(|s| s.resume_url.clone())
+                .unwrap_or_else(|| DEFAULT_GATEWAY_URL.to_string());
         }
 
-        let mut uri = format!(
-            "{}?v={GATEWAY_VERSION}&encoding=json",
-            self.gateway_url.read()
-        );
+        let mut uri = format!("{gateway_url}?v={GATEWAY_VERSION}&encoding=json");
         if cfg!(feature = "compression") {
             uri.push_str("&compress=zlib-stream");
         }
@@ -187,7 +187,10 @@ impl<T: EventForwarder> Shard<T> {
         };
 
         if let Err(e) = self.wait_for_ratelimit().await {
-            self.log_err("Error while waiting for identify ratelimit, reconnecting", &e);
+            self.log_err(
+                "Error while waiting for identify ratelimit, reconnecting",
+                &e,
+            );
             return Err(e);
         }
 
@@ -213,8 +216,11 @@ impl<T: EventForwarder> Shard<T> {
         });
 
         // start read loop
-        self.listen(recv_broker_rx).await?;
-        Ok(())
+        let shard = Arc::new(self);
+        Arc::clone(&shard).listen(recv_broker_rx).await?;
+
+        let session_data = shard.session_data.write().take();
+        Ok(session_data)
     }
 
     // helper function
@@ -308,23 +314,7 @@ impl<T: EventForwarder> Shard<T> {
                                 match frame.code {
                                     // On code 1000, the session is invalidated
                                     CloseCode::Normal => {
-                                        let (err1, err2, err3) = tokio::join!(
-                                                shard.delete_seq(),
-                                                shard.delete_session_id(),
-                                                shard.delete_gateway_url()
-                                        );
-
-                                        if let Err(e) = err1 {
-                                            self.log_err("Error deleting seq", &e);
-                                        }
-
-                                        if let Err(e) = err2 {
-                                            self.log_err("Error deleting session_id", &e);
-                                        }
-
-                                        if let Err(e) = err3 {
-                                            self.log_err("Error deleting gateway_url", &e);
-                                        }
+                                        *self.session_data.write() = None;
                                     },
 
                                     CloseCode::Library(code) => {
@@ -458,29 +448,10 @@ impl<T: EventForwarder> Shard<T> {
         Ok(serde_json::from_str(&data)?)
     }
 
-    async fn process_payload(
-        self: Arc<Self>,
-        payload: Payload,
-        raw: String,
-    ) -> Result<()> {
+    async fn process_payload(self: Arc<Self>, payload: Payload, raw: String) -> Result<()> {
         if let Some(seq) = payload.seq {
-            *self.seq.write() = Some(seq);
-
-            let mut should_save_seq = false;
-
-            {
-                // Drop lock after
-                let mut last_updated = self.last_seq_update.lock();
-                if last_updated.elapsed() > SEQ_SAVE_DELAY {
-                    *last_updated = Instant::now();
-                    should_save_seq = true;
-                }
-            }
-
-            if should_save_seq {
-                if let Err(e) = self.save_seq().await {
-                    self.log_err("Error saving sequence number", &e);
-                }
+            if let Some(ref mut session_data) = &mut *self.session_data.write() {
+                session_data.seq = seq; // TODO: Verify this works
             }
         }
 
@@ -501,9 +472,10 @@ impl<T: EventForwarder> Shard<T> {
                                 sentry::capture_event(sentry::protocol::Event {
                                     level: sentry::Level::Warning,
                                     message: Some("Payload deserializing data error".into()),
-                                    extra: BTreeMap::from([
-                                        ("error".into(), Value::String(err_str)),
-                                    ]),
+                                    extra: BTreeMap::from([(
+                                        "error".into(),
+                                        Value::String(err_str),
+                                    )]),
                                     ..Default::default()
                                 });
                             }
@@ -524,25 +496,7 @@ impl<T: EventForwarder> Shard<T> {
             Opcode::InvalidSession => {
                 self.log("Received invalid session payload from Discord");
 
-                *self.session_id.write() = None;
-                *self.seq.write() = None;
-                *self.gateway_url.write() = DEFAULT_GATEWAY_URL.to_string(); // Reconnect to main gateway on INVALID_SESSION
-
-                // delete session ID from Redis
-                if let Err(e) = self.delete_session_id().await {
-                    self.log_err("Error deleting session_id from Redis", &e);
-                }
-
-                // delete seq from Redis
-                if let Err(e) = self.delete_seq().await {
-                    self.log_err("Error deleting seq from Redis", &e);
-                }
-
-                // delete gateway url from Redis
-                if let Err(e) = self.delete_gateway_url().await {
-                    self.log_err("Error deleting gateway URL from Redis", &e);
-                }
-
+                *self.session_data.write() = None;
                 self.kill();
             }
 
@@ -550,56 +504,22 @@ impl<T: EventForwarder> Shard<T> {
                 let hello: payloads::Hello = serde_json::from_str(raw.as_str())?;
                 let interval = Duration::from_millis(hello.data.heartbeat_interval as u64);
 
-                let mut should_identify = true;
+                let resume_info = self.session_data.write().take();
 
-                // try to load session_id from redis
-                if let Ok(Some(session_id)) = self.load_session_id().await {
-                    *self.session_id.write() = Some(session_id);
+                if let Some(resume_info) = resume_info {
+                    self.log("Attempting RESUME");
 
-                    // if success, load seq from redis
-                    if let Ok(Some(seq)) = self.load_seq().await {
-                        *self.seq.write() = Some(seq)
+                    if let Err(e) = Arc::clone(&self)
+                        .do_resume(resume_info.session_id, resume_info.seq)
+                        .await
+                    {
+                        self.log_err("Error sending RESUME payload, killing", &e);
+                        self.kill();
+                        return Ok(());
                     }
-                }
+                } else {
+                    self.log("No resume info found, IDENTIFYing instead");
 
-                let session_id = self.session_id.read().as_ref().cloned();
-                let seq = *self.seq.read();
-                if let (Some(session_id), Some(seq)) = (session_id, seq) {
-                    if let Err(e) = Arc::clone(&self).do_resume(session_id.clone(), seq).await {
-                        self.log_err("Error RESUMEing, going to IDENTIFY", &e);
-
-                        // rst
-                        *self.session_id.write() = None;
-                        *self.seq.write() = None;
-
-                        let connect_time = self.connect_time.read().await;
-
-                        if connect_time.elapsed() > interval {
-                            self.log("Connected over 45s ago, Discord will kick us off. Reconnecting.");
-                            Arc::clone(&self).kill();
-                            return Ok(());
-                        } else {
-                            if connect_time.elapsed() > Duration::from_millis(5000) { // Need to wait for ratelimit again
-                                if let Err(e) = self.wait_for_ratelimit().await {
-                                    self.log_err("Error waiting for ratelimit, reconnecting", &e);
-                                    Arc::clone(&self).kill();
-                                    return Ok(());
-                                }
-                            }
-
-                            should_identify = Arc::clone(&self).do_identify().await.is_err();
-
-                            if let Err(e) = self.update_ratelimit_after_identify().await {
-                                self.log_err("Error setting identify ratelimit value", &e);
-                            }
-                        }
-                    } else {
-                        should_identify = false;
-                        self.log("Sent resume successfully");
-                    }
-                }
-
-                if should_identify {
                     let connect_time = self.connect_time.read().await;
 
                     if connect_time.elapsed() > interval {
@@ -608,7 +528,8 @@ impl<T: EventForwarder> Shard<T> {
                         return Ok(());
                     }
 
-                    if connect_time.elapsed() > Duration::from_millis(5000) { // Need to wait for ratelimit again
+                    if connect_time.elapsed() > Duration::from_millis(5000) {
+                        // Need to wait for ratelimit again
                         if let Err(e) = self.wait_for_ratelimit().await {
                             self.log_err("Error waiting for ratelimit, reconnecting", &e);
                             Arc::clone(&self).kill();
@@ -635,11 +556,6 @@ impl<T: EventForwarder> Shard<T> {
 
             Opcode::HeartbeatAck => {
                 *self.last_ack.write() = Instant::now();
-
-                // save session ID
-                if let Err(e) = self.save_session_id().await {
-                    self.log_err("Error occurred while saving session ID", &e);
-                }
             }
 
             _ => {}
@@ -654,15 +570,11 @@ impl<T: EventForwarder> Shard<T> {
         // Gateway events
         match &payload.data {
             Event::Ready(ready) => {
-                *self.gateway_url.write() = ready.resume_gateway_url.clone();
-                if let Err(e) = self.save_gateway_url().await {
-                    self.log_err("Error saving gateway URL", &e);
-                }
-
-                *self.session_id.write() = Some(ready.session_id.clone());
-                if let Err(e) = self.save_session_id().await {
-                    self.log_err("Error saving session ID to Redis", &e);
-                }
+                *self.session_data.write() = Some(SessionData {
+                    seq: payload.seq,
+                    session_id: ready.session_id.clone(),
+                    resume_url: Some(ready.resume_gateway_url.clone()),
+                });
 
                 self.ready_guild_count
                     .store(ready.guilds.len() as u16, Ordering::Relaxed);
@@ -787,7 +699,10 @@ impl<T: EventForwarder> Shard<T> {
                 let raw_payload = match RawValue::from_string(data) {
                     Ok(v) => v,
                     Err(e) => {
-                        self.log_err("Error convering JSON string to RawValue", &GatewayError::JsonError(e));
+                        self.log_err(
+                            "Error convering JSON string to RawValue",
+                            &GatewayError::JsonError(e),
+                        );
                         return;
                     }
                 };
@@ -896,7 +811,8 @@ impl<T: EventForwarder> Shard<T> {
     }
 
     async fn do_heartbeat(self: Arc<Self>) -> Result<()> {
-        let payload = payloads::Heartbeat::new(*self.seq.read());
+        let seq = self.session_data.read().as_ref().map(|s| s.seq);
+        let payload = payloads::Heartbeat::new(seq);
 
         let (tx, rx) = oneshot::channel();
         self.write(payload, tx).await?;
@@ -974,64 +890,6 @@ impl<T: EventForwarder> Shard<T> {
         Ok(rx.await??)
     }
 
-    async fn load_session_id(&self) -> Result<Option<String>> {
-        self.redis_read(self.get_resume_key().as_ref()).await
-    }
-
-    async fn save_session_id(&self) -> Result<()> {
-        let session_id = match &*self.session_id.read() {
-            Some(session_id) => session_id.clone(),
-            None => return Ok(()),
-        };
-
-        self.redis_write(self.get_resume_key().as_ref(), session_id, Some(120))
-            .await
-    }
-
-    async fn delete_session_id(&self) -> Result<()> {
-        self.redis_delete(self.get_resume_key().as_ref()).await
-    }
-
-    async fn load_seq(&self) -> Result<Option<usize>> {
-        self.redis_read(self.get_seq_key().as_ref()).await
-    }
-
-    async fn save_seq(&self) -> Result<()> {
-        let seq = match *self.seq.read() {
-            Some(seq) => seq,
-            None => return Ok(()),
-        };
-
-        self.redis_write(self.get_seq_key().as_ref(), seq, Some(120))
-            .await
-    }
-
-    async fn delete_seq(&self) -> Result<()> {
-        self.redis_delete(self.get_seq_key().as_ref()).await
-    }
-
-    async fn load_gateway_url(&self) -> Result<Option<String>> {
-        self.redis_read_delete(self.get_redis_gateway_url_key().as_ref())
-            .await
-    }
-
-    async fn save_gateway_url(&self) -> Result<()> {
-        let value = self.gateway_url.read().clone();
-
-        // We should reconnect more frequently than every 3 days, so expiring after 72 hours is fine
-        self.redis_write(
-            self.get_redis_gateway_url_key().as_ref(),
-            value,
-            Some(60 * 60 * 72),
-        )
-        .await
-    }
-
-    async fn delete_gateway_url(&self) -> Result<()> {
-        self.redis_delete(self.get_redis_gateway_url_key().as_ref())
-            .await
-    }
-
     async fn redis_read<U: FromRedisValue>(&self, key: &str) -> Result<Option<U>> {
         let mut conn = self.redis.get().await?;
         Ok(conn.get(key).await?)
@@ -1066,42 +924,6 @@ impl<T: EventForwarder> Shard<T> {
         let mut conn = self.redis.get().await?;
         conn.del(key).await?;
         Ok(())
-    }
-
-    fn get_resume_key(&self) -> String {
-        if is_whitelabel() {
-            format!("tickets:resume:{}:{}", self.user_id, self.get_shard_id())
-        } else {
-            format!(
-                "tickets:resume:public:{}-{}",
-                self.get_shard_id(),
-                self.identify.data.shard_info.num_shards
-            )
-        }
-    }
-
-    fn get_seq_key(&self) -> String {
-        if is_whitelabel() {
-            format!("tickets:seq:{}:{}", self.user_id, self.get_shard_id())
-        } else {
-            format!(
-                "tickets:seq:public:{}-{}",
-                self.get_shard_id(),
-                self.identify.data.shard_info.num_shards
-            )
-        }
-    }
-
-    fn get_redis_gateway_url_key(&self) -> String {
-        if is_whitelabel() {
-            format!("tickets:gwurl:{}:{}", self.user_id, self.get_shard_id())
-        } else {
-            format!(
-                "tickets:gwurl:public:{}-{}",
-                self.get_shard_id(),
-                self.identify.data.shard_info.num_shards
-            )
-        }
     }
 
     /// helper

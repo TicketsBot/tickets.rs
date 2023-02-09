@@ -5,7 +5,7 @@ mod payloads;
 pub use payloads::Identify;
 
 mod session_store;
-pub use session_store::RedisSessionStore;
+pub use session_store::{RedisSessionStore, SessionData, SessionStore};
 
 mod close_event;
 pub use close_event::CloseEvent;

@@ -23,7 +23,7 @@ pub enum GatewayError {
     JsonError(#[from] serde_json::Error),
 
     #[error("error while operating on Redis: {0}")]
-    RedisError(#[from] redis::RedisError),
+    RedisError(#[from] deadpool_redis::redis::RedisError),
 
     #[error("error while getting redis conn: {0}")]
     PoolError(#[from] deadpool::managed::PoolError<deadpool_redis::redis::RedisError>),
@@ -83,6 +83,15 @@ pub enum GatewayError {
 
     #[error("error occurred while parsing URL: {0}")]
     UrlParseError(#[from] url::ParseError),
+
+    #[error("redis returned wrong result type")]
+    WrongResultType,
+
+    #[error("redis returned wrong result length: expected {expected}, got {actual}")]
+    WrongResultLength { expected: usize, actual: usize },
+
+    #[error("error occurred while parsing int: {0}")]
+    ParseIntError(#[from] std::num::ParseIntError),
 }
 
 impl GatewayError {

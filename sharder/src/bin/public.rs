@@ -2,23 +2,20 @@ use std::sync::Arc;
 use tokio::signal;
 
 use model::user::{ActivityType, StatusType, StatusUpdate};
-use sharder::{setup_sentry, Config, PublicShardManager, ShardCount, ShardManager};
+use sharder::{
+    setup_sentry, Config, PublicShardManager, RedisSessionStore, ShardCount, ShardManager,
+};
 
 use sharder::{build_cache, build_redis};
 
 use deadpool_redis::redis::cmd;
 use jemallocator::Jemalloc;
 use sharder::event_forwarding::HttpEventForwarder;
+use tracing::info;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-/*#[cfg(feature = "whitelabel")]
-fn main() {
-    panic!("Started public sharder with whitelabel feature flag")
-}
-
-#[cfg(not(feature = "whitelabel"))]*/
 #[tokio::main]
 async fn main() {
     // init sharder options
@@ -60,14 +57,25 @@ async fn main() {
 
     assert_eq!(res, "PONG");
 
-    let event_forwarder = Arc::new(HttpEventForwarder::new(
-        HttpEventForwarder::build_http_client(),
-    ));
+    let session_store =
+        RedisSessionStore::new(Arc::clone(&redis), format!("tickets:resume:public"), 300);
 
-    let sm = PublicShardManager::new(config, options, cache, redis, event_forwarder).await;
+    let event_forwarder = Arc::new(HttpEventForwarder::default());
+
+    let sm = PublicShardManager::new(
+        config,
+        options,
+        session_store,
+        cache,
+        redis,
+        event_forwarder,
+    )
+    .await;
+
     Arc::new(sm).connect().await;
 
     signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
+    info!("Received shutdown signal");
 }
 
 #[cfg(not(feature = "whitelabel"))]

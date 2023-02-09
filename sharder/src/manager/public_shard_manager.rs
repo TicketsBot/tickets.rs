@@ -1,13 +1,13 @@
 use async_trait::async_trait;
+use tracing::{error, info, warn};
 
 use super::Options;
 use super::ShardManager;
 
 use crate::gateway::{Identify, Shard, ShardInfo};
+use crate::{RedisSessionStore, SessionStore};
 
 use std::sync::Arc;
-
-use std::collections::HashMap;
 
 use cache::PostgresCache;
 
@@ -22,83 +22,98 @@ use tokio::time::sleep;
 
 pub struct PublicShardManager<T: EventForwarder> {
     config: Arc<Config>,
-    shards: HashMap<u16, Arc<Shard<T>>>,
+    options: Options,
+    session_store: RedisSessionStore,
+    cache: Arc<PostgresCache>,
+    redis: Arc<Pool>,
+    event_forwarder: Arc<T>,
 }
 
 impl<T: EventForwarder> PublicShardManager<T> {
     pub async fn new(
         config: Config,
         options: Options,
+        session_store: RedisSessionStore,
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
         event_forwarder: Arc<T>,
     ) -> Self {
-        let mut sm = PublicShardManager {
+        Self {
             config: Arc::new(config),
-            shards: HashMap::new(),
-        };
-
-        for i in options.shard_count.lowest..options.shard_count.highest {
-            let shard_info = ShardInfo::new(i, options.shard_count.total);
-
-            let identify = Identify::new(
-                options.token.clone().into_string(),
-                None,
-                shard_info,
-                Some(options.presence.clone()),
-                super::get_intents(),
-            );
-
-            let shard = Shard::new(
-                Arc::clone(&sm.config),
-                identify,
-                options.large_sharding_buckets,
-                Arc::clone(&cache),
-                Arc::clone(&redis),
-                options.user_id,
-                Arc::clone(&event_forwarder),
-            );
-
-            sm.shards.insert(i, shard);
+            options,
+            session_store,
+            cache,
+            redis,
+            event_forwarder,
         }
+    }
 
-        sm
+    pub async fn shutdown_gracefully() {
+        
+    }
+
+    fn build_shard(&self, shard_id: u16) -> Shard<T> {
+        let shard_info = ShardInfo::new(shard_id, self.options.shard_count.total);
+
+        let identify = Identify::new(
+            self.options.token.clone().into_string(),
+            None,
+            shard_info,
+            Some(self.options.presence.clone()),
+            super::get_intents(),
+        );
+
+        Shard::new(
+            Arc::clone(&self.config),
+            identify,
+            self.options.large_sharding_buckets,
+            Arc::clone(&self.cache),
+            Arc::clone(&self.redis),
+            self.options.user_id,
+            Arc::clone(&self.event_forwarder),
+        )
     }
 }
 
 #[async_trait]
 impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
     async fn connect(self: Arc<Self>) {
-        for (_, shard) in self.shards.iter() {
-            let shard_id = shard.get_shard_id();
-            let shard = Arc::clone(shard);
+        let sm = Arc::clone(&self);
+
+        for shard_id in self.options.shard_count.lowest..self.options.shard_count.highest {
             let (ready_tx, ready_rx) = oneshot::channel::<()>();
+            let sm = Arc::clone(&sm);
 
             tokio::spawn(async move {
                 let mut ready_tx = Some(ready_tx);
 
+                let mut resume_data = sm
+                    .session_store
+                    .get(shard_id.into())
+                    .await
+                    .expect("Failed to fetch session data"); // TODO: Log, not panic
+
                 loop {
-                    let shard = Arc::clone(&shard);
+                    let shard = sm.build_shard(shard_id);
                     shard.log("Starting...");
 
                     // TODO: Skip ready_rx await on error
-                    match Arc::clone(&shard).connect(ready_tx.take()).await {
-                        Ok(()) => shard.log("Exited with Ok"),
+                    match shard.connect(resume_data.clone(), ready_tx.take()).await {
+                        Ok(session_data) => {
+                            resume_data = session_data;
+                            info!(shard_id = %shard_id, "Shard exited normally");
+                        }
                         Err(GatewayError::AuthenticationError { data, .. }) => {
                             if data.should_reconnect() {
-                                shard.log_err(
-                                    "Authentication error, reconnecting",
-                                    &GatewayError::custom(&data.error),
-                                );
+                                warn!(shard_id = %shard_id, error = ?data, "Authentication error, reconnecting");
                             } else {
-                                shard.log_err(
-                                    "Fatal authentication error, shutting down",
-                                    &GatewayError::custom(&data.error),
-                                );
+                                warn!(shard_id = %shard_id, error = ?data, "Fatal authentication error, shutting down");
                                 break;
                             }
                         }
-                        Err(e) => shard.log_err("Exited with error", &e),
+                        Err(e) => {
+                            warn!(shard_id = %shard_id, error = %e, "Shard exited with error, reconnecting")
+                        }
                     }
 
                     sleep(Duration::from_millis(500)).await;
@@ -106,8 +121,8 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
             });
 
             match ready_rx.await {
-                Ok(_) => println!("[{:0>2}] Loaded guilds", shard_id),
-                Err(e) => eprintln!("[{:0>2}] Error reading ready rx: {}", shard_id, e),
+                Ok(_) => info!(shard_id = %shard_id, "Loaded guilds"),
+                Err(e) => error!(shard_id = %shard_id, error = %e, "Error reading ready rx"),
             }
         }
 
