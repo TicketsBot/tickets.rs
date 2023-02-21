@@ -18,7 +18,7 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use serde_json::value::RawValue;
 use tokio::sync::Mutex as TokioMutex;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time::sleep;
 use url::Url;
 
@@ -80,6 +80,7 @@ pub struct Shard<T: EventForwarder> {
     ready_guild_count: u16,
     received_count: usize,
     is_ready: bool,
+    shutdown_rx: broadcast::Receiver<mpsc::Sender<(u16, Option<SessionData>)>>,
     pub(crate) event_forwarder: Arc<T>,
 
     #[cfg(feature = "whitelabel")]
@@ -101,6 +102,7 @@ impl<T: EventForwarder> Shard<T> {
         user_id: Snowflake,
         event_forwarder: Arc<T>,
         ready_tx: Option<oneshot::Sender<()>>,
+        shutdown_rx: broadcast::Receiver<mpsc::Sender<(u16, Option<SessionData>)>>,
         #[cfg(feature = "whitelabel")] database: Arc<Database>,
     ) -> Shard<T> {
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
@@ -132,6 +134,7 @@ impl<T: EventForwarder> Shard<T> {
             ready_guild_count: 0,
             received_count: 0,
             is_ready: false,
+            shutdown_rx,
             event_forwarder,
             #[cfg(feature = "whitelabel")]
             database,
@@ -258,6 +261,21 @@ impl<T: EventForwarder> Shard<T> {
                 // handle kill
                 _ = &mut *kill_shard_rx => {
                     self.log("Received kill message");
+                    break;
+                }
+
+                session_tx = self.shutdown_rx.recv() => {
+                    self.log("Received shutdown message");
+
+                    match session_tx {
+                        Ok(session_tx) => {
+                            if let Err(e) = session_tx.send((self.get_shard_id(), self.session_data.take())).await {
+                                error!(shard_id = %self.get_shard_id(), error = %e, "Error sending session data");
+                            }
+                        }
+                        Err(e) => error!(shard_id = %self.get_shard_id(), error = %e, "Error receiving shutdown message"),
+                    }
+
                     break;
                 }
 
@@ -495,7 +513,7 @@ impl<T: EventForwarder> Shard<T> {
                 let interval = Duration::from_millis(hello.data.heartbeat_interval as u64);
                 self.heartbeat_interval = interval;
 
-                let resume_info = self.session_data.take();
+                let resume_info = self.session_data.clone();
 
                 if let Some(resume_info) = resume_info {
                     self.log("Attempting RESUME");

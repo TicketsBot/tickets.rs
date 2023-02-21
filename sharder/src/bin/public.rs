@@ -72,10 +72,13 @@ async fn main() {
     )
     .await;
 
-    Arc::new(sm).connect().await;
+    let sm = Arc::new(sm);
+    Arc::clone(&sm).connect().await;
 
     signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
     info!("Received shutdown signal");
+
+    sm.shutdown().await;
 }
 
 #[cfg(not(feature = "whitelabel"))]

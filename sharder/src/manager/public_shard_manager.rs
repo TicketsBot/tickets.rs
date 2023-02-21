@@ -4,9 +4,11 @@ use tracing::{error, info, warn};
 use super::Options;
 use super::ShardManager;
 
+use crate::SessionData;
 use crate::gateway::{Identify, Shard, ShardInfo};
 use crate::{RedisSessionStore, SessionStore};
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use cache::PostgresCache;
@@ -17,8 +19,8 @@ use crate::GatewayError;
 use deadpool_redis::Pool;
 use std::time::Duration;
 use tokio::fs::File;
-use tokio::sync::oneshot;
-use tokio::time::sleep;
+use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::time::{sleep, timeout};
 
 pub struct PublicShardManager<T: EventForwarder> {
     config: Arc<Config>,
@@ -27,6 +29,7 @@ pub struct PublicShardManager<T: EventForwarder> {
     cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
     event_forwarder: Arc<T>,
+    shutdown_tx: broadcast::Sender<mpsc::Sender<(u16, Option<SessionData>)>>,
 }
 
 impl<T: EventForwarder> PublicShardManager<T> {
@@ -38,6 +41,8 @@ impl<T: EventForwarder> PublicShardManager<T> {
         redis: Arc<Pool>,
         event_forwarder: Arc<T>,
     ) -> Self {
+        let (shutdown_tx, _) = broadcast::channel(1);
+
         Self {
             config: Arc::new(config),
             options,
@@ -45,10 +50,9 @@ impl<T: EventForwarder> PublicShardManager<T> {
             cache,
             redis,
             event_forwarder,
+            shutdown_tx,
         }
     }
-
-    pub async fn shutdown_gracefully() {}
 
     fn build_shard(&self, shard_id: u16, ready_tx: Option<oneshot::Sender<()>>) -> Shard<T> {
         let shard_info = ShardInfo::new(shard_id, self.options.shard_count.total);
@@ -70,6 +74,7 @@ impl<T: EventForwarder> PublicShardManager<T> {
             self.options.user_id,
             Arc::clone(&self.event_forwarder),
             ready_tx,
+            self.shutdown_tx.subscribe(),
         )
     }
 }
@@ -77,11 +82,9 @@ impl<T: EventForwarder> PublicShardManager<T> {
 #[async_trait]
 impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
     async fn connect(self: Arc<Self>) {
-        let sm = Arc::clone(&self);
-
         for shard_id in self.options.shard_count.lowest..self.options.shard_count.highest {
             let (ready_tx, ready_rx) = oneshot::channel::<()>();
-            let sm = Arc::clone(&sm);
+            let sm = Arc::clone(&self);
 
             tokio::spawn(async move {
                 let mut ready_tx = Some(ready_tx);
@@ -93,7 +96,7 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
                     .expect("Failed to fetch session data"); // TODO: Log, not panic
 
                 loop {
-                    let mut shard = sm.build_shard(shard_id, ready_tx.take());
+                    let shard = sm.build_shard(shard_id, ready_tx.take());
                     shard.log("Starting...");
 
                     // TODO: Skip ready_rx await on error
@@ -126,6 +129,40 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
         }
 
         File::create("/tmp/ready").await.unwrap(); // panic if can't create
-        println!("Reported readiness to probe");
+        info!("Reported readiness to probe");
+    }
+
+    async fn shutdown(self: Arc<Self>) {
+        let cluster_size = self.options.shard_count.highest - self.options.shard_count.lowest;
+        let (tx, mut rx) = mpsc::channel(cluster_size.into());
+
+        let receivers = self.shutdown_tx.send(tx)
+            .expect("Failed to send shutdown signal to shards");
+
+        let mut sessions = HashMap::new();
+        for _ in 0..receivers {
+            let (shard_id, session_data) = match timeout(Duration::from_secs(30), rx.recv()).await {
+                Ok(Some((shard_id, Some(session_data)))) => (shard_id, session_data),
+                Ok(Some((shard_id, None))) => {
+                    info!(shard_id = %shard_id, "Shard sent None session data");
+                    continue;
+                }
+                Ok(None) => {
+                    warn!("Shutdown session data receiver is closed");
+                    break;
+                }
+                Err(e) => {
+                    warn!(error = %e, "Timeout while waiting for shard to shutdown");
+                    break;
+                }
+            };
+
+            sessions.insert(shard_id.into(), session_data);
+        }
+
+
+        if let Err(e) = self.session_store.set_bulk(sessions).await {
+            error!(error = %e, "Failed to save session data");
+        }
     }
 }
