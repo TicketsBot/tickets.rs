@@ -8,7 +8,7 @@ use std::cmp::Ordering::Equal;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_postgres::Client;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 pub struct Worker {
     id: usize,
@@ -63,7 +63,8 @@ impl Worker {
     }
 
     async fn handle_payload(&self, payload: CachePayload) {
-        debug!(worker = %self.id, payload = ?payload, "got payload");
+        debug!(worker = %self.id, "got payload");
+        trace!(worker = %self.id, payload = ?payload, "got payload");
 
         match payload {
             CachePayload::Schema { queries, tx } => {
