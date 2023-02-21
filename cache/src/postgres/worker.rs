@@ -46,6 +46,7 @@ impl Worker {
                         break
                     }
                     recv = rx.recv() => {
+                        drop(rx);
                         let payload = match recv {
                             Some(p) => p,
                             None => { // Should never happen
