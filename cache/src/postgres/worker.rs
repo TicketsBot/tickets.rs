@@ -5,10 +5,10 @@ use model::guild::{Emoji, Guild, Member, Role, VoiceState};
 use model::user::User;
 use model::Snowflake;
 use std::cmp::Ordering::Equal;
-use std::fmt::Display;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_postgres::Client;
+use tracing::{debug, info, warn};
 
 pub struct Worker {
     id: usize,
@@ -42,7 +42,7 @@ impl Worker {
 
                 tokio::select! {
                     _ = kill_rx => {
-                        self.log("got kill message");
+                        info!(worker = %self.id, "got kill message");
                         break
                     }
                     recv = rx.recv() => {
@@ -50,7 +50,7 @@ impl Worker {
                         let payload = match recv {
                             Some(p) => p,
                             None => { // Should never happen
-                                self.log("got None from payload channel");
+                                warn!(worker = %self.id, "got None from payload channel");
                                 break;
                             }
                         };
@@ -63,6 +63,8 @@ impl Worker {
     }
 
     async fn handle_payload(&self, payload: CachePayload) {
+        debug!(worker = %self.id, payload = ?payload, "got payload");
+
         match payload {
             CachePayload::Schema { queries, tx } => {
                 let mut batch = String::new();
@@ -173,10 +175,6 @@ impl Worker {
                 let _ = tx.send(self.delete_voice_state(user_id, guild_id).await);
             }
         };
-    }
-
-    fn log(&self, msg: impl Display) {
-        println!("[cache worker:{}] {}", self.id, msg);
     }
 }
 

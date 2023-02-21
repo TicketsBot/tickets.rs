@@ -3,7 +3,7 @@ use tokio::signal;
 
 use model::user::{ActivityType, StatusType, StatusUpdate};
 use sharder::{
-    setup_sentry, Config, PublicShardManager, RedisSessionStore, ShardCount, ShardManager,
+    setup_sentry, Config, PublicShardManager, RedisSessionStore, ShardCount, ShardManager, await_shutdown,
 };
 
 use sharder::{build_cache, build_redis};
@@ -75,10 +75,11 @@ async fn main() {
     let sm = Arc::new(sm);
     Arc::clone(&sm).connect().await;
 
-    signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
+    await_shutdown().await.expect("Failed to wait for shutdown signal");
     info!("Received shutdown signal");
 
     sm.shutdown().await;
+    info!("Shard manager shutdown gracefully");
 }
 
 #[cfg(not(feature = "whitelabel"))]

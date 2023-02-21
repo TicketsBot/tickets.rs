@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_postgres::tls::NoTlsStream;
 use tokio_postgres::{Connection, NoTls, Socket};
+use tracing::{error, info};
 
 pub struct PostgresCache {
     opts: Options,
@@ -36,19 +37,19 @@ impl PostgresCache {
                 loop {
                     let _: Result<()> =
                         backoff::future::retry(ExponentialBackoff::default(), || async {
-                            println!("[cache worker:{}] trying to connect", id);
+                            info!(worker = %id, "trying to connect");
                             let (kill_tx, conn) =
                                 Self::spawn_worker(id, &uri[..], Arc::clone(&worker_rx)).await?;
-                            println!("[cache worker:{}] connected!", id);
+                            info!(worker = %id, "connected!");
 
                             if let Err(e) = conn.await {
-                                eprintln!("[cache worker:{}] db connection error: {}", id, e);
+                                error!(worker = %id, error = %e, "db connection error");
                                 return Err(backoff::Error::Transient(CacheError::DatabaseError(
                                     e,
                                 )));
                             }
 
-                            println!("[cache worker:{}] connection died", id);
+                            info!(worker = %id, "connection died");
 
                             kill_tx.send(());
                             Err(backoff::Error::Transient(CacheError::Disconnected))

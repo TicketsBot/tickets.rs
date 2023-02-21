@@ -92,6 +92,9 @@ pub enum GatewayError {
 
     #[error("error occurred while parsing int: {0}")]
     ParseIntError(#[from] std::num::ParseIntError),
+
+    #[error("error occurred while performing I/O operation: {0}")]
+    IoError(#[from] std::io::Error),
 }
 
 impl GatewayError {
