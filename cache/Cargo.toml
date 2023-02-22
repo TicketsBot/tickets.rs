@@ -19,9 +19,12 @@ native-tls = "0.2"
 backoff = { version = "0.3", features = ["tokio"] }
 dashmap = { version = "5", optional = true}
 tracing = "0.1"
+prometheus = { version = "0.13", optional = true }
+lazy_static = { version = "1.4", optional = true }
 
 [features]
-default = ["postgres"]
+default = ["postgres", "metrics"]
 cache-model = ["dashmap"]
 postgres = ["tokio-postgres"]
 memory = ["cache-model"]
+metrics = ["prometheus", "lazy_static"]

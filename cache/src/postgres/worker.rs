@@ -4,11 +4,26 @@ use model::channel::Channel;
 use model::guild::{Emoji, Guild, Member, Role, VoiceState};
 use model::user::User;
 use model::Snowflake;
+#[cfg(feature = "metrics")]
+use prometheus::{HistogramVec, HistogramOpts};
 use std::cmp::Ordering::Equal;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_postgres::Client;
 use tracing::{debug, info, trace, warn};
+#[cfg(feature = "metrics")]
+use lazy_static::lazy_static;
+#[cfg(feature = "metrics")]
+use std::time::Instant;
+
+#[cfg(feature = "metrics")]
+lazy_static! {
+    static ref HISTOGRAM: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("cache_timings", "Cache Timings"),
+        &["table"],
+    ).expect("Failed to construct histogram");
+}
+
 
 pub struct Worker {
     id: usize,
@@ -185,6 +200,9 @@ impl Worker {
             return Ok(());
         }
 
+        #[cfg(feature = "metrics")]
+        let start = Instant::now();
+
         guilds.sort_by(|g1, g2| g1.id.cmp(&g2.id));
         guilds.dedup();
 
@@ -212,6 +230,11 @@ impl Worker {
             .simple_query(&query[..])
             .await
             .map_err(CacheError::DatabaseError)?;
+
+        #[cfg(feature = "metrics")]
+        HISTOGRAM
+            .with_label_values(&["guilds"])
+            .observe((Instant::now() - start).as_secs_f64());
 
         // cache objects on guild
         let mut res: Result<()> = Ok(());
