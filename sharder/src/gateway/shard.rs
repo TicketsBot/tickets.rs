@@ -174,12 +174,15 @@ impl<T: EventForwarder> Shard<T> {
             }
         };
 
-        if let Err(e) = self.wait_for_ratelimit().await {
-            self.log_err(
-                "Error while waiting for identify ratelimit, reconnecting",
-                &e,
-            );
-            return Err(e);
+        // If we can RESUME, we can connect straight away
+        if resume_data.is_none() {
+            if let Err(e) = self.wait_for_ratelimit().await {
+                self.log_err(
+                    "Error while waiting for identify ratelimit, reconnecting",
+                    &e,
+                );
+                return Err(e);
+            }
         }
 
         self.log(format!("Connecting to gateway at {}", uri));
@@ -535,13 +538,10 @@ impl<T: EventForwarder> Shard<T> {
                         return Ok(());
                     }
 
-                    if self.connect_time.elapsed() > Duration::from_millis(5000) {
-                        // Need to wait for ratelimit again
-                        if let Err(e) = self.wait_for_ratelimit().await {
-                            self.log_err("Error waiting for ratelimit, reconnecting", &e);
-                            self.kill();
-                            return Ok(());
-                        }
+                    if let Err(e) = self.wait_for_ratelimit().await {
+                        self.log_err("Error waiting for ratelimit, reconnecting", &e);
+                        self.kill();
+                        return Ok(());
                     }
 
                     if let Err(e) = self.do_identify().await {
