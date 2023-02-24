@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use tokio::signal;
 
 use model::user::{ActivityType, StatusType, StatusUpdate};
 use sharder::{

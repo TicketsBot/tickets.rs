@@ -43,7 +43,7 @@ use super::OutboundMessage;
 use super::timer;
 use crate::gateway::event_forwarding::{is_whitelisted, EventForwarder};
 use crate::CloseEvent;
-use deadpool_redis::redis::{AsyncCommands, FromRedisValue};
+use deadpool_redis::redis::AsyncCommands;
 use serde_json::error::Category;
 use serde_json::Value;
 use std::error::Error;
@@ -175,7 +175,7 @@ impl<T: EventForwarder> Shard<T> {
         };
 
         // If we can RESUME, we can connect straight away
-        if resume_data.is_none() {
+        if self.session_data.is_none() {
             if let Err(e) = self.wait_for_ratelimit().await {
                 self.log_err(
                     "Error while waiting for identify ratelimit, reconnecting",
@@ -185,7 +185,7 @@ impl<T: EventForwarder> Shard<T> {
             }
         }
 
-        self.log(format!("Connecting to gateway at {}", uri));
+        self.log(format!("Connecting to gateway at {uri}"));
 
         let (wss, _) = connect_async(uri).await?;
         let (ws_tx, ws_rx) = wss.split();
@@ -966,7 +966,7 @@ async fn handle_writes(
         let res = tx.send(payload).await;
 
         if let Err(e) = msg.tx.send(res) {
-            eprintln!("Error while sending write result back to caller: {:?}", e);
+            error!(error = ?e, "Error while sending write result back to caller");
         }
     }
 }

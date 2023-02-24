@@ -61,7 +61,6 @@ impl Worker {
                         break
                     }
                     recv = rx.recv() => {
-                        drop(rx);
                         let payload = match recv {
                             Some(p) => p,
                             None => { // Should never happen
@@ -253,7 +252,7 @@ impl Worker {
             }
 
             if let Some(members) = guild.members {
-                let users = members.iter().map(|m| m.user.clone()).flatten().collect();
+                let users = members.iter().filter_map(|m| m.user.clone()).collect();
 
                 if let Err(e) = self.store_members(members, guild.id).await {
                     res = Err(e);
