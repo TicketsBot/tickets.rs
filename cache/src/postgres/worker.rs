@@ -1,29 +1,29 @@
 use crate::postgres::payload::CachePayload;
 use crate::{CacheError, Result};
+#[cfg(feature = "metrics")]
+use lazy_static::lazy_static;
 use model::channel::Channel;
 use model::guild::{Emoji, Guild, Member, Role, VoiceState};
 use model::user::User;
 use model::Snowflake;
 #[cfg(feature = "metrics")]
-use prometheus::{HistogramVec, HistogramOpts};
+use prometheus::{HistogramOpts, HistogramVec};
 use std::cmp::Ordering::Equal;
 use std::sync::Arc;
+#[cfg(feature = "metrics")]
+use std::time::Instant;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_postgres::Client;
 use tracing::{debug, info, trace, warn};
-#[cfg(feature = "metrics")]
-use lazy_static::lazy_static;
-#[cfg(feature = "metrics")]
-use std::time::Instant;
 
 #[cfg(feature = "metrics")]
 lazy_static! {
     static ref HISTOGRAM: HistogramVec = HistogramVec::new(
         HistogramOpts::new("cache_timings", "Cache Timings"),
         &["table"],
-    ).expect("Failed to construct histogram");
+    )
+    .expect("Failed to construct histogram");
 }
-
 
 pub struct Worker {
     id: usize,
