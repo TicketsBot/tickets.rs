@@ -538,10 +538,12 @@ impl<T: EventForwarder> Shard<T> {
                         return Ok(());
                     }
 
-                    if let Err(e) = self.wait_for_ratelimit().await {
-                        self.log_err("Error waiting for ratelimit, reconnecting", &e);
-                        self.kill();
-                        return Ok(());
+                    if self.connect_time.elapsed() > Duration::from_millis(500) {
+                        if let Err(e) = self.wait_for_ratelimit().await {
+                            self.log_err("Error waiting for ratelimit, reconnecting", &e);
+                            self.kill();
+                            return Ok(());
+                        }
                     }
 
                     if let Err(e) = self.do_identify().await {
