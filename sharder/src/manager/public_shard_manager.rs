@@ -4,8 +4,8 @@ use tracing::{error, info, warn};
 use super::Options;
 use super::ShardManager;
 
-use crate::SessionData;
 use crate::gateway::{Identify, Shard, ShardInfo};
+use crate::SessionData;
 use crate::{RedisSessionStore, SessionStore};
 
 use std::collections::HashMap;
@@ -136,7 +136,9 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
         let cluster_size = self.options.shard_count.highest - self.options.shard_count.lowest;
         let (tx, mut rx) = mpsc::channel(cluster_size.into());
 
-        let receivers = self.shutdown_tx.send(tx)
+        let receivers = self
+            .shutdown_tx
+            .send(tx)
             .expect("Failed to send shutdown signal to shards");
 
         let mut sessions = HashMap::new();
@@ -159,7 +161,6 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
 
             sessions.insert(shard_id.into(), session_data);
         }
-
 
         if let Err(e) = self.session_store.set_bulk(sessions).await {
             error!(error = %e, "Failed to save session data");

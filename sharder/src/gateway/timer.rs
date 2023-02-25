@@ -1,6 +1,6 @@
 use std::time::Duration;
-use tokio::time::interval;
 use tokio::sync::mpsc;
+use tokio::time::interval;
 
 pub fn timer(tx: mpsc::Sender<()>, duration: Duration, tick_immediately: bool) {
     tokio::spawn(async move {
@@ -12,7 +12,8 @@ pub fn timer(tx: mpsc::Sender<()>, duration: Duration, tick_immediately: bool) {
 
         loop {
             interval.tick().await;
-            if tx.send(()).await.is_err() { // Stop looping when receiver dropped 
+            if tx.send(()).await.is_err() {
+                // Stop looping when receiver dropped
                 break;
             }
         }

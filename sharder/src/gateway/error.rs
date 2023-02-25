@@ -95,6 +95,14 @@ pub enum GatewayError {
 
     #[error("error occurred while performing I/O operation: {0}")]
     IoError(#[from] std::io::Error),
+
+    #[cfg(feature = "metrics")]
+    #[error("error occurred while parsing socket address: {0}")]
+    AddrParseError(#[from] std::net::AddrParseError),
+
+    #[cfg(feature = "metrics")]
+    #[error("error occurred while running hyper server: {0}")]
+    HyperError(#[from] hyper::Error),
 }
 
 impl GatewayError {

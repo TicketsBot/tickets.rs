@@ -16,5 +16,8 @@ pub use builders::{build_cache, build_redis, setup_sentry};
 mod config;
 pub use config::Config;
 
+#[cfg(feature = "metrics")]
+pub mod metrics_server;
+
 mod util;
 pub use util::*;

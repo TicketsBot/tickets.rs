@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use model::user::{ActivityType, StatusType, StatusUpdate};
 use sharder::{
-    setup_sentry, Config, PublicShardManager, RedisSessionStore, ShardCount, ShardManager, await_shutdown,
+    await_shutdown, setup_sentry, Config, PublicShardManager, RedisSessionStore, ShardCount,
+    ShardManager,
 };
 
-use sharder::{build_cache, build_redis};
+use sharder::{build_cache, build_redis, metrics_server};
 
 use deadpool_redis::redis::cmd;
 use jemallocator::Jemalloc;
@@ -25,6 +26,15 @@ async fn main() {
 
     #[cfg(not(feature = "use-sentry"))]
     tracing_subscriber::fmt::init();
+
+    #[cfg(feature = "metrics")]
+    {
+        let metrics_addr = config.metrics_addr.clone();
+        
+        tokio::spawn(async move {
+            metrics_server::start_server(metrics_addr.as_str()).await.expect("Failed to start metrics server");
+        });
+    }
 
     let shard_count = get_shard_count(&config);
 
@@ -74,7 +84,9 @@ async fn main() {
     let sm = Arc::new(sm);
     Arc::clone(&sm).connect().await;
 
-    await_shutdown().await.expect("Failed to wait for shutdown signal");
+    await_shutdown()
+        .await
+        .expect("Failed to wait for shutdown signal");
     info!("Received shutdown signal");
 
     sm.shutdown().await;

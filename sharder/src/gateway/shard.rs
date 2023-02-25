@@ -39,8 +39,8 @@ use super::payloads;
 use super::payloads::event::Event;
 use super::payloads::{Dispatch, Opcode, Payload};
 use super::session_store::SessionData;
-use super::OutboundMessage;
 use super::timer;
+use super::OutboundMessage;
 use crate::gateway::event_forwarding::{is_whitelisted, EventForwarder};
 use crate::CloseEvent;
 use deadpool_redis::redis::AsyncCommands;
@@ -53,6 +53,20 @@ use tokio_tungstenite::{
 };
 
 use tracing::{debug, error, info, warn};
+
+#[cfg(feature = "metrics")]
+use lazy_static::lazy_static;
+
+#[cfg(feature = "metrics")]
+use prometheus::{IntGauge, register_int_gauge};
+
+#[cfg(feature = "metrics")]
+lazy_static! {
+    static ref CACHE_BUFFER_GUAGE: IntGauge = register_int_gauge!(
+        "cache_buffer",
+        "The number of payload that are currently waiting to be stored in the cache"
+    ).expect("Failed to create cache buffer gauge");
+}
 
 const GATEWAY_VERSION: u8 = 10;
 
@@ -255,8 +269,11 @@ impl<T: EventForwarder> Shard<T> {
 
         let status_update_rx = Arc::clone(&self.status_update_rx);
         let status_update_rx = &mut status_update_rx.lock().await;
-    
-        let heartbeat_rx = &mut self.heartbeat_rx.take().ok_or_else(|| GatewayError::custom("heartbeat_rx is None"))?;
+
+        let heartbeat_rx = &mut self
+            .heartbeat_rx
+            .take()
+            .ok_or_else(|| GatewayError::custom("heartbeat_rx is None"))?;
         let mut has_done_heartbeat = false;
 
         loop {
@@ -282,7 +299,7 @@ impl<T: EventForwarder> Shard<T> {
                     break;
                 }
 
-                _ = heartbeat_rx.recv() => {                    
+                _ = heartbeat_rx.recv() => {
                     let elapsed = self.last_ack.checked_duration_since(self.last_heartbeat);
 
                     if has_done_heartbeat && (elapsed.is_none() || elapsed.unwrap() > self.heartbeat_interval) {
@@ -646,6 +663,9 @@ impl<T: EventForwarder> Shard<T> {
             let should_forward = is_whitelisted(&payload.data) && meets_forward_threshold;
 
             // cache
+            #[cfg(feature = "metrics")]
+            CACHE_BUFFER_GUAGE.inc();
+
             let res = match payload.data {
                 Event::ChannelCreate(channel) => cache.store_channel(channel).await,
                 Event::ChannelUpdate(channel) => cache.store_channel(channel).await,
@@ -701,6 +721,9 @@ impl<T: EventForwarder> Shard<T> {
             if let Err(e) = res {
                 error!(shard_id = %shard_id, error = %e, "Error updating cache")
             }
+
+            #[cfg(feature = "metrics")]
+            CACHE_BUFFER_GUAGE.dec();
 
             // push to workers, even if error occurred
             if should_forward {
@@ -811,7 +834,7 @@ impl<T: EventForwarder> Shard<T> {
                             error!(shard_id = %shard_id, "Error sending kill notification to shard");
                         }
                     }
-                    
+
                     break;
                 }
 

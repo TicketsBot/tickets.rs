@@ -18,15 +18,15 @@ use lazy_static::lazy_static;
 use std::time::Instant;
 
 #[cfg(feature = "metrics")]
-use prometheus::{HistogramOpts, HistogramVec};
+use prometheus::{HistogramVec, register_histogram_vec};
 
 #[cfg(feature = "metrics")]
 lazy_static! {
-    static ref HISTOGRAM: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("cache_timings", "Cache Timings"),
-        &["table"],
-    )
-    .expect("Failed to construct histogram");
+    static ref HISTOGRAM: HistogramVec = register_histogram_vec!(
+        "cache_timings",
+        "Cache Timings",
+        &["table"]
+    ).expect("Failed to register cache timings histogram");
 }
 
 pub struct PostgresCache {
