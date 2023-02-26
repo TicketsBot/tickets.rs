@@ -59,13 +59,13 @@ impl PostgresCache {
         vec![
             // create tables
             r#"SET synchronous_commit TO OFF;"#,
-            r#"CREATE TABLE IF NOT EXISTS guilds("guild_id" int8 NOT NULL UNIQUE, "data" jsonb NOT NULL, PRIMARY KEY("guild_id"));"#,
-            r#"CREATE TABLE IF NOT EXISTS channels("channel_id" int8 NOT NULL UNIQUE, "guild_id" int8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("channel_id", "guild_id"));"#,
-            r#"CREATE TABLE IF NOT EXISTS users("user_id" int8 NOT NULL UNIQUE, "data" jsonb NOT NULL, PRIMARY KEY("user_id"));"#,
-            r#"CREATE TABLE IF NOT EXISTS members("guild_id" int8 NOT NULL, "user_id" int8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("guild_id", "user_id"));"#,
-            r#"CREATE TABLE IF NOT EXISTS roles("role_id" int8 NOT NULL UNIQUE, "guild_id" int8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("role_id", "guild_id"));"#,
-            r#"CREATE TABLE IF NOT EXISTS emojis("emoji_id" int8 NOT NULL UNIQUE, "guild_id" int8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("emoji_id", "guild_id"));"#,
-            r#"CREATE TABLE IF NOT EXISTS voice_states("guild_id" int8 NOT NULL, "user_id" INT8 NOT NULL, "data" jsonb NOT NULL, PRIMARY KEY("guild_id", "user_id"));"#,
+            r#"CREATE TABLE IF NOT EXISTS guilds("guild_id" int8 NOT NULL UNIQUE, "data" json NOT NULL, PRIMARY KEY("guild_id"));"#,
+            r#"CREATE TABLE IF NOT EXISTS channels("channel_id" int8 NOT NULL UNIQUE, "guild_id" int8 NOT NULL, "data" json NOT NULL, PRIMARY KEY("channel_id", "guild_id"));"#,
+            r#"CREATE TABLE IF NOT EXISTS users("user_id" int8 NOT NULL UNIQUE, "data" json NOT NULL, PRIMARY KEY("user_id"));"#,
+            r#"CREATE TABLE IF NOT EXISTS members("guild_id" int8 NOT NULL, "user_id" int8 NOT NULL, "data" json NOT NULL, PRIMARY KEY("guild_id", "user_id"));"#,
+            r#"CREATE TABLE IF NOT EXISTS roles("role_id" int8 NOT NULL UNIQUE, "guild_id" int8 NOT NULL, "data" json NOT NULL, PRIMARY KEY("role_id", "guild_id"));"#,
+            r#"CREATE TABLE IF NOT EXISTS emojis("emoji_id" int8 NOT NULL UNIQUE, "guild_id" int8 NOT NULL, "data" json NOT NULL, PRIMARY KEY("emoji_id", "guild_id"));"#,
+            r#"CREATE TABLE IF NOT EXISTS voice_states("guild_id" int8 NOT NULL, "user_id" INT8 NOT NULL, "data" json NOT NULL, PRIMARY KEY("guild_id", "user_id"));"#,
 
             // create indexes
             // TODO: Cannot create index concurrently in transaction block
@@ -119,7 +119,7 @@ impl Cache for PostgresCache {
 
             let encoded = serde_json::to_string(guild).map_err(CacheError::JsonError)?;
             query.push_str(&format!(
-                r#"({}, {}::jsonb)"#,
+                r#"({}, {})"#,
                 guild.id.0,
                 quote_literal(encoded)
             ));
@@ -244,7 +244,7 @@ impl Cache for PostgresCache {
 
             let encoded = serde_json::to_string(&channel)?;
             query.push_str(&format!(
-                r#"({}, {}, {}::jsonb)"#,
+                r#"({}, {}, {})"#,
                 channel.id.0,
                 channel.guild_id.unwrap().0,
                 quote_literal(encoded)
@@ -303,7 +303,7 @@ impl Cache for PostgresCache {
 
             let encoded = serde_json::to_string(&user).map_err(CacheError::JsonError)?;
             query.push_str(&format!(
-                r#"({}, {}::jsonb)"#,
+                r#"({}, {})"#,
                 user.id.0,
                 quote_literal(encoded)
             ));
@@ -378,7 +378,7 @@ impl Cache for PostgresCache {
 
             let encoded = serde_json::to_string(&member).map_err(CacheError::JsonError)?;
             query.push_str(&format!(
-                r#"({}, {}, {}::jsonb)"#,
+                r#"({}, {}, {})"#,
                 guild_id,
                 member.user.as_ref().unwrap().id,
                 quote_literal(encoded)
@@ -437,7 +437,7 @@ impl Cache for PostgresCache {
 
             let encoded = serde_json::to_string(&role).map_err(CacheError::JsonError)?;
             query.push_str(&format!(
-                r#"({}, {}, {}::jsonb)"#,
+                r#"({}, {}, {})"#,
                 role.id.0,
                 guild_id.0,
                 quote_literal(encoded)
@@ -502,7 +502,7 @@ impl Cache for PostgresCache {
 
             let encoded = serde_json::to_string(&emoji).map_err(CacheError::JsonError)?;
             query.push_str(&format!(
-                r#"({}, {}, {}::jsonb)"#,
+                r#"({}, {}, {})"#,
                 emoji.id.unwrap(),
                 guild_id,
                 quote_literal(encoded)
@@ -567,7 +567,7 @@ impl Cache for PostgresCache {
 
             let encoded = serde_json::to_string(&voice_state).map_err(CacheError::JsonError)?;
             query.push_str(&format!(
-                r#"({}, {}, {}::jsonb)"#,
+                r#"({}, {}, {})"#,
                 voice_state.guild_id.unwrap(),
                 voice_state.user_id,
                 quote_literal(encoded)
