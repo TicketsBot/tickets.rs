@@ -30,9 +30,11 @@ async fn main() {
     #[cfg(feature = "metrics")]
     {
         let metrics_addr = config.metrics_addr.clone();
-        
+
         tokio::spawn(async move {
-            metrics_server::start_server(metrics_addr.as_str()).await.expect("Failed to start metrics server");
+            metrics_server::start_server(metrics_addr.as_str())
+                .await
+                .expect("Failed to start metrics server");
         });
     }
 

@@ -4,6 +4,9 @@ use std::collections::BTreeMap;
 use std::default::Default;
 use std::fmt::Display;
 use std::str;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -58,14 +61,15 @@ use tracing::{debug, error, info, warn};
 use lazy_static::lazy_static;
 
 #[cfg(feature = "metrics")]
-use prometheus::{IntGauge, register_int_gauge};
+use prometheus::{register_int_gauge, IntGauge};
 
 #[cfg(feature = "metrics")]
 lazy_static! {
     static ref CACHE_BUFFER_GUAGE: IntGauge = register_int_gauge!(
         "cache_buffer",
         "The number of payload that are currently waiting to be stored in the cache"
-    ).expect("Failed to create cache buffer gauge");
+    )
+    .expect("Failed to create cache buffer gauge");
 }
 
 const GATEWAY_VERSION: u8 = 10;
@@ -90,10 +94,10 @@ pub struct Shard<T: EventForwarder> {
     last_ack: Instant,
     last_heartbeat: Instant,
     connect_time: Instant,
-    ready_tx: Mutex<Option<oneshot::Sender<()>>>,
+    ready_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     ready_guild_count: u16,
-    received_count: usize,
-    is_ready: bool,
+    received_count: Arc<AtomicUsize>,
+    is_ready: Arc<AtomicBool>,
     shutdown_rx: broadcast::Receiver<mpsc::Sender<(u16, Option<SessionData>)>>,
     pub(crate) event_forwarder: Arc<T>,
 
@@ -144,10 +148,10 @@ impl<T: EventForwarder> Shard<T> {
             last_ack: Instant::now(),
             last_heartbeat: Instant::now(),
             connect_time: Instant::now(), // will be overwritten
-            ready_tx: Mutex::new(ready_tx),
+            ready_tx: Arc::new(Mutex::new(ready_tx)),
             ready_guild_count: 0,
-            received_count: 0,
-            is_ready: false,
+            received_count: Arc::new(AtomicUsize::new(0)),
+            is_ready: Arc::new(AtomicBool::new(false)),
             shutdown_rx,
             event_forwarder,
             #[cfg(feature = "whitelabel")]
@@ -613,9 +617,7 @@ impl<T: EventForwarder> Shard<T> {
             Event::Resumed(_) => {
                 self.log("Received resumed acknowledgement");
 
-                if !self.is_ready {
-                    self.is_ready = true;
-
+                if !self.is_ready.compare_and_swap(false, true, Ordering::Release) {
                     if let Some(tx) = self.ready_tx.lock().take() {
                         if tx.send(()).is_err() {
                             self.log_err(
@@ -629,16 +631,8 @@ impl<T: EventForwarder> Shard<T> {
                 return Ok(());
             }
 
-            #[cfg(not(feature = "whitelabel"))]
-            Event::GuildCreate(_) => {
-                self.update_count().await;
-            }
-
             #[cfg(feature = "whitelabel")]
             Event::GuildCreate(g) => {
-                self.update_count().await;
-
-                #[cfg(feature = "whitelabel")]
                 if let Err(e) = self.store_whitelabel_guild(g.id).await {
                     self.log_err("Error while storing whitelabel guild data", &e);
                 }
@@ -653,6 +647,11 @@ impl<T: EventForwarder> Shard<T> {
         let shard_id = self.get_shard_id();
         let self_id = self.user_id.0;
         let token = self.identify.data.token.clone();
+
+        let shard_guild_count = self.ready_guild_count;
+        let received_count = Arc::clone(&self.received_count);
+        let is_ready = Arc::clone(&self.is_ready);
+        let ready_tx = Arc::clone(&self.ready_tx);
 
         let config = Arc::clone(&self.config);
         let cache = Arc::clone(&self.cache);
@@ -675,7 +674,11 @@ impl<T: EventForwarder> Shard<T> {
                 Event::ThreadDelete(thread) => cache.delete_channel(thread.id).await,
                 Event::GuildCreate(mut guild) => {
                     apply_guild_id_to_channels(&mut guild);
-                    cache.store_guild(guild).await
+                    let res = cache.store_guild(guild).await;
+
+                    Self::update_count(shard_id, shard_guild_count, received_count, is_ready, ready_tx).await;
+
+                    res
                 }
                 Event::GuildUpdate(mut guild) => {
                     apply_guild_id_to_channels(&mut guild);
@@ -756,25 +759,27 @@ impl<T: EventForwarder> Shard<T> {
         Ok(())
     }
 
-    async fn update_count(&mut self) {
-        if !self.is_ready {
-            self.received_count += 1;
+    async fn update_count(
+        shard_id: u16,
+        shard_guild_count: u16,
+        received_count: Arc<AtomicUsize>,
+        is_ready: Arc<AtomicBool>,
+        ready_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    ) {
+        if !is_ready.load(Ordering::Relaxed) {
+            let received_count = received_count.fetch_add(1, Ordering::Relaxed);
 
-            if self.received_count >= (self.ready_guild_count / 100 * 90).into() {
+            if received_count >= (shard_guild_count / 100 * 90).into() {
                 // Once we have 90% of the guilds, we're ok to load more shards
                 // CAS in case value was updated since read
-                if !self.is_ready {
-                    self.is_ready = true;
-
-                    if let Some(tx) = self.ready_tx.lock().take() {
-                        self.log("Reporting readiness");
+                let is_ready = is_ready.compare_and_swap(false, true, Ordering::Relaxed);
+                if !is_ready {
+                    if let Some(tx) = ready_tx.lock().take() {
+                        info!(shard_id = %shard_id, "Reporting readiness");
                         if tx.send(()).is_err() {
-                            self.log_err(
-                                "Error sending ready notification to probe",
-                                &GatewayError::ReceiverHungUpError,
-                            );
+                            error!(shard_id = %shard_id, "Error sending ready notification to probe");
                         }
-                        self.log("Reported readiness");
+                        info!(shard_id = %shard_id, "Reported readiness");
                     }
                 }
             }
@@ -785,7 +790,7 @@ impl<T: EventForwarder> Shard<T> {
         if cfg!(feature = "skip-initial-guild-creates") {
             if let Event::GuildCreate(_) = event {
                 // if not ready, don't forward event
-                return self.is_ready;
+                return self.is_ready.load(Ordering::Relaxed);
             }
         }
 
