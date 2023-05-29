@@ -47,7 +47,9 @@ pub async fn main() -> Result<(), PatreonError> {
 
     loop {
         info!("Starting loop");
-        if (current_time_seconds() + 86400) > tokens.expires {
+
+        // Patreon issues tokens that last 1 month, but I have noticed some issues refreshing them close to the deadline
+        if (current_time_seconds() + (86400 * 3)) > tokens.expires {
             info!("Needs new credentials");
             tokens = Arc::new(handle_refresh(&tokens, &config, &db_client).await?);
             poller.tokens = Arc::clone(&tokens);
