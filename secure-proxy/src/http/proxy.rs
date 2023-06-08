@@ -1,8 +1,8 @@
 use super::CustomRejection;
 use super::Server;
 use crate::Config;
-use axum::http::{HeaderMap, HeaderValue, StatusCode};
-use axum::response::IntoResponse;
+use axum::http::StatusCode;
+use axum::response::Response;
 use axum::{extract::Json, Extension};
 use hyper::body::HttpBody;
 #[cfg(feature = "pre-resolve")]
@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use axum::body::{Bytes, Full};
 use tokio::time::timeout;
 #[cfg(feature = "pre-resolve")]
 use tower::Service;
@@ -42,7 +43,7 @@ pub(crate) struct Payload {
 pub(crate) async fn proxy(
     Json(mut data): Json<Payload>,
     Extension(server): Extension<Arc<Server>>,
-) -> Result<impl IntoResponse, CustomRejection> {
+) -> Result<Response<Full<Bytes>>, CustomRejection> {
     #[cfg(feature = "pre-resolve")]
     {
         let url = Url::parse(data.url.as_str()).unwrap();
@@ -164,6 +165,10 @@ pub(crate) async fn proxy(
         }
     }
 
+    let proxied_response = Response::builder()
+            .status(StatusCode::OK)
+            .header("x-status-code", res.status().as_u16());
+
     // Read data
     let data = match hyper::body::to_bytes(res.into_body()).await {
         Ok(data) => data,
@@ -173,10 +178,15 @@ pub(crate) async fn proxy(
         }
     };
 
-    let mut headers = HeaderMap::new();
-    headers.insert("x-status-code", HeaderValue::from(res.status().as_u16()));
+    let proxied_response = match proxied_response.body(Full::from(data)) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!("Failed to set response body: {e}");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "Error setting response body").into());
+        }
+    };
 
-    Ok((data, headers))
+    Ok(proxied_response)
 }
 
 static BLACKLISTED_HEADERS: &[&str] = &[
