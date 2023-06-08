@@ -1,7 +1,7 @@
 use super::CustomRejection;
 use super::Server;
 use crate::Config;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::IntoResponse;
 use axum::{extract::Json, Extension};
 use hyper::body::HttpBody;
@@ -173,7 +173,10 @@ pub(crate) async fn proxy(
         }
     };
 
-    Ok(data)
+    let mut headers = HeaderMap::new();
+    headers.insert("x-status-code", HeaderValue::from(res.status().as_u16()));
+
+    Ok((data, headers))
 }
 
 static BLACKLISTED_HEADERS: &[&str] = &[
