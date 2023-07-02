@@ -10,8 +10,7 @@ pub enum ChannelType {
     GroupDM = 3,
     GuildCategory = 4,
     GuildNews = 5,
-    GuildStore = 6,
-    GuildNewsThread = 10,
+    GuildAnnouncementThread = 10,
     GuildPublicThread = 11,
     GuildPrivateThread = 12,
     GuildStageVoice = 13,
@@ -22,7 +21,7 @@ pub enum ChannelType {
 impl ChannelType {
     pub fn is_thread(&self) -> bool {
         match self {
-            GuildNewsThread | GuildPublicThread | GuildPrivateThread => true,
+            GuildAnnouncementThread | GuildPublicThread | GuildPrivateThread => true,
             _ => false,
         }
     }

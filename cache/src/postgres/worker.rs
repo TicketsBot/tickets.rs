@@ -1,6 +1,6 @@
 use crate::postgres::payload::CachePayload;
-use crate::{CacheError, Result};
-use model::channel::Channel;
+use crate::{CacheError, Options, Result};
+use model::channel::{Channel, ChannelType};
 use model::guild::{Emoji, Guild, Member, Role, VoiceState};
 use model::user::User;
 use model::Snowflake;
@@ -12,6 +12,7 @@ use tokio_postgres::Client;
 
 pub struct Worker {
     id: usize,
+    options: Options,
     client: Client,
     rx: PayloadReceiver,
     kill_rx: Mutex<oneshot::Receiver<()>>,
@@ -22,12 +23,14 @@ pub(crate) type PayloadReceiver = Arc<Mutex<mpsc::Receiver<CachePayload>>>;
 impl Worker {
     pub fn new(
         id: usize,
+        options: Options,
         client: Client,
         rx: PayloadReceiver,
         kill_rx: oneshot::Receiver<()>,
     ) -> Worker {
         Worker {
             id,
+            options,
             client,
             rx,
             kill_rx: Mutex::new(kill_rx),
@@ -218,43 +221,55 @@ impl Worker {
 
         // TODO: check opts
         for guild in guilds {
-            if let Some(channels) = guild.channels {
-                if let Err(e) = self.store_channels(channels).await {
-                    res = Err(e);
-                }
-            }
-            if let Some(threads) = guild.threads {
-                if let Err(e) = self.store_channels(threads).await {
-                    res = Err(e);
+            if self.options.channels {
+                if let Some(channels) = guild.channels {
+                    if let Err(e) = self.store_channels(channels).await {
+                        res = Err(e);
+                    }
                 }
             }
 
-            if let Some(members) = guild.members {
-                let users = members.iter().map(|m| m.user.clone()).flatten().collect();
+            if self.options.threads {
+                if let Some(threads) = guild.threads {
+                    if let Err(e) = self.store_channels(threads).await {
+                        res = Err(e);
+                    }
+                }
+            }
 
-                if let Err(e) = self.store_members(members, guild.id).await {
+            if self.options.members {
+                if let Some(members) = guild.members {
+                    let users = members.iter().map(|m| m.user.clone()).flatten().collect();
+
+                    if let Err(e) = self.store_members(members, guild.id).await {
+                        res = Err(e);
+                    }
+
+                    if let Err(e) = self.store_users(users).await {
+                        res = Err(e)
+                    }
+                }
+            }
+
+            if self.options.roles {
+                if let Err(e) = self.store_roles(guild.roles, guild.id).await {
                     res = Err(e);
                 }
+            }
 
-                if let Err(e) = self.store_users(users).await {
+            if self.options.emojis {
+                if let Err(e) = self.store_emojis(guild.emojis, guild.id).await {
                     res = Err(e)
                 }
             }
 
-            if let Err(e) = self.store_roles(guild.roles, guild.id).await {
-                res = Err(e);
-            }
-
-            // TODO: Check opts
-            /*if let Err(e) = self.store_emojis(guild.emojis, guild.id).await {
-                res = Err(e)
-            }
-
-            if let Some(voice_states) = guild.voice_states {
-                if let Err(e) = self.store_voice_states(voice_states).await {
-                    res = Err(e)
+            if self.options.voice_states {
+                if let Some(voice_states) = guild.voice_states {
+                    if let Err(e) = self.store_voice_states(voice_states).await {
+                        res = Err(e)
+                    }
                 }
-            }*/
+            }
         }
 
         res
@@ -298,6 +313,7 @@ impl Worker {
         let mut channels = channels
             .into_iter()
             .filter(|c| c.guild_id.is_some())
+            .filter(|c| self.options.threads || !c.channel_type.is_thread())
             .collect::<Vec<Channel>>();
 
         if channels.is_empty() {

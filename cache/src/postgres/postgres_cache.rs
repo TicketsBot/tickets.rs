@@ -38,7 +38,7 @@ impl PostgresCache {
                         backoff::future::retry(ExponentialBackoff::default(), || async {
                             println!("[cache worker:{}] trying to connect", id);
                             let (kill_tx, conn) =
-                                Self::spawn_worker(id, &uri[..], Arc::clone(&worker_rx)).await?;
+                                Self::spawn_worker(id, opts.clone(), &uri[..], Arc::clone(&worker_rx)).await?;
                             println!("[cache worker:{}] connected!", id);
 
                             if let Err(e) = conn.await {
@@ -66,6 +66,7 @@ impl PostgresCache {
 
     async fn spawn_worker(
         id: usize,
+        opts: Options,
         uri: &str,
         payload_rx: PayloadReceiver,
     ) -> Result<(oneshot::Sender<()>, Connection<Socket, NoTlsStream>)> {
@@ -75,7 +76,7 @@ impl PostgresCache {
 
         let (kill_tx, kill_rx) = oneshot::channel();
 
-        let worker = Worker::new(id, client, payload_rx, kill_rx);
+        let worker = Worker::new(id, opts, client, payload_rx, kill_rx);
         worker.start();
 
         Ok((kill_tx, conn))
