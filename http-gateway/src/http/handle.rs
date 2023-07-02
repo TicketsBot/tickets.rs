@@ -207,14 +207,6 @@ async fn cache_resolved<T: Cache>(
         .map(|(_, member)| member)
         .collect();
 
-    let roles: Vec<Role> = interaction
-        .data
-        .resolved
-        .roles
-        .into_iter()
-        .map(|(_, role)| role)
-        .collect();
-
     // Don't cache channels since data is extremely basic
 
     if let Some(member) = interaction.member {
@@ -229,7 +221,6 @@ async fn cache_resolved<T: Cache>(
 
     server.cache.store_users(users).await?;
     server.cache.store_members(members, guild_id).await?;
-    server.cache.store_roles(roles, guild_id).await?;
 
     Ok(())
 }

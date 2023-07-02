@@ -11,7 +11,7 @@ pub async fn build_cache(config: &Config) -> PostgresCache {
         guilds: true,
         members: true,
         channels: true,
-        roles: true,
+        roles: false,
         emojis: false,
         voice_states: false,
     };

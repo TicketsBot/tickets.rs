@@ -21,7 +21,7 @@ async fn main() -> Result<(), Error> {
         guilds: false,
         members: true,
         channels: false,
-        roles: true,
+        roles: false,
         emojis: false,
         voice_states: false,
     };
