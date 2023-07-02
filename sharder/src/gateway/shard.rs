@@ -271,7 +271,7 @@ impl<T: EventForwarder> Shard<T> {
         >,
     ) -> Result<()> {
         #[cfg(feature = "compression")]
-        let mut decoder = Decompress::new(true);
+            let mut decoder = Decompress::new(true);
 
         loop {
             let shard = Arc::clone(&self);
@@ -734,77 +734,75 @@ impl<T: EventForwarder> Shard<T> {
             _ => {}
         }
 
-        // cache + push to redis
-        tokio::spawn(async move {
-            let guild_id = super::event_forwarding::get_guild_id(&payload.data);
-            let should_forward =
-                is_whitelisted(&payload.data) && self.meets_forward_threshold(&payload.data).await;
+        // cache
+        let guild_id = super::event_forwarding::get_guild_id(&payload.data);
+        let should_forward =
+            is_whitelisted(&payload.data) && self.meets_forward_threshold(&payload.data).await;
 
-            // cache
-            let res = match payload.data {
-                Event::ChannelCreate(channel) => self.cache.store_channel(channel).await,
-                Event::ChannelUpdate(channel) => self.cache.store_channel(channel).await,
-                Event::ChannelDelete(channel) => self.cache.delete_channel(channel.id).await,
-                Event::ThreadCreate(thread) => self.cache.store_channel(thread).await,
-                Event::ThreadUpdate(thread) => self.cache.store_channel(thread).await,
-                Event::ThreadDelete(thread) => self.cache.delete_channel(thread.id).await,
-                Event::GuildCreate(mut guild) => {
-                    apply_guild_id_to_channels(&mut guild);
-                    self.cache.store_guild(guild).await
-                }
-                Event::GuildUpdate(mut guild) => {
-                    apply_guild_id_to_channels(&mut guild);
-                    self.cache.store_guild(guild).await
-                }
-                Event::GuildDelete(guild) => {
-                    if guild.unavailable.is_none() {
-                        // we were kicked
-                        // TODO: don't delete if this is main bot & whitelabel bot is in guild
-                        self.cache.delete_guild(guild.id).await
-                    } else {
-                        Ok(())
-                    }
-                }
-                Event::GuildBanAdd(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await,
-                Event::GuildEmojisUpdate(ev) => {
-                    self.cache.store_emojis(ev.emojis, ev.guild_id).await
-                }
-                Event::GuildMemberAdd(ev) => self.cache.store_member(ev.member, ev.guild_id).await,
-                Event::GuildMemberRemove(ev) => {
-                    self.cache.delete_member(ev.user.id, ev.guild_id).await
-                }
-                Event::GuildMemberUpdate(ev) => {
-                    self.cache
-                        .store_member(
-                            Member {
-                                user: Some(ev.user),
-                                nick: ev.nick,
-                                roles: ev.roles,
-                                joined_at: ev.joined_at,
-                                premium_since: ev.premium_since,
-                                deaf: false, // TODO: Don't update these fields somehow?
-                                mute: false, // TODO: Don't update these fields somehow?
-                            },
-                            ev.guild_id,
-                        )
-                        .await
-                }
-                Event::GuildMembersChunk(ev) => {
-                    self.cache.store_members(ev.members, ev.guild_id).await
-                }
-                Event::GuildRoleCreate(ev) => self.cache.store_role(ev.role, ev.guild_id).await,
-                Event::GuildRoleUpdate(ev) => self.cache.store_role(ev.role, ev.guild_id).await,
-                Event::GuildRoleDelete(ev) => self.cache.delete_role(ev.role_id).await,
-                Event::UserUpdate(user) => self.cache.store_user(user).await,
-                _ => Ok(()),
-            };
-
-            if let Err(e) = res {
-                self.log_err("Error updating cache", &GatewayError::CacheError(e));
+        // cache
+        if let Err(e) = match payload.data {
+            Event::ChannelCreate(channel) => self.cache.store_channel(channel).await,
+            Event::ChannelUpdate(channel) => self.cache.store_channel(channel).await,
+            Event::ChannelDelete(channel) => self.cache.delete_channel(channel.id).await,
+            Event::ThreadCreate(thread) => self.cache.store_channel(thread).await,
+            Event::ThreadUpdate(thread) => self.cache.store_channel(thread).await,
+            Event::ThreadDelete(thread) => self.cache.delete_channel(thread.id).await,
+            Event::GuildCreate(mut guild) => {
+                apply_guild_id_to_channels(&mut guild);
+                self.cache.store_guild(guild).await
             }
+            Event::GuildUpdate(mut guild) => {
+                apply_guild_id_to_channels(&mut guild);
+                self.cache.store_guild(guild).await
+            }
+            Event::GuildDelete(guild) => {
+                if guild.unavailable.is_none() {
+                    // we were kicked
+                    // TODO: don't delete if this is main bot & whitelabel bot is in guild
+                    self.cache.delete_guild(guild.id).await
+                } else {
+                    Ok(())
+                }
+            }
+            Event::GuildBanAdd(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await,
+            Event::GuildEmojisUpdate(ev) => {
+                self.cache.store_emojis(ev.emojis, ev.guild_id).await
+            }
+            Event::GuildMemberAdd(ev) => self.cache.store_member(ev.member, ev.guild_id).await,
+            Event::GuildMemberRemove(ev) => {
+                self.cache.delete_member(ev.user.id, ev.guild_id).await
+            }
+            Event::GuildMemberUpdate(ev) => {
+                self.cache
+                    .store_member(
+                        Member {
+                            user: Some(ev.user),
+                            nick: ev.nick,
+                            roles: ev.roles,
+                            joined_at: ev.joined_at,
+                            premium_since: ev.premium_since,
+                            deaf: false, // TODO: Don't update these fields somehow?
+                            mute: false, // TODO: Don't update these fields somehow?
+                        },
+                        ev.guild_id,
+                    )
+                    .await
+            }
+            Event::GuildMembersChunk(ev) => {
+                self.cache.store_members(ev.members, ev.guild_id).await
+            }
+            Event::GuildRoleCreate(ev) => self.cache.store_role(ev.role, ev.guild_id).await,
+            Event::GuildRoleUpdate(ev) => self.cache.store_role(ev.role, ev.guild_id).await,
+            Event::GuildRoleDelete(ev) => self.cache.delete_role(ev.role_id).await,
+            Event::UserUpdate(user) => self.cache.store_user(user).await,
+            _ => Ok(()),
+        } {
+            self.log_err("Error updating cache", &GatewayError::CacheError(e));
+        }
 
-            // push to workers, even if error occurred
-            if should_forward {
+        // push to workers, even if error occurred
+        if should_forward {
+            tokio::spawn(async move {
                 // prepare payload
                 let wrapped = event_forwarding::Event {
                     bot_token: &self.identify.data.token[..],
@@ -821,8 +819,8 @@ impl<T: EventForwarder> Shard<T> {
                 {
                     self.log_err("Error while executing worker HTTP request", &e);
                 }
-            }
-        });
+            });
+        }
 
         Ok(())
     }
@@ -1037,7 +1035,7 @@ impl<T: EventForwarder> Shard<T> {
             value,
             Some(60 * 60 * 72),
         )
-        .await
+            .await
     }
 
     async fn delete_gateway_url(&self) -> Result<()> {

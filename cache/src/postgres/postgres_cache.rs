@@ -10,19 +10,20 @@ use backoff::ExponentialBackoff;
 use model::channel::Channel;
 use model::guild::{Emoji, Guild, Member, Role, VoiceState};
 use std::sync::Arc;
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_postgres::tls::NoTlsStream;
 use tokio_postgres::{Connection, NoTls, Socket};
 
 pub struct PostgresCache {
     opts: Options,
-    tx: mpsc::Sender<CachePayload>,
+    tx: mpsc::UnboundedSender<CachePayload>,
 }
 
 impl PostgresCache {
     /// panics if URI is invalid
     pub async fn connect(uri: String, opts: Options, workers: usize) -> Result<PostgresCache> {
-        let (worker_tx, worker_rx) = mpsc::channel(1); // TODO: Tweak
+        let (worker_tx, worker_rx) = unbounded_channel();
         let worker_rx = Arc::new(Mutex::new(worker_rx));
 
         // start workers
@@ -37,8 +38,13 @@ impl PostgresCache {
                     let _: Result<()> =
                         backoff::future::retry(ExponentialBackoff::default(), || async {
                             println!("[cache worker:{}] trying to connect", id);
-                            let (kill_tx, conn) =
-                                Self::spawn_worker(id, opts.clone(), &uri[..], Arc::clone(&worker_rx)).await?;
+                            let (kill_tx, conn) = Self::spawn_worker(
+                                id,
+                                opts.clone(),
+                                &uri[..],
+                                Arc::clone(&worker_rx),
+                            )
+                            .await?;
                             println!("[cache worker:{}] connected!", id);
 
                             if let Err(e) = conn.await {
@@ -105,28 +111,23 @@ impl PostgresCache {
             r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS voice_states_user_id ON voice_states("user_id");"#,
         ].iter().map(|s| s.to_string()).collect();
 
-        let (tx, rx) = oneshot::channel();
-        self.tx
-            .clone()
-            .send(CachePayload::Schema { queries, tx })
-            .await
-            .map_err(CacheError::SendError)?;
-        rx.await.map_err(CacheError::RecvError)??;
+        self.send_payload(CachePayload::Schema { queries })?;
 
         Ok(())
     }
 
-    async fn send_payload<T>(
+    fn send_payload(&self, payload: CachePayload) -> Result<()> {
+        self.tx.send(payload)?;
+        Ok(())
+    }
+
+    async fn send_payload_and_listen<T>(
         &self,
         rx: oneshot::Receiver<Result<T>>,
         payload: CachePayload,
     ) -> Result<T> {
-        self.tx
-            .clone()
-            .send(payload)
-            .await
-            .map_err(CacheError::SendError)?;
-        rx.await.map_err(CacheError::RecvError)?
+        self.tx.send(payload)?;
+        rx.await?
     }
 }
 
@@ -141,26 +142,22 @@ impl Cache for PostgresCache {
             return Ok(());
         }
 
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::StoreGuilds { guilds, tx })
-            .await
+        self.send_payload(CachePayload::StoreGuilds { guilds })
     }
 
     async fn get_guild(&self, id: Snowflake) -> Result<Option<Guild>> {
         let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::GetGuild { id, tx })
+        self.send_payload_and_listen(rx, CachePayload::GetGuild { id, tx })
             .await
     }
 
     async fn delete_guild(&self, id: Snowflake) -> Result<()> {
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::DeleteGuild { id, tx })
-            .await
+        self.send_payload(CachePayload::DeleteGuild { id })
     }
 
     async fn get_guild_count(&self) -> Result<usize> {
         let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::GetGuildCount { tx })
+        self.send_payload_and_listen(rx, CachePayload::GetGuildCount { tx })
             .await
     }
 
@@ -173,21 +170,17 @@ impl Cache for PostgresCache {
             return Ok(());
         }
 
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::StoreChannels { channels, tx })
-            .await
+        self.send_payload(CachePayload::StoreChannels { channels })
     }
 
     async fn get_channel(&self, id: Snowflake) -> Result<Option<Channel>> {
         let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::GetChannel { id, tx })
+        self.send_payload_and_listen(rx, CachePayload::GetChannel { id, tx })
             .await
     }
 
     async fn delete_channel(&self, id: Snowflake) -> Result<()> {
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::DeleteChannel { id, tx })
-            .await
+        self.send_payload(CachePayload::DeleteChannel { id })
     }
 
     async fn store_user(&self, user: User) -> Result<()> {
@@ -199,21 +192,17 @@ impl Cache for PostgresCache {
             return Ok(());
         }
 
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::StoreUsers { users, tx })
-            .await
+        self.send_payload(CachePayload::StoreUsers { users })
     }
 
     async fn get_user(&self, id: Snowflake) -> Result<Option<User>> {
         let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::GetUser { id, tx })
+        self.send_payload_and_listen(rx, CachePayload::GetUser { id, tx })
             .await
     }
 
     async fn delete_user(&self, id: Snowflake) -> Result<()> {
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::DeleteUser { id, tx })
-            .await
+        self.send_payload(CachePayload::DeleteUser { id })
     }
 
     async fn store_member(&self, member: Member, guild_id: Snowflake) -> Result<()> {
@@ -225,21 +214,12 @@ impl Cache for PostgresCache {
             return Ok(());
         }
 
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(
-            rx,
-            CachePayload::StoreMembers {
-                members,
-                guild_id,
-                tx,
-            },
-        )
-        .await
+        self.send_payload(CachePayload::StoreMembers { members, guild_id })
     }
 
     async fn get_member(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<Option<Member>> {
         let (tx, rx) = oneshot::channel();
-        self.send_payload(
+        self.send_payload_and_listen(
             rx,
             CachePayload::GetMember {
                 user_id,
@@ -251,16 +231,7 @@ impl Cache for PostgresCache {
     }
 
     async fn delete_member(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<()> {
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(
-            rx,
-            CachePayload::DeleteMember {
-                user_id,
-                guild_id,
-                tx,
-            },
-        )
-        .await
+        self.send_payload(CachePayload::DeleteMember { user_id, guild_id })
     }
 
     async fn store_role(&self, role: Role, guild_id: Snowflake) -> Result<()> {
@@ -272,28 +243,17 @@ impl Cache for PostgresCache {
             return Ok(());
         }
 
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(
-            rx,
-            CachePayload::StoreRoles {
-                roles,
-                guild_id,
-                tx,
-            },
-        )
-        .await
+        self.send_payload(CachePayload::StoreRoles { roles, guild_id })
     }
 
     async fn get_role(&self, id: Snowflake) -> Result<Option<Role>> {
         let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::GetRole { id, tx })
+        self.send_payload_and_listen(rx, CachePayload::GetRole { id, tx })
             .await
     }
 
     async fn delete_role(&self, id: Snowflake) -> Result<()> {
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::DeleteRole { id, tx })
-            .await
+        self.send_payload(CachePayload::DeleteRole { id })
     }
 
     async fn store_emoji(&self, emoji: Emoji, guild_id: Snowflake) -> Result<()> {
@@ -305,28 +265,17 @@ impl Cache for PostgresCache {
             return Ok(());
         }
 
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(
-            rx,
-            CachePayload::StoreEmojis {
-                emojis,
-                guild_id,
-                tx,
-            },
-        )
-        .await
+        self.send_payload(CachePayload::StoreEmojis { emojis, guild_id })
     }
 
     async fn get_emoji(&self, id: Snowflake) -> Result<Option<Emoji>> {
         let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::GetEmoji { id, tx })
+        self.send_payload_and_listen(rx, CachePayload::GetEmoji { id, tx })
             .await
     }
 
     async fn delete_emoji(&self, id: Snowflake) -> Result<()> {
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::DeleteEmoji { id, tx })
-            .await
+        self.send_payload(CachePayload::DeleteEmoji { id })
     }
 
     async fn store_voice_state(&self, voice_state: VoiceState) -> Result<()> {
@@ -338,9 +287,7 @@ impl Cache for PostgresCache {
             return Ok(());
         }
 
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(rx, CachePayload::StoreVoiceState { voice_states, tx })
-            .await
+        self.send_payload(CachePayload::StoreVoiceState { voice_states })
     }
 
     async fn get_voice_state(
@@ -349,7 +296,7 @@ impl Cache for PostgresCache {
         guild_id: Snowflake,
     ) -> Result<Option<VoiceState>> {
         let (tx, rx) = oneshot::channel();
-        self.send_payload(
+        self.send_payload_and_listen(
             rx,
             CachePayload::GetVoiceState {
                 user_id,
@@ -361,15 +308,6 @@ impl Cache for PostgresCache {
     }
 
     async fn delete_voice_state(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<()> {
-        let (tx, rx) = oneshot::channel();
-        self.send_payload(
-            rx,
-            CachePayload::DeleteVoiceState {
-                user_id,
-                guild_id,
-                tx,
-            },
-        )
-        .await
+        self.send_payload(CachePayload::DeleteVoiceState { user_id, guild_id })
     }
 }
