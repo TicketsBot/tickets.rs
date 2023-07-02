@@ -1,17 +1,17 @@
-use futures::channel::mpsc::SendError;
+use crate::Result;
 use serde::Serialize;
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
 pub struct OutboundMessage {
     pub message: String,
-    pub tx: oneshot::Sender<Result<(), SendError>>,
+    pub tx: oneshot::Sender<Result<()>>,
 }
 
 impl OutboundMessage {
     pub fn new<T: Serialize>(
         msg: T,
-        tx: oneshot::Sender<Result<(), SendError>>,
+        tx: oneshot::Sender<Result<()>>,
     ) -> Result<OutboundMessage, serde_json::Error> {
         let serialized = serde_json::to_string(&msg)?;
 

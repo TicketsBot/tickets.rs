@@ -18,9 +18,8 @@ use log::{debug, error, info};
 use parking_lot::{Mutex, RwLock};
 use serde::Serialize;
 use serde_json::value::RawValue;
-use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::RwLock as TokioRwLock;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Mutex as TokioMutex};
 use tokio::time::sleep;
 use url::Url;
 
@@ -43,13 +42,16 @@ use super::payloads::{Dispatch, Opcode, Payload};
 use super::OutboundMessage;
 use crate::gateway::event_forwarding::{is_whitelisted, EventForwarder};
 use crate::CloseEvent;
+use futures_util::stream::{SplitSink, SplitStream};
 use redis::{AsyncCommands, FromRedisValue};
 use serde_json::error::Category;
 use serde_json::Value;
 use std::error::Error;
+use tokio::net::TcpStream;
 use tokio_tungstenite::{
-    connect_async, tungstenite,
+    connect_async,
     tungstenite::{protocol::frame::coding::CloseCode, Message},
+    MaybeTlsStream, WebSocketStream,
 };
 
 const GATEWAY_VERSION: u8 = 10;
@@ -187,7 +189,10 @@ impl<T: EventForwarder> Shard<T> {
         };
 
         if let Err(e) = self.wait_for_ratelimit().await {
-            self.log_err("Error while waiting for identify ratelimit, reconnecting", &e);
+            self.log_err(
+                "Error while waiting for identify ratelimit, reconnecting",
+                &e,
+            );
             return Err(e);
         }
 
@@ -198,31 +203,18 @@ impl<T: EventForwarder> Shard<T> {
         *self.connect_time.write().await = Instant::now();
 
         // start writer
-        let (recv_broker_tx, recv_broker_rx) = futures::channel::mpsc::unbounded();
-        let (send_broker_tx, send_broker_rx) = futures::channel::mpsc::unbounded();
         let (internal_tx, internal_rx) = mpsc::channel(1);
-        tokio::spawn(handle_writes(send_broker_tx, internal_rx));
-
-        let forward_outbound = send_broker_rx.map(Ok).forward(ws_tx);
-        let forward_inbound = ws_rx.map(Ok).forward(recv_broker_tx);
+        tokio::spawn(handle_writes(ws_tx, internal_rx));
 
         *self.writer.write() = Some(internal_tx);
 
-        tokio::spawn(async move {
-            futures::future::select(forward_outbound, forward_inbound).await;
-        });
-
         // start read loop
-        self.listen(recv_broker_rx).await?;
+        self.listen(ws_rx).await?;
         Ok(())
     }
 
     // helper function
-    async fn write<U: Serialize>(
-        &self,
-        msg: U,
-        tx: oneshot::Sender<Result<(), futures::channel::mpsc::SendError>>,
-    ) -> Result<()> {
+    async fn write<U: Serialize>(&self, msg: U, tx: oneshot::Sender<Result<()>>) -> Result<()> {
         let write_tx = self.writer.read().as_ref().unwrap().clone();
         OutboundMessage::new(msg, tx)?.send(write_tx).await?;
 
@@ -266,12 +258,10 @@ impl<T: EventForwarder> Shard<T> {
 
     async fn listen(
         self: Arc<Self>,
-        mut rx: futures::channel::mpsc::UnboundedReceiver<
-            Result<Message, tokio_tungstenite::tungstenite::Error>,
-        >,
+        mut rx: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     ) -> Result<()> {
         #[cfg(feature = "compression")]
-            let mut decoder = Decompress::new(true);
+        let mut decoder = Decompress::new(true);
 
         loop {
             let shard = Arc::clone(&self);
@@ -403,7 +393,7 @@ impl<T: EventForwarder> Shard<T> {
                             }
 
                             match rx.await {
-                                Ok(Err(e)) => shard.log_err("Error writing presence update payload", &GatewayError::WebsocketSendError(e)),
+                                Ok(Err(e)) => shard.log_err("Error writing presence update payload", &e.into()),
                                 Err(e) => shard.log_err("Error writing presence update payload", &GatewayError::RecvError(e)),
                                 _ => {}
                             }
@@ -509,8 +499,7 @@ impl<T: EventForwarder> Shard<T> {
                         if err.classify() == Category::Data {
                             #[cfg(feature = "use-sentry")]
                             {
-                                let payload_str =
-                                    str::from_utf8(bytes).unwrap_or("Invalid UTF-8");
+                                let payload_str = str::from_utf8(bytes).unwrap_or("Invalid UTF-8");
 
                                 // Ignore unknown payloads
                                 let err_str = err.to_string();
@@ -596,11 +585,14 @@ impl<T: EventForwarder> Shard<T> {
                         let connect_time = self.connect_time.read().await;
 
                         if connect_time.elapsed() > interval {
-                            self.log("Connected over 45s ago, Discord will kick us off. Reconnecting.");
+                            self.log(
+                                "Connected over 45s ago, Discord will kick us off. Reconnecting.",
+                            );
                             Arc::clone(&self).kill();
                             return Ok(());
                         } else {
-                            if connect_time.elapsed() > Duration::from_millis(5000) { // Need to wait for ratelimit again
+                            if connect_time.elapsed() > Duration::from_millis(5000) {
+                                // Need to wait for ratelimit again
                                 if let Err(e) = self.wait_for_ratelimit().await {
                                     self.log_err("Error waiting for ratelimit, reconnecting", &e);
                                     Arc::clone(&self).kill();
@@ -629,7 +621,8 @@ impl<T: EventForwarder> Shard<T> {
                         return Ok(());
                     }
 
-                    if connect_time.elapsed() > Duration::from_millis(5000) { // Need to wait for ratelimit again
+                    if connect_time.elapsed() > Duration::from_millis(5000) {
+                        // Need to wait for ratelimit again
                         if let Err(e) = self.wait_for_ratelimit().await {
                             self.log_err("Error waiting for ratelimit, reconnecting", &e);
                             Arc::clone(&self).kill();
@@ -765,13 +758,9 @@ impl<T: EventForwarder> Shard<T> {
                 }
             }
             Event::GuildBanAdd(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await,
-            Event::GuildEmojisUpdate(ev) => {
-                self.cache.store_emojis(ev.emojis, ev.guild_id).await
-            }
+            Event::GuildEmojisUpdate(ev) => self.cache.store_emojis(ev.emojis, ev.guild_id).await,
             Event::GuildMemberAdd(ev) => self.cache.store_member(ev.member, ev.guild_id).await,
-            Event::GuildMemberRemove(ev) => {
-                self.cache.delete_member(ev.user.id, ev.guild_id).await
-            }
+            Event::GuildMemberRemove(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await,
             Event::GuildMemberUpdate(ev) => {
                 self.cache
                     .store_member(
@@ -788,9 +777,7 @@ impl<T: EventForwarder> Shard<T> {
                     )
                     .await
             }
-            Event::GuildMembersChunk(ev) => {
-                self.cache.store_members(ev.members, ev.guild_id).await
-            }
+            Event::GuildMembersChunk(ev) => self.cache.store_members(ev.members, ev.guild_id).await,
             Event::GuildRoleCreate(ev) => self.cache.store_role(ev.role, ev.guild_id).await,
             Event::GuildRoleUpdate(ev) => self.cache.store_role(ev.role, ev.guild_id).await,
             Event::GuildRoleDelete(ev) => self.cache.delete_role(ev.role_id).await,
@@ -1035,7 +1022,7 @@ impl<T: EventForwarder> Shard<T> {
             value,
             Some(60 * 60 * 72),
         )
-            .await
+        .await
     }
 
     async fn delete_gateway_url(&self) -> Result<()> {
@@ -1155,14 +1142,14 @@ impl<T: EventForwarder> Shard<T> {
 }
 
 async fn handle_writes(
-    mut tx: futures::channel::mpsc::UnboundedSender<tungstenite::Message>,
-    mut rx: mpsc::Receiver<super::OutboundMessage>,
+    mut tx: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    mut rx: mpsc::Receiver<OutboundMessage>,
 ) {
     while let Some(msg) = rx.recv().await {
         let payload = Message::text(msg.message);
         let res = tx.send(payload).await;
 
-        if let Err(e) = msg.tx.send(res) {
+        if let Err(e) = msg.tx.send(res.map_err(|e| e.into())) {
             eprintln!("Error while sending write result back to caller: {:?}", e);
         }
     }
