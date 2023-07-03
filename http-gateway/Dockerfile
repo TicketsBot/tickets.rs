@@ -3,14 +3,13 @@ FROM rustlang/rust:nightly-buster
 
 RUN apt-get install -y apt-transport-https
 RUN apt-get update && apt-get -y upgrade && apt-get -y install python3 openssl libssl-dev ca-certificates cmake
-RUN cargo install sccache
 
 RUN mkdir -p /tmp/compile
 WORKDIR /tmp/compile
 
 COPY . .
 
-RUN --mount=type=cache,target=/root/.cache/sccache cargo build --release --bin http-gateway
+RUN cargo build --release --bin http-gateway
 
 # Prod container
 FROM debian:buster
