@@ -60,7 +60,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@f2a1d5e99d037542a71f64918e516c093c6f3fc4
         with:
-          context: ./${{ matrix.directory }}
+          context: {{defaultContext}}:${{ matrix.directory }}
           file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ env.IMAGE_NAME }}
