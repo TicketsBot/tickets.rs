@@ -1130,13 +1130,7 @@ impl<T: EventForwarder> Shard<T> {
                 self.user_id, msg, err, raw_payload
             );
         } else {
-            debug!(
-                "[shard:{:0>2}] {}: {}\nFull payload: {}",
-                self.get_shard_id(),
-                msg,
-                err,
-                raw_payload
-            );
+            debug!("[shard:{:0>2}] {msg}: {err}\nFull payload: {raw_payload}", self.get_shard_id());
         }
     }
 }
