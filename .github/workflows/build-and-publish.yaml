@@ -18,12 +18,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - dockerfile: main.Dockerfile
+          - package: main-sharder
             directory: sharder
-            package: main-sharder
-          - dockerfile: Dockerfile
+            dockerfile: main.Dockerfile
+          - package: http-gateway
             directory: http-gateway
-            package: http-gateway
+            dockerfile: Dockerfile
     permissions:
       contents: read
       packages: write
@@ -57,8 +57,11 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
       - name: Build and push Docker image
-        uses: docker/build-push-action@f2a1d5e99d037542a71f64918e516c093c6f3fc4
+        uses: docker/build-push-action@v4
         with:
           context: "{{defaultContext}}:${{ matrix.directory }}"
           file: ${{ matrix.dockerfile }}
