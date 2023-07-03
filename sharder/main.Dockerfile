@@ -21,7 +21,7 @@ RUN useradd -m container
 USER container
 WORKDIR /srv/sharder
 
-COPY ./entrypoint.sh /entrypoint.sh
+COPY ./sharder/entrypoint.sh /entrypoint.sh
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/bin/bash", "/entrypoint.sh"]

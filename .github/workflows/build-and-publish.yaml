@@ -17,11 +17,9 @@ jobs:
       matrix:
         include:
           - package: main-sharder
-            directory: sharder
-            dockerfile: main.Dockerfile
+            dockerfile: sharder/main.Dockerfile
           - package: http-gateway
-            directory: http-gateway
-            dockerfile: Dockerfile
+            dockerfile: http-gateway/Dockerfile
     permissions:
       contents: read
       packages: write
@@ -55,7 +53,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
-          context: "{{defaultContext}}:${{ matrix.directory }}"
+          context: .
           file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ env.IMAGE_NAME }}
