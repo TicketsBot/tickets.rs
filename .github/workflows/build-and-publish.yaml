@@ -1,0 +1,61 @@
+name: Build and Publish
+
+env:
+  REGISTRY: ghcr.io
+  GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+  GITHUB_SHA: ${{ github.sha }}
+
+on:
+  push:
+    branches: [ "master" ]
+
+jobs:
+  publish-image:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: ./sharder/main.Dockerfile
+            package: main-sharder
+          - dockerfile: ./http-gateway/Dockerfile
+            package: http-gateway
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image name
+        run: |
+          echo "IMAGE_NAME=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/${PACKAGE_NAME,,}:${GITHUB_SHA}" >> ${GITHUB_ENV}
+        env:
+          PACKAGE_NAME: ${{ matrix.package }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+        with:
+          images: ${{ env.IMAGE_NAME }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@f2a1d5e99d037542a71f64918e516c093c6f3fc4
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ env.IMAGE_NAME }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Log image name
+        run: |
+          echo "Image URI: ${IMAGE_NAME}"
