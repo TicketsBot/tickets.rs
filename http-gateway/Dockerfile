@@ -1,4 +1,3 @@
-# syntax = docker/dockerfile:experimental
 FROM rustlang/rust:nightly-buster
 
 RUN apt-get install -y apt-transport-https
