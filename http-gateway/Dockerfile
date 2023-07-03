@@ -1,3 +1,4 @@
+# syntax = docker/dockerfile:experimental
 FROM rust:buster
 
 RUN apt-get update && apt-get -y upgrade && apt-get -y install git openssl libssl-dev ca-certificates cmake
@@ -5,8 +6,9 @@ RUN apt-get update && apt-get -y upgrade && apt-get -y install git openssl libss
 RUN mkdir -p /tmp/compile
 WORKDIR /tmp/compile/
 
-RUN git clone https://github.com/TicketsBot/tickets.rs .
-RUN cargo build --release --bin http-gateway
+COPY . .
+
+RUN --mount=type=cache,target=/root/.cache/sccache cargo build --release --bin http-gateway
 
 # Prod container
 FROM debian:buster
