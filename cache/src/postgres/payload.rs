@@ -11,12 +11,10 @@ type ResultSender<T> = oneshot::Sender<Result<T, CacheError>>;
 pub enum CachePayload {
     Schema {
         queries: Vec<String>,
-        tx: ResultSender<()>,
     },
 
     StoreGuilds {
         guilds: Vec<Guild>,
-        tx: ResultSender<()>,
     },
     GetGuild {
         id: Snowflake,
@@ -24,7 +22,6 @@ pub enum CachePayload {
     },
     DeleteGuild {
         id: Snowflake,
-        tx: ResultSender<()>,
     },
     GetGuildCount {
         tx: ResultSender<usize>,
@@ -32,7 +29,6 @@ pub enum CachePayload {
 
     StoreChannels {
         channels: Vec<Channel>,
-        tx: ResultSender<()>,
     },
     GetChannel {
         id: Snowflake,
@@ -40,12 +36,10 @@ pub enum CachePayload {
     },
     DeleteChannel {
         id: Snowflake,
-        tx: ResultSender<()>,
     },
 
     StoreUsers {
         users: Vec<User>,
-        tx: ResultSender<()>,
     },
     GetUser {
         id: Snowflake,
@@ -53,13 +47,11 @@ pub enum CachePayload {
     },
     DeleteUser {
         id: Snowflake,
-        tx: ResultSender<()>,
     },
 
     StoreMembers {
         members: Vec<Member>,
         guild_id: Snowflake,
-        tx: ResultSender<()>,
     },
     GetMember {
         user_id: Snowflake,
@@ -69,13 +61,11 @@ pub enum CachePayload {
     DeleteMember {
         user_id: Snowflake,
         guild_id: Snowflake,
-        tx: ResultSender<()>,
     },
 
     StoreRoles {
         roles: Vec<Role>,
         guild_id: Snowflake,
-        tx: ResultSender<()>,
     },
     GetRole {
         id: Snowflake,
@@ -83,13 +73,11 @@ pub enum CachePayload {
     },
     DeleteRole {
         id: Snowflake,
-        tx: ResultSender<()>,
     },
 
     StoreEmojis {
         emojis: Vec<Emoji>,
         guild_id: Snowflake,
-        tx: ResultSender<()>,
     },
     GetEmoji {
         id: Snowflake,
@@ -97,12 +85,10 @@ pub enum CachePayload {
     },
     DeleteEmoji {
         id: Snowflake,
-        tx: ResultSender<()>,
     },
 
     StoreVoiceState {
         voice_states: Vec<VoiceState>,
-        tx: ResultSender<()>,
     },
     GetVoiceState {
         user_id: Snowflake,
@@ -112,6 +98,5 @@ pub enum CachePayload {
     DeleteVoiceState {
         user_id: Snowflake,
         guild_id: Snowflake,
-        tx: ResultSender<()>,
     },
 }
