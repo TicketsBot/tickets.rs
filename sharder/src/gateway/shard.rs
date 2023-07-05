@@ -96,10 +96,10 @@ pub struct Shard<T: EventForwarder> {
     last_ack: Instant,
     last_heartbeat: Instant,
     connect_time: Instant,
-    ready_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    ready_tx: Mutex<Option<oneshot::Sender<()>>>,
     ready_guild_count: u16,
-    received_count: Arc<AtomicUsize>,
-    is_ready: Arc<AtomicBool>,
+    received_count: AtomicUsize,
+    is_ready: AtomicBool,
     shutdown_rx: broadcast::Receiver<mpsc::Sender<(u16, Option<SessionData>)>>,
     pub(crate) event_forwarder: Arc<T>,
 
@@ -150,10 +150,10 @@ impl<T: EventForwarder> Shard<T> {
             last_ack: Instant::now(),
             last_heartbeat: Instant::now(),
             connect_time: Instant::now(), // will be overwritten
-            ready_tx: Arc::new(Mutex::new(ready_tx)),
+            ready_tx: Mutex::new(ready_tx),
             ready_guild_count: 0,
-            received_count: Arc::new(AtomicUsize::new(0)),
-            is_ready: Arc::new(AtomicBool::new(false)),
+            received_count: AtomicUsize::new(0),
+            is_ready: AtomicBool::new(false),
             shutdown_rx,
             event_forwarder,
             #[cfg(feature = "whitelabel")]
@@ -646,7 +646,11 @@ impl<T: EventForwarder> Shard<T> {
             Event::ThreadDelete(thread) => self.cache.delete_channel(thread.id).await,
             Event::GuildCreate(mut guild) => {
                 apply_guild_id_to_channels(&mut guild);
-                self.cache.store_guild(guild).await
+                let res = self.cache.store_guild(guild).await;
+
+                Self::update_count(self.get_shard_id(), self.ready_guild_count, &self.received_count, &self.is_ready, &self.ready_tx).await;
+
+                res
             }
             Event::GuildUpdate(mut guild) => {
                 apply_guild_id_to_channels(&mut guild);
@@ -733,9 +737,9 @@ impl<T: EventForwarder> Shard<T> {
     async fn update_count(
         shard_id: u16,
         shard_guild_count: u16,
-        received_count: Arc<AtomicUsize>,
-        is_ready: Arc<AtomicBool>,
-        ready_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+        received_count: &AtomicUsize,
+        is_ready: &AtomicBool,
+        ready_tx: &Mutex<Option<oneshot::Sender<()>>>,
     ) {
         if !is_ready.load(Ordering::Relaxed) {
             let received_count = received_count.fetch_add(1, Ordering::Relaxed);
