@@ -44,14 +44,18 @@ use super::session_store::SessionData;
 use super::timer;
 use super::OutboundMessage;
 use crate::gateway::event_forwarding::{is_whitelisted, EventForwarder};
-use crate::{CloseEvent, gateway};
+use crate::CloseEvent;
 use futures_util::stream::{SplitSink, SplitStream};
 use redis::AsyncCommands;
 use serde_json::error::Category;
 use serde_json::Value;
 use std::error::Error;
 use tokio::net::TcpStream;
-use tokio_tungstenite::{connect_async, tungstenite::{protocol::frame::coding::CloseCode, Message}, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{protocol::frame::coding::CloseCode, Message},
+    MaybeTlsStream, WebSocketStream,
+};
 
 use tracing::{debug, error, info, warn};
 
@@ -220,11 +224,7 @@ impl<T: EventForwarder> Shard<T> {
     }
 
     // helper function
-    async fn write<U: Serialize>(
-        &self,
-        msg: U,
-        tx: oneshot::Sender<Result<()>>
-    ) -> Result<()> {
+    async fn write<U: Serialize>(&self, msg: U, tx: oneshot::Sender<Result<()>>) -> Result<()> {
         let message = OutboundMessage::new(msg, tx)?;
         self.writer.send(message).await?;
         Ok(())
@@ -253,7 +253,7 @@ impl<T: EventForwarder> Shard<T> {
         mut rx: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     ) -> Result<()> {
         #[cfg(feature = "compression")]
-            let mut decoder = Decompress::new(true);
+        let mut decoder = Decompress::new(true);
 
         let kill_shard_rx = Arc::clone(&self.kill_shard_rx);
         let kill_shard_rx = &mut *kill_shard_rx.lock().await;
@@ -604,7 +604,10 @@ impl<T: EventForwarder> Shard<T> {
             Event::Resumed(_) => {
                 self.log("Received resumed acknowledgement");
 
-                if !self.is_ready.compare_and_swap(false, true, Ordering::Release) {
+                if !self
+                    .is_ready
+                    .compare_and_swap(false, true, Ordering::Release)
+                {
                     if let Some(tx) = self.ready_tx.lock().take() {
                         if tx.send(()).is_err() {
                             self.log_err(
