@@ -64,3 +64,9 @@ impl EventForwarder for HttpEventForwarder {
         Ok(())
     }
 }
+
+impl Default for HttpEventForwarder {
+    fn default() -> Self {
+        Self::new(Self::build_http_client())
+    }
+}

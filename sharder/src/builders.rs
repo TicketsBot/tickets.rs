@@ -3,6 +3,8 @@ use cache::{Options, PostgresCache};
 use deadpool::managed::PoolConfig;
 use deadpool::Runtime;
 use deadpool_redis::{Config as RedisConfig, Pool};
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::EnvFilter;
 
 /// panics on err
 pub async fn build_cache(config: &Config) -> PostgresCache {
@@ -32,12 +34,11 @@ pub fn build_redis(config: &Config) -> Pool {
 }
 
 pub fn setup_sentry(config: &Config) -> sentry::ClientInitGuard {
-    let mut log_builder = env_logger::builder();
-    //log_builder.parse_filters("info");
-    let logger = sentry_log::SentryLogger::with_dest(log_builder.build());
-
-    log::set_boxed_logger(Box::new(logger)).expect("Failed to set logger");
-    log::set_max_level(log::LevelFilter::Info);
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(sentry_tracing::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
 
     sentry::init((
         &config.sentry_dsn[..],

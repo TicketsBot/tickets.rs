@@ -1,19 +1,38 @@
-use crate::{Cache, CacheError, Options, Result};
+use crate::{Cache, CacheError, CachePayload, Options, Result};
 use model::user::User;
 use model::Snowflake;
 
 use async_trait::async_trait;
 
-use crate::postgres::payload::CachePayload;
-use crate::postgres::worker::{PayloadReceiver, Worker};
-use backoff::ExponentialBackoff;
 use model::channel::Channel;
 use model::guild::{Emoji, Guild, Member, Role, VoiceState};
+
 use std::sync::Arc;
-use tokio::sync::mpsc::unbounded_channel;
-use tokio::sync::{mpsc, oneshot, Mutex};
-use tokio_postgres::tls::NoTlsStream;
+use tokio::sync::Mutex;
+
+#[cfg(feature = "metrics")]
+use lazy_static::lazy_static;
+
+#[cfg(feature = "metrics")]
+use std::time::Instant;
+
+#[cfg(feature = "metrics")]
+use prometheus::{HistogramVec, register_histogram_vec};
+use tokio::sync::{mpsc, oneshot};
 use tokio_postgres::{Connection, NoTls, Socket};
+use tokio_postgres::tls::NoTlsStream;
+use crate::postgres::worker::{PayloadReceiver, Worker};
+
+use backoff::ExponentialBackoff;
+
+#[cfg(feature = "metrics")]
+lazy_static! {
+    static ref HISTOGRAM: HistogramVec = register_histogram_vec!(
+        "cache_timings",
+        "Cache Timings",
+        &["table"]
+    ).expect("Failed to register cache timings histogram");
+}
 
 pub struct PostgresCache {
     opts: Options,
@@ -23,7 +42,7 @@ pub struct PostgresCache {
 impl PostgresCache {
     /// panics if URI is invalid
     pub async fn connect(uri: String, opts: Options, workers: usize) -> Result<PostgresCache> {
-        let (worker_tx, worker_rx) = unbounded_channel();
+        let (worker_tx, worker_rx) = mpsc::unbounded_channel();
         let worker_rx = Arc::new(Mutex::new(worker_rx));
 
         // start workers
@@ -38,13 +57,8 @@ impl PostgresCache {
                     let _: Result<()> =
                         backoff::future::retry(ExponentialBackoff::default(), || async {
                             println!("[cache worker:{}] trying to connect", id);
-                            let (kill_tx, conn) = Self::spawn_worker(
-                                id,
-                                opts.clone(),
-                                &uri[..],
-                                Arc::clone(&worker_rx),
-                            )
-                            .await?;
+                            let (kill_tx, conn) =
+                                Self::spawn_worker(id, opts.clone(), &uri[..], Arc::clone(&worker_rx)).await?;
                             println!("[cache worker:{}] connected!", id);
 
                             if let Err(e) = conn.await {
@@ -59,7 +73,7 @@ impl PostgresCache {
                             kill_tx.send(());
                             Err(backoff::Error::Transient(CacheError::Disconnected))
                         })
-                        .await;
+                            .await;
                 }
             });
         }
@@ -111,7 +125,10 @@ impl PostgresCache {
             r#"CREATE INDEX CONCURRENTLY IF NOT EXISTS voice_states_user_id ON voice_states("user_id");"#,
         ].iter().map(|s| s.to_string()).collect();
 
-        self.send_payload(CachePayload::Schema { queries })?;
+        self.tx
+            .clone()
+            .send(CachePayload::Schema { queries })
+            .map_err(CacheError::SendError)?;
 
         Ok(())
     }
@@ -137,8 +154,8 @@ impl Cache for PostgresCache {
         self.store_guilds(vec![guild]).await
     }
 
-    async fn store_guilds(&self, guilds: Vec<Guild>) -> Result<()> {
-        if !self.opts.guilds {
+    async fn store_guilds(&self, mut guilds: Vec<Guild>) -> Result<()> {
+        if guilds.is_empty() {
             return Ok(());
         }
 
@@ -187,7 +204,7 @@ impl Cache for PostgresCache {
         self.store_users(vec![user]).await
     }
 
-    async fn store_users(&self, users: Vec<User>) -> Result<()> {
+    async fn store_users(&self, mut users: Vec<User>) -> Result<()> {
         if !self.opts.users {
             return Ok(());
         }
@@ -238,7 +255,7 @@ impl Cache for PostgresCache {
         self.store_roles(vec![role], guild_id).await
     }
 
-    async fn store_roles(&self, roles: Vec<Role>, guild_id: Snowflake) -> Result<()> {
+    async fn store_roles(&self, mut roles: Vec<Role>, guild_id: Snowflake) -> Result<()> {
         if !self.opts.roles {
             return Ok(());
         }
@@ -309,5 +326,6 @@ impl Cache for PostgresCache {
 
     async fn delete_voice_state(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<()> {
         self.send_payload(CachePayload::DeleteVoiceState { user_id, guild_id })
+
     }
 }

@@ -17,6 +17,9 @@ pub struct Config {
     pub worker_svc_uri: String,
     pub sentry_dsn: String,
 
+    #[cfg(feature = "metrics")]
+    pub metrics_addr: String,
+
     // Public Sharder
     #[cfg(not(feature = "whitelabel"))]
     pub sharder_token: String,

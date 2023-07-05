@@ -4,22 +4,23 @@ use std::collections::BTreeMap;
 use std::default::Default;
 use std::fmt::Display;
 use std::str;
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+use deadpool_redis::redis;
 use deadpool_redis::{redis::cmd, Pool};
 #[cfg(feature = "compression")]
 use flate2::{Decompress, FlushDecompress, Status};
 use futures::StreamExt;
 use futures_util::SinkExt;
-use log::{debug, error, info};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use serde::Serialize;
 use serde_json::value::RawValue;
-use tokio::sync::RwLock as TokioRwLock;
-use tokio::sync::{mpsc, oneshot, Mutex as TokioMutex};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex as TokioMutex};
 use tokio::time::sleep;
 use url::Url;
 
@@ -39,23 +40,37 @@ use crate::gateway::{GatewayError, Result};
 use super::payloads;
 use super::payloads::event::Event;
 use super::payloads::{Dispatch, Opcode, Payload};
+use super::session_store::SessionData;
+use super::timer;
 use super::OutboundMessage;
 use crate::gateway::event_forwarding::{is_whitelisted, EventForwarder};
-use crate::CloseEvent;
+use crate::{CloseEvent, gateway};
 use futures_util::stream::{SplitSink, SplitStream};
-use redis::{AsyncCommands, FromRedisValue};
+use redis::AsyncCommands;
 use serde_json::error::Category;
 use serde_json::Value;
 use std::error::Error;
 use tokio::net::TcpStream;
-use tokio_tungstenite::{
-    connect_async,
-    tungstenite::{protocol::frame::coding::CloseCode, Message},
-    MaybeTlsStream, WebSocketStream,
-};
+use tokio_tungstenite::{connect_async, tungstenite::{protocol::frame::coding::CloseCode, Message}, MaybeTlsStream, WebSocketStream};
+
+use tracing::{debug, error, info, warn};
+
+#[cfg(feature = "metrics")]
+use lazy_static::lazy_static;
+
+#[cfg(feature = "metrics")]
+use prometheus::{register_int_gauge, IntGauge};
+
+#[cfg(feature = "metrics")]
+lazy_static! {
+    static ref CACHE_BUFFER_GUAGE: IntGauge = register_int_gauge!(
+        "cache_buffer",
+        "The number of payload that are currently waiting to be stored in the cache"
+    )
+    .expect("Failed to create cache buffer gauge");
+}
 
 const GATEWAY_VERSION: u8 = 10;
-const SEQ_SAVE_DELAY: Duration = Duration::from_secs(5);
 
 pub struct Shard<T: EventForwarder> {
     pub(crate) config: Arc<Config>,
@@ -64,24 +79,24 @@ pub struct Shard<T: EventForwarder> {
     cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
     pub status_update_tx: mpsc::Sender<StatusUpdate>,
-    status_update_rx: TokioMutex<mpsc::Receiver<StatusUpdate>>,
+    status_update_rx: Arc<TokioMutex<mpsc::Receiver<StatusUpdate>>>,
     pub(crate) user_id: Snowflake,
-    total_rx: Mutex<u64>,
-    seq: RwLock<Option<usize>>,
-    last_seq_update: Mutex<Instant>,
-    session_id: RwLock<Option<String>>,
-    gateway_url: RwLock<String>,
-    writer: RwLock<Option<mpsc::Sender<OutboundMessage>>>,
-    kill_heartbeat: Mutex<Option<oneshot::Sender<()>>>,
-    pub kill_shard_tx: Mutex<Option<oneshot::Sender<()>>>,
-    kill_shard_rx: TokioMutex<oneshot::Receiver<()>>,
-    last_ack: RwLock<Instant>,
-    last_heartbeat: RwLock<Instant>,
-    connect_time: TokioRwLock<Instant>,
-    ready_tx: Mutex<Option<oneshot::Sender<()>>>,
-    ready_guild_count: AtomicU16,
-    received_count: AtomicU16,
-    is_ready: AtomicBool,
+    pub(crate) session_data: Option<SessionData>,
+    writer: mpsc::Sender<OutboundMessage>,
+    writer_rx: Option<mpsc::Receiver<OutboundMessage>>,
+    heartbeat_tx: mpsc::Sender<()>,
+    heartbeat_rx: Option<mpsc::Receiver<()>>,
+    heartbeat_interval: Duration,
+    pub kill_shard_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    kill_shard_rx: Arc<TokioMutex<oneshot::Receiver<()>>>,
+    last_ack: Instant,
+    last_heartbeat: Instant,
+    connect_time: Instant,
+    ready_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    ready_guild_count: u16,
+    received_count: Arc<AtomicUsize>,
+    is_ready: Arc<AtomicBool>,
+    shutdown_rx: broadcast::Receiver<mpsc::Sender<(u16, Option<SessionData>)>>,
     pub(crate) event_forwarder: Arc<T>,
 
     #[cfg(feature = "whitelabel")]
@@ -102,74 +117,61 @@ impl<T: EventForwarder> Shard<T> {
         redis: Arc<Pool>,
         user_id: Snowflake,
         event_forwarder: Arc<T>,
+        ready_tx: Option<oneshot::Sender<()>>,
+        shutdown_rx: broadcast::Receiver<mpsc::Sender<(u16, Option<SessionData>)>>,
         #[cfg(feature = "whitelabel")] database: Arc<Database>,
-    ) -> Arc<Shard<T>> {
+    ) -> Shard<T> {
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
         let (status_update_tx, status_update_rx) = mpsc::channel(1);
+        let (writer_tx, writer_rx) = mpsc::channel(4);
+        let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
-        Arc::new(Shard {
+        Shard {
             config,
             identify,
             large_sharding_buckets,
             cache,
             redis,
             status_update_tx,
-            status_update_rx: TokioMutex::new(status_update_rx),
+            status_update_rx: Arc::new(TokioMutex::new(status_update_rx)),
             user_id,
-            total_rx: Mutex::new(0),
-            seq: RwLock::new(None),
-            last_seq_update: Mutex::new(Instant::now()),
-            session_id: RwLock::new(None),
-            gateway_url: RwLock::new(DEFAULT_GATEWAY_URL.to_string()),
-            writer: RwLock::new(None),
-            kill_heartbeat: Mutex::new(None),
-            kill_shard_tx: Mutex::new(Some(kill_shard_tx)),
-            kill_shard_rx: TokioMutex::new(kill_shard_rx),
-            last_ack: RwLock::new(Instant::now()),
-            last_heartbeat: RwLock::new(Instant::now()),
-            connect_time: TokioRwLock::new(Instant::now()), // will be overwritten
-            ready_tx: Mutex::new(None),
-            ready_guild_count: AtomicU16::new(0),
-            received_count: AtomicU16::new(0),
-            is_ready: AtomicBool::new(false),
+            session_data: None,
+            writer: writer_tx,
+            writer_rx: Some(writer_rx),
+            heartbeat_tx,
+            heartbeat_rx: Some(heartbeat_rx),
+            heartbeat_interval: Duration::from_millis(42500), // This will be overwritten later by the HELLO payload
+            kill_shard_tx: Arc::new(Mutex::new(Some(kill_shard_tx))),
+            kill_shard_rx: Arc::new(TokioMutex::new(kill_shard_rx)),
+            last_ack: Instant::now(),
+            last_heartbeat: Instant::now(),
+            connect_time: Instant::now(), // will be overwritten
+            ready_tx: Arc::new(Mutex::new(ready_tx)),
+            ready_guild_count: 0,
+            received_count: Arc::new(AtomicUsize::new(0)),
+            is_ready: Arc::new(AtomicBool::new(false)),
+            shutdown_rx,
             event_forwarder,
             #[cfg(feature = "whitelabel")]
             database,
-        })
+        }
     }
 
-    pub async fn connect(self: Arc<Self>, ready_tx: Option<oneshot::Sender<()>>) -> Result<()> {
-        //rst
-        *self.ready_tx.lock() = ready_tx;
+    pub async fn connect(
+        mut self,
+        resume_data: Option<SessionData>,
+    ) -> Result<Option<SessionData>> {
+        // TODO: Move to constructor
+        self.session_data = resume_data;
 
-        let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
-        *self.kill_shard_tx.lock() = Some(kill_shard_tx);
-        *self.kill_shard_rx.lock().await = kill_shard_rx;
+        // Build gateway URL
+        let gateway_url = self
+            .session_data
+            .as_ref()
+            .and_then(|s| s.resume_url.clone())
+            .unwrap_or_else(|| DEFAULT_GATEWAY_URL.to_string());
 
-        *self.total_rx.lock() = 0;
-        self.ready_guild_count.store(0, Ordering::Relaxed);
-        self.received_count.store(0, Ordering::Relaxed);
-        self.is_ready.store(false, Ordering::Relaxed);
-
-        *self.last_heartbeat.write() = Instant::now();
-        *self.last_ack.write() = Instant::now();
-
-        *self.gateway_url.write() = DEFAULT_GATEWAY_URL.to_string();
-        // rst
-
-        // Load gateway URL
-        match self.load_gateway_url().await {
-            Ok(Some(gateway_url)) => *self.gateway_url.write() = gateway_url,
-            Ok(None) => {}
-            Err(e) => {
-                error!("Error loading gateway URL, using default. {}", e);
-            }
-        }
-
-        let mut uri = format!(
-            "{}?v={GATEWAY_VERSION}&encoding=json",
-            self.gateway_url.read()
-        );
+        let mut uri = format!("{gateway_url}?v={GATEWAY_VERSION}&encoding=json");
         if cfg!(feature = "compression") {
             uri.push_str("&compress=zlib-stream");
         }
@@ -188,91 +190,127 @@ impl<T: EventForwarder> Shard<T> {
             }
         };
 
-        if let Err(e) = self.wait_for_ratelimit().await {
-            self.log_err(
-                "Error while waiting for identify ratelimit, reconnecting",
-                &e,
-            );
-            return Err(e);
+        // If we can RESUME, we can connect straight away
+        if self.session_data.is_none() {
+            if let Err(e) = self.wait_for_ratelimit().await {
+                self.log_err(
+                    "Error while waiting for identify ratelimit, reconnecting",
+                    &e,
+                );
+                return Err(e);
+            }
         }
 
-        self.log(format!("Connecting to gateway at {}", uri));
+        self.log(format!("Connecting to gateway at {uri}"));
 
         let (wss, _) = connect_async(uri).await?;
         let (ws_tx, ws_rx) = wss.split();
-        *self.connect_time.write().await = Instant::now();
+        self.connect_time = Instant::now();
 
         // start writer
-        let (internal_tx, internal_rx) = mpsc::channel(1);
-        tokio::spawn(handle_writes(ws_tx, internal_rx));
-
-        *self.writer.write() = Some(internal_tx);
+        tokio::spawn(handle_writes(
+            ws_tx,
+            self.writer_rx.take().expect("writer_rx is None"),
+        ));
 
         // start read loop
         self.listen(ws_rx).await?;
+
+        Ok(self.session_data.take())
+    }
+
+    // helper function
+    async fn write<U: Serialize>(
+        &self,
+        msg: U,
+        tx: oneshot::Sender<Result<()>>
+    ) -> Result<()> {
+        let message = OutboundMessage::new(msg, tx)?;
+        self.writer.send(message).await?;
         Ok(())
     }
 
     // helper function
-    async fn write<U: Serialize>(&self, msg: U, tx: oneshot::Sender<Result<()>>) -> Result<()> {
-        let write_tx = self.writer.read().as_ref().unwrap().clone();
-        OutboundMessage::new(msg, tx)?.send(write_tx).await?;
+    pub fn kill(&self) {
+        // TODO: panic?
+        let kill_shard_tx = self.kill_shard_tx.lock().take();
+        let shard_id = self.get_shard_id();
 
-        Ok(())
-    }
-
-    // helper function
-    pub fn kill(self: Arc<Self>) {
-        // BIG problem
-        // TODO: Make this good
         tokio::spawn(async move {
-            // TODO: panic?
-            let kill_shard_tx = self.kill_shard_tx.lock().take();
-            let kill_heartbeat_tx = self.kill_heartbeat.lock().take();
-
             match kill_shard_tx {
                 Some(kill_shard_tx) => {
                     if kill_shard_tx.send(()).is_err() {
-                        self.log_err(
-                            "Failed to kill",
-                            &GatewayError::custom("Receiver already unallocated"),
-                        );
+                        error!(shard_id = %shard_id, "Failed to kill, receiver already unallocated");
                     }
                 }
-                None => self.log("Tried to kill but kill_shard_tx was None"),
-            }
-
-            match kill_heartbeat_tx {
-                Some(kill_heartbeat_tx) => {
-                    if kill_heartbeat_tx.send(()).is_err() {
-                        self.log_err(
-                            "Failed to kill heartbeat",
-                            &GatewayError::custom("Receiver already unallocated"),
-                        );
-                    }
-                }
-                None => self.log("Tried to kill but kill_heartbeat_tx was None"),
+                None => warn!(shard_id = %shard_id, "Tried to kill but kill_shard_tx was None"),
             }
         });
     }
 
     async fn listen(
-        self: Arc<Self>,
+        &mut self,
         mut rx: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     ) -> Result<()> {
         #[cfg(feature = "compression")]
-        let mut decoder = Decompress::new(true);
+            let mut decoder = Decompress::new(true);
+
+        let kill_shard_rx = Arc::clone(&self.kill_shard_rx);
+        let kill_shard_rx = &mut *kill_shard_rx.lock().await;
+
+        let status_update_rx = Arc::clone(&self.status_update_rx);
+        let status_update_rx = &mut status_update_rx.lock().await;
+
+        let heartbeat_rx = &mut self
+            .heartbeat_rx
+            .take()
+            .ok_or_else(|| GatewayError::custom("heartbeat_rx is None"))?;
+        let mut has_done_heartbeat = false;
 
         loop {
-            let shard = Arc::clone(&self);
-            let kill_rx = &mut *shard.kill_shard_rx.lock().await;
-            let status_update_rx = &mut shard.status_update_rx.lock().await;
-
             tokio::select! {
                 // handle kill
-                _ = kill_rx => {
+                _ = &mut *kill_shard_rx => {
                     self.log("Received kill message");
                     break;
+                }
+
+                session_tx = self.shutdown_rx.recv() => {
+                    self.log("Received shutdown message");
+
+                    match session_tx {
+                        Ok(session_tx) => {
+                            if let Err(e) = session_tx.send((self.get_shard_id(), self.session_data.take())).await {
+                                error!(shard_id = %self.get_shard_id(), error = %e, "Error sending session data");
+                            }
+                        }
+                        Err(e) => error!(shard_id = %self.get_shard_id(), error = %e, "Error receiving shutdown message"),
+                    }
+
+                    break;
+                }
+
+                _ = heartbeat_rx.recv() => {
+                    let elapsed = self.last_ack.checked_duration_since(self.last_heartbeat);
+
+                    if has_done_heartbeat && (elapsed.is_none() || elapsed.unwrap() > self.heartbeat_interval) {
+                        error!(shard_id = %self.get_shard_id(), "Haven't received heartbeat ack, killing");
+                        if let Some(tx) = self.kill_shard_tx.lock().take() {
+                            if tx.send(()).is_err() {
+                                error!(shard_id = %self.get_shard_id(), "Error sending kill notification to shard");
+                            }
+                        }
+
+                        break;
+                    }
+
+                    if let Err(e) = self.do_heartbeat().await { // TODO: Don't block
+                        self.log_err("Error sending heartbeat, killing", &e);
+                        self.kill();
+                        break;
+                    }
+
+                    has_done_heartbeat = true;
                 }
 
                 // handle incoming payload
@@ -292,29 +330,13 @@ impl<T: EventForwarder> Shard<T> {
 
                         Some(Ok(Message::Close(frame))) => {
                             self.log(format!("Got close from gateway: {frame:?}"));
-                            Arc::clone(&self).kill();
+                            self.kill();
 
                             if let Some(frame) = frame {
                                 match frame.code {
                                     // On code 1000, the session is invalidated
                                     CloseCode::Normal => {
-                                        let (err1, err2, err3) = tokio::join!(
-                                                shard.delete_seq(),
-                                                shard.delete_session_id(),
-                                                shard.delete_gateway_url()
-                                        );
-
-                                        if let Err(e) = err1 {
-                                            self.log_err("Error deleting seq", &e);
-                                        }
-
-                                        if let Err(e) = err2 {
-                                            self.log_err("Error deleting session_id", &e);
-                                        }
-
-                                        if let Err(e) = err3 {
-                                            self.log_err("Error deleting gateway_url", &e);
-                                        }
+                                        self.session_data = None;
                                     },
 
                                     CloseCode::Library(code) => {
@@ -336,9 +358,7 @@ impl<T: EventForwarder> Shard<T> {
                         }
 
                         Some(Ok(Message::Text(data))) => {
-                            let value: Value = serde_json::from_slice(data.as_bytes())?;
-
-                            let payload = match Arc::clone(&self).read_payload(&value).await {
+                            let payload = match self.read_payload(data.as_str()) {
                                 Ok(payload) => payload,
                                 Err(e) => {
                                     self.log_err("Error while deserializing payload", &e);
@@ -346,14 +366,14 @@ impl<T: EventForwarder> Shard<T> {
                                 }
                             };
 
-                            if let Err(e) = Arc::clone(&self).process_payload(payload, value, data.as_bytes()).await {
+                            if let Err(e) = self.process_payload(payload, data).await {
                                 self.log_err("An error occurred while processing a payload", &e);
                             }
                         }
 
                         #[cfg(feature = "compression")]
                         Some(Ok(Message::Binary(data))) => {
-                            let data = match Arc::clone(&self).decompress(data, &mut decoder).await {
+                            let data = match self.decompress(data, &mut decoder).await {
                                 Ok(data) => data,
                                 Err(e) => {
                                     self.log_err("Error while decompressing payload", &e);
@@ -363,7 +383,7 @@ impl<T: EventForwarder> Shard<T> {
 
                             let value: Value = serde_json::from_slice(data.as_bytes())?;
 
-                            let payload = match Arc::clone(&self).read_payload(&value).await {
+                            let payload = match self.read_payload(&value).await {
                                 Ok(payload) => payload,
                                 Err(e) => {
                                     self.log_err("Error while deserializing payload", &e);
@@ -385,19 +405,16 @@ impl<T: EventForwarder> Shard<T> {
                     if let Some(presence) = presence {
                         let (tx, rx) = oneshot::channel();
 
-                        let shard = Arc::clone(&self);
-                        tokio::spawn(async move {
                             let payload = PresenceUpdate::new(presence);
-                            if let Err(e) = shard.write(payload, tx).await {
-                                shard.log_err("Error sending presence update payload to writer", &e);
+                            if let Err(e) = self.write(payload, tx).await {
+                                self.log_err("Error sending presence update payload to writer", &e);
                             }
 
                             match rx.await {
-                                Ok(Err(e)) => shard.log_err("Error writing presence update payload", &e.into()),
-                                Err(e) => shard.log_err("Error writing presence update payload", &GatewayError::RecvError(e)),
+                                Ok(Err(e)) => error!(shard_id = %self.get_shard_id(), error = %e, "Error writing presence update payload"),
+                                Err(e) => error!(shard_id = %self.get_shard_id(), error = %e, "Error writing presence update payload"),
                                 _ => {}
                             }
-                        });
                     }
                 }
             }
@@ -446,61 +463,25 @@ impl<T: EventForwarder> Shard<T> {
         return Ok(output);
     }
 
-    // Manually deserialize since we only need 2 values
-    async fn read_payload(self: Arc<Self>, data: &Value) -> Result<Payload> {
-        let opcode = serde_json::from_value(
-            data.get("op")
-                .ok_or_else(|| GatewayError::MissingFieldError("op".to_owned()))?
-                .clone(),
-        )?;
-
-        let seq = match data.get("s") {
-            None => None,
-            Some(s) => serde_json::from_value(s.clone())?,
-        };
-
-        Ok(Payload { opcode, seq })
+    fn read_payload(&self, data: &str) -> Result<Payload> {
+        Ok(serde_json::from_str(data)?)
     }
 
-    async fn process_payload(
-        self: Arc<Self>,
-        payload: Payload,
-        raw: Value,
-        bytes: &[u8],
-    ) -> Result<()> {
+    async fn process_payload(&mut self, payload: Payload, raw: String) -> Result<()> {
         if let Some(seq) = payload.seq {
-            *self.seq.write() = Some(seq);
-
-            let mut should_save_seq = false;
-
-            {
-                // Drop lock after
-                let mut last_updated = self.last_seq_update.lock();
-                if last_updated.elapsed() > SEQ_SAVE_DELAY {
-                    *last_updated = Instant::now();
-                    should_save_seq = true;
-                }
-            }
-
-            if should_save_seq {
-                if let Err(e) = self.save_seq().await {
-                    self.log_err("Error saving sequence number", &e);
-                }
+            if let Some(ref mut session_data) = &mut self.session_data {
+                session_data.seq = seq; // TODO: Verify this works
             }
         }
 
         match payload.opcode {
             Opcode::Dispatch => {
-                let payload = serde_json::from_value(raw)?;
-
-                if let Err(e) = Arc::clone(&self).handle_event(payload).await {
+                if let Err(e) = self.handle_event(raw).await {
                     if let GatewayError::JsonError(ref err) = e {
                         // Log syntax or IO errors to stderr instead
                         if err.classify() == Category::Data {
                             #[cfg(feature = "use-sentry")]
                             {
-                                let payload_str = str::from_utf8(bytes).unwrap_or("Invalid UTF-8");
-
                                 // Ignore unknown payloads
                                 let err_str = err.to_string();
                                 if err_str.contains("unknown variant") {
@@ -510,10 +491,10 @@ impl<T: EventForwarder> Shard<T> {
                                 sentry::capture_event(sentry::protocol::Event {
                                     level: sentry::Level::Warning,
                                     message: Some("Payload deserializing data error".into()),
-                                    extra: BTreeMap::from([
-                                        ("payload".into(), Value::String(payload_str.into())),
-                                        ("error".into(), Value::String(err_str)),
-                                    ]),
+                                    extra: BTreeMap::from([(
+                                        "error".into(),
+                                        Value::String(err_str),
+                                    )]),
                                     ..Default::default()
                                 });
                             }
@@ -534,105 +515,48 @@ impl<T: EventForwarder> Shard<T> {
             Opcode::InvalidSession => {
                 self.log("Received invalid session payload from Discord");
 
-                *self.session_id.write() = None;
-                *self.seq.write() = None;
-                *self.gateway_url.write() = DEFAULT_GATEWAY_URL.to_string(); // Reconnect to main gateway on INVALID_SESSION
-
-                // delete session ID from Redis
-                if let Err(e) = self.delete_session_id().await {
-                    self.log_err("Error deleting session_id from Redis", &e);
-                }
-
-                // delete seq from Redis
-                if let Err(e) = self.delete_seq().await {
-                    self.log_err("Error deleting seq from Redis", &e);
-                }
-
-                // delete gateway url from Redis
-                if let Err(e) = self.delete_gateway_url().await {
-                    self.log_err("Error deleting gateway URL from Redis", &e);
-                }
-
+                self.session_data = None;
                 self.kill();
             }
 
             Opcode::Hello => {
-                let hello: payloads::Hello = serde_json::from_value(raw)?;
+                let hello: payloads::Hello = serde_json::from_str(raw.as_str())?;
                 let interval = Duration::from_millis(hello.data.heartbeat_interval as u64);
+                self.heartbeat_interval = interval;
 
-                let mut should_identify = true;
+                let resume_info = self.session_data.clone();
 
-                // try to load session_id from redis
-                if let Ok(Some(session_id)) = self.load_session_id().await {
-                    *self.session_id.write() = Some(session_id);
+                if let Some(resume_info) = resume_info {
+                    self.log("Attempting RESUME");
 
-                    // if success, load seq from redis
-                    if let Ok(Some(seq)) = self.load_seq().await {
-                        *self.seq.write() = Some(seq)
+                    if let Err(e) = self
+                        .do_resume(resume_info.session_id, resume_info.seq)
+                        .await
+                    {
+                        self.log_err("Error sending RESUME payload, killing", &e);
+                        self.kill();
+                        return Ok(());
                     }
-                }
+                } else {
+                    self.log("No resume info found, IDENTIFYing instead");
 
-                let session_id = self.session_id.read().as_ref().cloned();
-                let seq = *self.seq.read();
-                if let (Some(session_id), Some(seq)) = (session_id, seq) {
-                    if let Err(e) = Arc::clone(&self).do_resume(session_id.clone(), seq).await {
-                        self.log_err("Error RESUMEing, going to IDENTIFY", &e);
-
-                        // rst
-                        *self.session_id.write() = None;
-                        *self.seq.write() = None;
-
-                        let connect_time = self.connect_time.read().await;
-
-                        if connect_time.elapsed() > interval {
-                            self.log(
-                                "Connected over 45s ago, Discord will kick us off. Reconnecting.",
-                            );
-                            Arc::clone(&self).kill();
-                            return Ok(());
-                        } else {
-                            if connect_time.elapsed() > Duration::from_millis(5000) {
-                                // Need to wait for ratelimit again
-                                if let Err(e) = self.wait_for_ratelimit().await {
-                                    self.log_err("Error waiting for ratelimit, reconnecting", &e);
-                                    Arc::clone(&self).kill();
-                                    return Ok(());
-                                }
-                            }
-
-                            should_identify = Arc::clone(&self).do_identify().await.is_err();
-
-                            if let Err(e) = self.update_ratelimit_after_identify().await {
-                                self.log_err("Error setting identify ratelimit value", &e);
-                            }
-                        }
-                    } else {
-                        should_identify = false;
-                        self.log("Sent resume successfully");
-                    }
-                }
-
-                if should_identify {
-                    let connect_time = self.connect_time.read().await;
-
-                    if connect_time.elapsed() > interval {
+                    if self.connect_time.elapsed() > interval {
                         self.log("Connected over 45s ago, Discord will kick us off. Reconnecting.");
-                        Arc::clone(&self).kill();
+                        self.kill();
                         return Ok(());
                     }
 
-                    if connect_time.elapsed() > Duration::from_millis(5000) {
-                        // Need to wait for ratelimit again
+                    if self.connect_time.elapsed() > Duration::from_millis(500) {
                         if let Err(e) = self.wait_for_ratelimit().await {
                             self.log_err("Error waiting for ratelimit, reconnecting", &e);
-                            Arc::clone(&self).kill();
+                            self.kill();
                             return Ok(());
                         }
                     }
 
-                    if let Err(e) = Arc::clone(&self).do_identify().await {
+                    if let Err(e) = self.do_identify().await {
                         self.log_err("Error identifying, killing", &e);
-                        Arc::clone(&self).kill();
+                        self.kill();
                         return e.into();
                     }
 
@@ -643,17 +567,11 @@ impl<T: EventForwarder> Shard<T> {
                     }
                 }
 
-                let kill_tx = Arc::clone(&self).start_heartbeat(interval).await;
-                *self.kill_heartbeat.lock() = Some(kill_tx)
+                timer(self.heartbeat_tx.clone(), interval, false);
             }
 
             Opcode::HeartbeatAck => {
-                *self.last_ack.write() = Instant::now();
-
-                // save session ID
-                if let Err(e) = self.save_session_id().await {
-                    self.log_err("Error occurred while saving session ID", &e);
-                }
+                self.last_ack = Instant::now();
             }
 
             _ => {}
@@ -662,24 +580,19 @@ impl<T: EventForwarder> Shard<T> {
         Ok(())
     }
 
-    async fn handle_event(self: Arc<Self>, data: Box<RawValue>) -> Result<()> {
-        let payload: Dispatch = serde_json::from_str(data.get())?;
+    async fn handle_event(&mut self, data: String) -> Result<()> {
+        let payload: Dispatch = serde_json::from_str(data.as_ref())?;
 
         // Gateway events
         match &payload.data {
             Event::Ready(ready) => {
-                *self.gateway_url.write() = ready.resume_gateway_url.clone();
-                if let Err(e) = self.save_gateway_url().await {
-                    self.log_err("Error saving gateway URL", &e);
-                }
+                self.session_data = Some(SessionData {
+                    seq: payload.seq,
+                    session_id: ready.session_id.clone(),
+                    resume_url: Some(ready.resume_gateway_url.clone()),
+                });
 
-                *self.session_id.write() = Some(ready.session_id.clone());
-                if let Err(e) = self.save_session_id().await {
-                    self.log_err("Error saving session ID to Redis", &e);
-                }
-
-                self.ready_guild_count
-                    .store(ready.guilds.len() as u16, Ordering::Relaxed);
+                self.ready_guild_count = ready.guilds.len() as u16;
 
                 self.log(format!(
                     "Ready on {}#{} ({})",
@@ -691,11 +604,7 @@ impl<T: EventForwarder> Shard<T> {
             Event::Resumed(_) => {
                 self.log("Received resumed acknowledgement");
 
-                if !self
-                    .is_ready
-                    .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-                    .unwrap_or_else(|x| x)
-                {
+                if !self.is_ready.compare_and_swap(false, true, Ordering::Release) {
                     if let Some(tx) = self.ready_tx.lock().take() {
                         if tx.send(()).is_err() {
                             self.log_err(
@@ -709,16 +618,8 @@ impl<T: EventForwarder> Shard<T> {
                 return Ok(());
             }
 
-            #[cfg(not(feature = "whitelabel"))]
-            Event::GuildCreate(_) => {
-                self.update_count().await;
-            }
-
             #[cfg(feature = "whitelabel")]
             Event::GuildCreate(g) => {
-                self.update_count().await;
-
-                #[cfg(feature = "whitelabel")]
                 if let Err(e) = self.store_whitelabel_guild(g.id).await {
                     self.log_err("Error while storing whitelabel guild data", &e);
                 }
@@ -730,7 +631,7 @@ impl<T: EventForwarder> Shard<T> {
         // cache
         let guild_id = super::event_forwarding::get_guild_id(&payload.data);
         let should_forward =
-            is_whitelisted(&payload.data) && self.meets_forward_threshold(&payload.data).await;
+            is_whitelisted(&payload.data) && self.meets_forward_threshold(&payload.data);
 
         // cache
         if let Err(e) = match payload.data {
@@ -784,27 +685,41 @@ impl<T: EventForwarder> Shard<T> {
             Event::UserUpdate(user) => self.cache.store_user(user).await,
             _ => Ok(()),
         } {
-            self.log_err("Error updating cache", &GatewayError::CacheError(e));
+            error!(error = %e, "Error updating cache");
         }
 
         // push to workers, even if error occurred
         if should_forward {
+            let shard_id = self.get_shard_id();
+            let self_id = self.user_id.0;
+            let token = self.identify.data.token.clone();
+
+            let config = Arc::clone(&self.config);
+            let event_forwarder = Arc::clone(&self.event_forwarder);
+
             tokio::spawn(async move {
-                // prepare payload
-                let wrapped = event_forwarding::Event {
-                    bot_token: &self.identify.data.token[..],
-                    bot_id: self.user_id.0,
-                    is_whitelabel: is_whitelabel(),
-                    shard_id: self.get_shard_id(),
-                    event: &data,
+                let raw_payload = match RawValue::from_string(data) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        error!(shard_id = %shard_id, error = %e, "Error convering JSON string to RawValue");
+                        return;
+                    }
                 };
 
-                if let Err(e) = self
-                    .event_forwarder
-                    .forward_event(&self.config, wrapped, guild_id)
+                // prepare payload
+                let wrapped = event_forwarding::Event {
+                    bot_token: token.as_str(),
+                    bot_id: self_id,
+                    is_whitelabel: is_whitelabel(),
+                    shard_id,
+                    event: raw_payload,
+                };
+
+                if let Err(e) = event_forwarder
+                    .forward_event(&config, wrapped, guild_id)
                     .await
                 {
-                    self.log_err("Error while executing worker HTTP request", &e);
+                    error!(shard_id = %shard_id, error = %e, "Error while executing worker HTTP request");
                 }
             });
         }
@@ -812,34 +727,34 @@ impl<T: EventForwarder> Shard<T> {
         Ok(())
     }
 
-    async fn update_count(&self) {
-        if !self.is_ready.load(Ordering::Relaxed) {
-            let received = self.received_count.fetch_add(1, Ordering::Relaxed);
+    async fn update_count(
+        shard_id: u16,
+        shard_guild_count: u16,
+        received_count: Arc<AtomicUsize>,
+        is_ready: Arc<AtomicBool>,
+        ready_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    ) {
+        if !is_ready.load(Ordering::Relaxed) {
+            let received_count = received_count.fetch_add(1, Ordering::Relaxed);
 
-            if received >= (self.ready_guild_count.load(Ordering::Relaxed) / 100) * 90 {
+            if received_count >= (shard_guild_count / 100 * 90).into() {
                 // Once we have 90% of the guilds, we're ok to load more shards
                 // CAS in case value was updated since read
-                if !self
-                    .is_ready
-                    .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-                    .unwrap_or_else(|x| x)
-                {
-                    if let Some(tx) = self.ready_tx.lock().take() {
-                        self.log("Reporting readiness");
+                let is_ready = is_ready.compare_and_swap(false, true, Ordering::Relaxed);
+                if !is_ready {
+                    if let Some(tx) = ready_tx.lock().take() {
+                        info!(shard_id = %shard_id, "Reporting readiness");
                         if tx.send(()).is_err() {
-                            self.log_err(
-                                "Error sending ready notification to probe",
-                                &GatewayError::ReceiverHungUpError,
-                            );
+                            error!(shard_id = %shard_id, "Error sending ready notification to probe");
                         }
-                        self.log("Reported readiness");
+                        info!(shard_id = %shard_id, "Reported readiness");
                     }
                 }
             }
         }
     }
 
-    async fn meets_forward_threshold(&self, event: &Event) -> bool {
+    fn meets_forward_threshold(&self, event: &Event) -> bool {
         if cfg!(feature = "skip-initial-guild-creates") {
             if let Event::GuildCreate(_) = event {
                 // if not ready, don't forward event
@@ -850,62 +765,20 @@ impl<T: EventForwarder> Shard<T> {
         true
     }
 
-    // returns cancellation channel
-    async fn start_heartbeat(self: Arc<Self>, interval: Duration) -> oneshot::Sender<()> {
-        let (cancel_tx, mut cancel_rx) = oneshot::channel();
-
-        tokio::spawn(async move {
-            sleep(interval).await;
-
-            let mut has_done_heartbeat = false;
-            while let Err(oneshot::error::TryRecvError::Empty) = cancel_rx.try_recv() {
-                let shard = Arc::clone(&self);
-
-                // if done inline, clippy complains about evaluation order
-                let elapsed: Option<Duration>;
-                {
-                    // Drop the locks afterwards
-                    let last_ack = shard.last_ack.read();
-                    let last_heartbeat = shard.last_heartbeat.read();
-                    elapsed = last_ack.checked_duration_since(*last_heartbeat);
-                }
-
-                if has_done_heartbeat && (elapsed.is_none() || elapsed.unwrap() > interval) {
-                    shard.log("Hasn't received heartbeat ack, killing");
-                    *self.kill_heartbeat.lock() = None;
-                    shard.kill();
-                    break;
-                }
-
-                if let Err(e) = Arc::clone(&shard).do_heartbeat().await {
-                    shard.log_err("Error sending heartbeat, killing", &e);
-                    *self.kill_heartbeat.lock() = None;
-                    shard.kill();
-                    break;
-                }
-
-                has_done_heartbeat = true;
-
-                sleep(interval).await;
-            }
-        });
-
-        cancel_tx
-    }
-
-    async fn do_heartbeat(self: Arc<Self>) -> Result<()> {
-        let payload = payloads::Heartbeat::new(*self.seq.read());
+    async fn do_heartbeat(&mut self) -> Result<()> {
+        let seq = self.session_data.as_ref().map(|s| s.seq);
+        let payload = payloads::Heartbeat::new(seq);
 
         let (tx, rx) = oneshot::channel();
         self.write(payload, tx).await?;
 
         rx.await??;
 
-        *self.last_heartbeat.write() = Instant::now();
+        self.last_heartbeat = Instant::now();
         Ok(())
     }
 
-    async fn do_identify(self: Arc<Self>) -> Result<()> {
+    async fn do_identify(&self) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.write(&self.identify, tx).await?;
 
@@ -963,86 +836,13 @@ impl<T: EventForwarder> Shard<T> {
 
     /// Shard.session_id & Shard.seq should not be None when calling this function
     /// if they are, the function will panic
-    async fn do_resume(self: Arc<Self>, session_id: String, seq: usize) -> Result<()> {
+    async fn do_resume(&self, session_id: String, seq: usize) -> Result<()> {
         let payload = payloads::Resume::new(self.identify.data.token.clone(), session_id, seq);
 
         let (tx, rx) = oneshot::channel();
         self.write(payload, tx).await?;
 
         Ok(rx.await??)
-    }
-
-    async fn load_session_id(&self) -> Result<Option<String>> {
-        self.redis_read(self.get_resume_key().as_ref()).await
-    }
-
-    async fn save_session_id(&self) -> Result<()> {
-        let session_id = match &*self.session_id.read() {
-            Some(session_id) => session_id.clone(),
-            None => return Ok(()),
-        };
-
-        self.redis_write(self.get_resume_key().as_ref(), session_id, Some(120))
-            .await
-    }
-
-    async fn delete_session_id(&self) -> Result<()> {
-        self.redis_delete(self.get_resume_key().as_ref()).await
-    }
-
-    async fn load_seq(&self) -> Result<Option<usize>> {
-        self.redis_read(self.get_seq_key().as_ref()).await
-    }
-
-    async fn save_seq(&self) -> Result<()> {
-        let seq = match *self.seq.read() {
-            Some(seq) => seq,
-            None => return Ok(()),
-        };
-
-        self.redis_write(self.get_seq_key().as_ref(), seq, Some(120))
-            .await
-    }
-
-    async fn delete_seq(&self) -> Result<()> {
-        self.redis_delete(self.get_seq_key().as_ref()).await
-    }
-
-    async fn load_gateway_url(&self) -> Result<Option<String>> {
-        self.redis_read_delete(self.get_redis_gateway_url_key().as_ref())
-            .await
-    }
-
-    async fn save_gateway_url(&self) -> Result<()> {
-        let value = self.gateway_url.read().clone();
-
-        // We should reconnect more frequently than every 3 days, so expiring after 72 hours is fine
-        self.redis_write(
-            self.get_redis_gateway_url_key().as_ref(),
-            value,
-            Some(60 * 60 * 72),
-        )
-        .await
-    }
-
-    async fn delete_gateway_url(&self) -> Result<()> {
-        self.redis_delete(self.get_redis_gateway_url_key().as_ref())
-            .await
-    }
-
-    async fn redis_read<U: FromRedisValue>(&self, key: &str) -> Result<Option<U>> {
-        let mut conn = self.redis.get().await?;
-        Ok(conn.get(key).await?)
-    }
-
-    async fn redis_read_delete<U: FromRedisValue>(&self, key: &str) -> Result<Option<U>> {
-        let mut conn = self.redis.get().await?;
-        let res: redis::Value = cmd("GETDEL").arg(&[key]).query_async(&mut conn).await?;
-
-        match res {
-            redis::Value::Nil => Ok(None),
-            other => Ok(Some(U::from_redis_value(&other)?)),
-        }
     }
 
     async fn redis_write<U: ToString>(
@@ -1060,48 +860,6 @@ impl<T: EventForwarder> Shard<T> {
         Ok(())
     }
 
-    async fn redis_delete(&self, key: &str) -> Result<()> {
-        let mut conn = self.redis.get().await?;
-        conn.del(key).await?;
-        Ok(())
-    }
-
-    fn get_resume_key(&self) -> String {
-        if is_whitelabel() {
-            format!("tickets:resume:{}:{}", self.user_id, self.get_shard_id())
-        } else {
-            format!(
-                "tickets:resume:public:{}-{}",
-                self.get_shard_id(),
-                self.identify.data.shard_info.num_shards
-            )
-        }
-    }
-
-    fn get_seq_key(&self) -> String {
-        if is_whitelabel() {
-            format!("tickets:seq:{}:{}", self.user_id, self.get_shard_id())
-        } else {
-            format!(
-                "tickets:seq:public:{}-{}",
-                self.get_shard_id(),
-                self.identify.data.shard_info.num_shards
-            )
-        }
-    }
-
-    fn get_redis_gateway_url_key(&self) -> String {
-        if is_whitelabel() {
-            format!("tickets:gwurl:{}:{}", self.user_id, self.get_shard_id())
-        } else {
-            format!(
-                "tickets:gwurl:public:{}-{}",
-                self.get_shard_id(),
-                self.identify.data.shard_info.num_shards
-            )
-        }
-    }
-
     /// helper
     pub fn get_shard_id(&self) -> u16 {
         self.identify.data.shard_info.shard_id
@@ -1109,17 +867,17 @@ impl<T: EventForwarder> Shard<T> {
 
     pub fn log(&self, msg: impl Display) {
         if is_whitelabel() {
-            info!("[shard:{}] {}", self.user_id, msg);
+            info!(bot_id = %self.user_id, "{msg}");
         } else {
-            info!("[shard:{:0>2}] {}", self.get_shard_id(), msg);
+            info!(shard_id = %self.get_shard_id(), "{msg}");
         }
     }
 
     pub fn log_err(&self, msg: impl Display, err: &GatewayError) {
         if is_whitelabel() {
-            error!("[shard:{}] {}: {}", self.user_id, msg, err);
+            error!(bot_id = %self.user_id, error = %err, "{msg}");
         } else {
-            error!("[shard:{:0>2}] {}: {}", self.get_shard_id(), msg, err);
+            error!(shard_id = %self.get_shard_id(), error = %err, "{msg}");
         }
     }
 
@@ -1130,21 +888,27 @@ impl<T: EventForwarder> Shard<T> {
                 self.user_id, msg, err, raw_payload
             );
         } else {
-            debug!("[shard:{:0>2}] {msg}: {err}\nFull payload: {raw_payload}", self.get_shard_id());
+            debug!(
+                "[shard:{:0>2}] {}: {}\nFull payload: {}",
+                self.get_shard_id(),
+                msg,
+                err,
+                raw_payload
+            );
         }
     }
 }
 
 async fn handle_writes(
     mut tx: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-    mut rx: mpsc::Receiver<OutboundMessage>,
+    mut rx: mpsc::Receiver<super::OutboundMessage>,
 ) {
     while let Some(msg) = rx.recv().await {
         let payload = Message::text(msg.message);
         let res = tx.send(payload).await;
 
         if let Err(e) = msg.tx.send(res.map_err(|e| e.into())) {
-            eprintln!("Error while sending write result back to caller: {:?}", e);
+            error!(error = ?e, "Error while sending write result back to caller");
         }
     }
 }

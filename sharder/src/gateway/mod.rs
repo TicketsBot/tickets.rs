@@ -4,6 +4,9 @@ pub use shard::Shard;
 mod payloads;
 pub use payloads::Identify;
 
+mod session_store;
+pub use session_store::{RedisSessionStore, SessionData, SessionStore};
+
 mod close_event;
 pub use close_event::CloseEvent;
 
@@ -22,5 +25,8 @@ pub use intents::Intents;
 mod worker_response;
 
 mod whitelabel_utils;
+
+mod timer;
+pub use timer::timer;
 
 pub mod event_forwarding;

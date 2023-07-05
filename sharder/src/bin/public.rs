@@ -1,24 +1,21 @@
 use std::sync::Arc;
-use tokio::signal;
 
 use model::user::{ActivityType, StatusType, StatusUpdate};
-use sharder::{setup_sentry, Config, PublicShardManager, ShardCount, ShardManager};
+use sharder::{
+    await_shutdown, setup_sentry, Config, PublicShardManager, RedisSessionStore, ShardCount,
+    ShardManager,
+};
 
-use sharder::{build_cache, build_redis};
+use sharder::{build_cache, build_redis, metrics_server};
 
 use deadpool_redis::redis::cmd;
 use jemallocator::Jemalloc;
 use sharder::event_forwarding::HttpEventForwarder;
+use tracing::info;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-/*#[cfg(feature = "whitelabel")]
-fn main() {
-    panic!("Started public sharder with whitelabel feature flag")
-}
-
-#[cfg(not(feature = "whitelabel"))]*/
 #[tokio::main]
 async fn main() {
     // init sharder options
@@ -28,7 +25,18 @@ async fn main() {
     let _guard = setup_sentry(&config);
 
     #[cfg(not(feature = "use-sentry"))]
-    env_logger::init();
+    tracing_subscriber::fmt::init();
+
+    #[cfg(feature = "metrics")]
+    {
+        let metrics_addr = config.metrics_addr.clone();
+
+        tokio::spawn(async move {
+            metrics_server::start_server(metrics_addr.as_str())
+                .await
+                .expect("Failed to start metrics server");
+        });
+    }
 
     let shard_count = get_shard_count(&config);
 
@@ -60,14 +68,31 @@ async fn main() {
 
     assert_eq!(res, "PONG");
 
-    let event_forwarder = Arc::new(HttpEventForwarder::new(
-        HttpEventForwarder::build_http_client(),
-    ));
+    let session_store =
+        RedisSessionStore::new(Arc::clone(&redis), "tickets:resume:public".to_string(), 300);
 
-    let sm = PublicShardManager::new(config, options, cache, redis, event_forwarder).await;
-    Arc::new(sm).connect().await;
+    let event_forwarder = Arc::new(HttpEventForwarder::default());
 
-    signal::ctrl_c().await.expect("Failed to listen for ctrl_c");
+    let sm = PublicShardManager::new(
+        config,
+        options,
+        session_store,
+        cache,
+        redis,
+        event_forwarder,
+    )
+    .await;
+
+    let sm = Arc::new(sm);
+    Arc::clone(&sm).connect().await;
+
+    await_shutdown()
+        .await
+        .expect("Failed to wait for shutdown signal");
+    info!("Received shutdown signal");
+
+    sm.shutdown().await;
+    info!("Shard manager shutdown gracefully");
 }
 
 #[cfg(not(feature = "whitelabel"))]

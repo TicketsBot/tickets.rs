@@ -9,5 +9,5 @@ pub struct Event<'a> {
     pub bot_id: u64,
     pub is_whitelabel: bool,
     pub shard_id: u16,
-    pub event: &'a RawValue,
+    pub event: Box<RawValue>,
 }

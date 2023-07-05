@@ -10,4 +10,7 @@ pub struct Dispatch {
 
     #[serde(rename = "d", flatten)]
     pub data: Event,
+
+    #[serde(rename = "s")]
+    pub seq: usize,
 }
