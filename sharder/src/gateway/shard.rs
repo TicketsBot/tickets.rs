@@ -231,7 +231,6 @@ impl<T: EventForwarder> Shard<T> {
 
     // helper function
     pub fn kill(&self) {
-        // TODO: panic?
         let kill_shard_tx = self.kill_shard_tx.lock().take();
         let shard_id = self.get_shard_id();
 
@@ -252,7 +251,7 @@ impl<T: EventForwarder> Shard<T> {
         mut rx: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     ) -> Result<()> {
         #[cfg(feature = "compression")]
-        let mut decoder = Decompress::new(true);
+            let mut decoder = Decompress::new(true);
 
         let kill_shard_rx = Arc::clone(&self.kill_shard_rx);
         let kill_shard_rx = &mut *kill_shard_rx.lock().await;
@@ -740,24 +739,35 @@ impl<T: EventForwarder> Shard<T> {
         if !self.is_ready {
             // Once we have 90% of the guilds, we're ok to load more shards
             if self.received_count >= (self.ready_guild_count / 100 * 90).into() {
-                if !self.is_ready {
-                    self.is_ready = true;
+                self.is_ready = true;
 
-                    if let Some(tx) = self.ready_tx.lock().take() {
-                        info!(shard_id = %self.get_shard_id(), "Reporting readiness");
-                        if tx.send(()).is_err() {
-                            error!(shard_id = %self.get_shard_id(), "Error sending ready notification to probe");
-                        }
-                        info!(shard_id = %self.get_shard_id(), "Reported readiness");
+                if let Some(tx) = self.ready_tx.lock().take() {
+                    info!(shard_id = %self.get_shard_id(), "Reporting readiness");
+                    if tx.send(()).is_err() {
+                        error!(shard_id = %self.get_shard_id(), "Error sending ready notification to probe");
                     }
+                    info!(shard_id = %self.get_shard_id(), "Reported readiness");
                 }
-            }
-        }
 
-        if !self.used_resume {
-            if self.received_count == usize::from(self.ready_guild_count) {
-                info!(shard_id = %self.get_shard_id(), "Received all guilds ({}), killing shard", self.received_count);
-                self.kill();
+                if !self.used_resume {
+                    let kill_shard_tx = self.kill_shard_tx.lock().take();
+                    let shard_id = self.get_shard_id();
+
+                    info!(shard_id = %shard_id, "Received 90% of guilds ({}), going to killing shard in 90 seconds", self.received_count);
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_secs(90)).await;
+                        info!(shard_id = %shard_id, "Received 90% of guilds, killing shard");
+
+                        match kill_shard_tx {
+                            Some(kill_shard_tx) => {
+                                if kill_shard_tx.send(()).is_err() {
+                                    error!(shard_id = %shard_id, "Failed to kill, receiver already unallocated");
+                                }
+                            }
+                            None => warn!(shard_id = %shard_id, "Tried to kill but kill_shard_tx was None"),
+                        }
+                    });
+                }
             }
         }
     }
