@@ -1,0 +1,23 @@
+name: "cargo check"
+
+on: [push, pull_request]
+
+jobs:
+  cargo-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check
+        run: cargo check
+
+#      - name: Check whitelabel sharder
+#        run: cargo check --bin whitelabel --features=whitelabel
