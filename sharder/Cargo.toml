@@ -40,12 +40,13 @@ lazy_static = { version = "1.4", optional = true }
 hyper = { version = "0.14", features = ["server", "http1", "http2"], optional = true }
 
 [features]
-default = ["skip-initial-guild-creates", "use-sentry", "metrics"]
+default = ["skip-initial-guild-creates", "use-sentry", "metrics", "resume-after-identify"]
 compression = ["flate2", "reqwest/gzip"]
 whitelabel = []
 skip-initial-guild-creates = []
 use-sentry = ["sentry", "sentry-tracing"]
 metrics = ["prometheus", "lazy_static", "hyper"]
+resume-after-identify = []
 
 [[bin]]
 name = "public"

@@ -97,6 +97,7 @@ pub struct Shard<T: EventForwarder> {
     ready_guild_count: u16,
     received_count: usize,
     is_ready: bool,
+    #[cfg(feature = "resume-after-identify")]
     used_resume: bool,
     shutdown_rx: broadcast::Receiver<mpsc::Sender<(u16, Option<SessionData>)>>,
     pub(crate) event_forwarder: Arc<T>,
@@ -152,6 +153,7 @@ impl<T: EventForwarder> Shard<T> {
             ready_guild_count: 0,
             received_count: 0,
             is_ready: false,
+            #[cfg(feature = "resume-after-identify")]
             used_resume: false,
             shutdown_rx,
             event_forwarder,
@@ -536,6 +538,7 @@ impl<T: EventForwarder> Shard<T> {
                         return Ok(());
                     }
 
+                    #[cfg(feature = "resume-after-identify")]
                     self.used_resume = true;
                 } else {
                     self.log("No resume info found, IDENTIFYing instead");
@@ -749,6 +752,7 @@ impl<T: EventForwarder> Shard<T> {
                     info!(shard_id = %self.get_shard_id(), "Reported readiness");
                 }
 
+                #[cfg(feature = "resume-after-identify")]
                 if !self.used_resume {
                     let kill_shard_tx = self.kill_shard_tx.lock().take();
                     let shard_id = self.get_shard_id();
