@@ -189,7 +189,6 @@ impl Worker {
         // cache objects on guild
         let mut res: Result<()> = Ok(());
 
-        // TODO: check opts
         for guild in guilds {
             if self.options.channels {
                 if let Some(channels) = guild.channels {
@@ -203,20 +202,6 @@ impl Worker {
                 if let Some(threads) = guild.threads {
                     if let Err(e) = self.store_channels(threads).await {
                         res = Err(e);
-                    }
-                }
-            }
-
-            if self.options.members {
-                if let Some(members) = guild.members {
-                    let users = members.iter().map(|m| m.user.clone()).flatten().collect();
-
-                    if let Err(e) = self.store_members(members, guild.id).await {
-                        res = Err(e);
-                    }
-
-                    if let Err(e) = self.store_users(users).await {
-                        res = Err(e)
                     }
                 }
             }
