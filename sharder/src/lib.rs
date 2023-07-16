@@ -1,3 +1,5 @@
+#![feature(stmt_expr_attributes)]
+
 mod gateway;
 pub use gateway::*;
 
