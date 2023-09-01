@@ -1,4 +1,4 @@
-use crate::error::PatreonError;
+use crate::error::Error;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -14,7 +14,7 @@ pub async fn refresh_tokens(
     refresh_token: String,
     client_id: String,
     client_secret: String,
-) -> Result<PatreonResponse, PatreonError> {
+) -> Result<PatreonResponse, Error> {
     let uri = format!("https://www.patreon.com/api/oauth2/token?grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", refresh_token, client_id, client_secret);
 
     let client = reqwest::ClientBuilder::new()

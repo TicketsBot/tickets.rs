@@ -1,11 +1,10 @@
 use crate::config::Config;
 use crate::patreon::Tier;
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use std::collections::HashMap;
 
-use parking_lot::RwLock;
 use reply::Json;
 use serde::Serialize;
 use serde_json::json;
@@ -90,7 +89,7 @@ async fn is_premium(
     let mut guild_highest_tier: Option<&Tier> = None;
     let mut user_id: Option<&str> = None;
 
-    let patrons = patrons.read();
+    let patrons = patrons.read().unwrap();
 
     // any so we stop at the first true
     // we need to find the highest tier, so we need to only break at
@@ -141,7 +140,7 @@ async fn patron_count(
         ));
     }
 
-    let count = patrons.read().len();
+    let count = patrons.read().unwrap().len();
 
     Ok(reply::with_status(
         reply::json(&json!({
