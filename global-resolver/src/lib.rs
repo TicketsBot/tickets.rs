@@ -1,5 +1,5 @@
 #![feature(ip)]
-#![feature(type_alias_impl_trait)]
+#![feature(impl_trait_in_assoc_type)]
 
 use hyper::client::connect::dns::Name;
 use std::future::Future;
