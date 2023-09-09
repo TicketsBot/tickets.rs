@@ -189,7 +189,6 @@ impl Worker {
         // cache objects on guild
         let mut res: Result<()> = Ok(());
 
-        // TODO: check opts
         for guild in guilds {
             if self.options.channels {
                 if let Some(channels) = guild.channels {
@@ -203,20 +202,6 @@ impl Worker {
                 if let Some(threads) = guild.threads {
                     if let Err(e) = self.store_channels(threads).await {
                         res = Err(e);
-                    }
-                }
-            }
-
-            if self.options.members {
-                if let Some(members) = guild.members {
-                    let users = members.iter().map(|m| m.user.clone()).flatten().collect();
-
-                    if let Err(e) = self.store_members(members, guild.id).await {
-                        res = Err(e);
-                    }
-
-                    if let Err(e) = self.store_users(users).await {
-                        res = Err(e)
                     }
                 }
             }
@@ -347,7 +332,7 @@ impl Worker {
         users.sort_by(|one, two| one.id.cmp(&two.id));
         users.dedup();
 
-        let mut query = String::from(r#"INSERT INTO users("user_id", "data") VALUES"#);
+        let mut query = String::from(r#"INSERT INTO users("user_id", "data", "last_seen") VALUES"#);
 
         let mut first = true;
         for user in users {
@@ -359,13 +344,13 @@ impl Worker {
 
             let encoded = serde_json::to_string(&user).map_err(CacheError::JsonError)?;
             query.push_str(&format!(
-                r#"({}, {}::jsonb)"#,
+                r#"({}, {}::jsonb, NOW())"#,
                 user.id.0,
                 quote_literal(encoded)
             ));
         }
 
-        query.push_str(r#" ON CONFLICT("user_id") DO UPDATE SET "data" = excluded.data;"#);
+        query.push_str(r#" ON CONFLICT("user_id") DO UPDATE SET "data" = excluded.data, "last_seen" = excluded.last_seen;"#);
 
         self.client
             .simple_query(&query[..])
@@ -427,7 +412,7 @@ impl Worker {
         });
 
         let mut query =
-            String::from(r#"INSERT INTO members("guild_id", "user_id", "data") VALUES"#);
+            String::from(r#"INSERT INTO members("guild_id", "user_id", "data", "last_seen") VALUES"#);
 
         let mut first = true;
         for member in members {
@@ -439,7 +424,7 @@ impl Worker {
 
             let encoded = serde_json::to_string(&member).map_err(CacheError::JsonError)?;
             query.push_str(&format!(
-                r#"({}, {}, {}::jsonb)"#,
+                r#"({}, {}, {}::jsonb, NOW())"#,
                 guild_id,
                 member.user.as_ref().unwrap().id,
                 quote_literal(encoded)
@@ -447,7 +432,7 @@ impl Worker {
         }
 
         query.push_str(
-            r#" ON CONFLICT("guild_id", "user_id") DO UPDATE SET "data" = excluded.data;"#,
+            r#" ON CONFLICT("guild_id", "user_id") DO UPDATE SET "data" = excluded.data, "last_seen" = excluded.last_seen;"#,
         );
 
         self.client

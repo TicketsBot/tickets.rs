@@ -10,25 +10,24 @@ use patreon::oauth;
 use patreon::Poller;
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use chrono::prelude::*;
 
-use parking_lot::RwLock;
 use std::time::Duration;
 use tokio::time::sleep;
 
-use crate::error::PatreonError;
+use crate::error::Error;
 use log::{debug, error, info};
 
 #[tokio::main]
-pub async fn main() -> Result<(), PatreonError> {
+pub async fn main() -> Result<(), Error> {
     env_logger::init();
 
     let config = Arc::new(Config::new().unwrap());
 
     info!("Connecting to database...");
-    let db_client = Database::new(&config).await?;
+    let db_client = Database::connect(&config).await?;
     db_client.create_schema().await?;
     info!("Database connection established");
 
@@ -63,10 +62,10 @@ pub async fn main() -> Result<(), PatreonError> {
 
                 {
                     debug!("Acquiring lock");
-                    let mut map = data.write();
+                    let mut map = data.write().unwrap();
                     debug!("Lock acquired");
                     *map = patrons;
-                    debug!("Overridden data");
+                    debug!("Overwritten data");
                 }
 
                 debug!("Data updated");
@@ -91,7 +90,7 @@ async fn handle_refresh(
     tokens: &database::Tokens,
     config: &Config,
     db_client: &Database,
-) -> Result<database::Tokens, PatreonError> {
+) -> Result<database::Tokens, Error> {
     info!("handle_refresh called");
     let new_tokens = oauth::refresh_tokens(
         tokens.refresh_token.clone(),
