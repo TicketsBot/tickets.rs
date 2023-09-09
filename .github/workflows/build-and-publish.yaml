@@ -20,6 +20,8 @@ jobs:
             dockerfile: sharder/main.Dockerfile
           - package: http-gateway
             dockerfile: http-gateway/Dockerfile
+          - package: premiumproxy
+            dockerfile: patreon-proxy/Dockerfile
     permissions:
       contents: read
       packages: write
