@@ -19,7 +19,7 @@ impl Poller {
     pub fn new(campaign_id: String, tokens: Arc<Tokens>) -> Poller {
         let client = reqwest::ClientBuilder::new()
             .use_rustls_tls()
-            .timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(30))
             .build()
             .expect("failed to build http client");
 
