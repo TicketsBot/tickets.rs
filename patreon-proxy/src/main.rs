@@ -31,7 +31,6 @@ pub async fn main() -> Result<(), Error> {
     let config = Config::new().expect("Failed to load config from environment variables");
 
     let _guard = configure_observability(&config);
-    error!("pani2c!!!");
 
     info!("Connecting to database...");
     let db_client = Database::connect(&config).await?;
