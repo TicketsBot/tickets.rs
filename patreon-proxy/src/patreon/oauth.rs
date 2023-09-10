@@ -2,6 +2,7 @@ use crate::error::Error;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct PatreonResponse {
     pub access_token: String,
     pub refresh_token: String,

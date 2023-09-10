@@ -10,21 +10,28 @@ use patreon::oauth;
 use patreon::Poller;
 
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
 use chrono::prelude::*;
 
+use sentry::types::Dsn;
+use sentry_tracing::EventFilter;
 use std::time::Duration;
 use tokio::time::sleep;
 
 use crate::error::Error;
-use log::{debug, error, info};
+use tracing::log::{debug, error, info};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Error> {
-    env_logger::init();
+    let config = Config::new().expect("Failed to load config from environment variables");
 
-    let config = Arc::new(Config::new().unwrap());
+    let _guard = configure_observability(&config);
+    error!("pani2c!!!");
 
     info!("Connecting to database...");
     let db_client = Database::connect(&config).await?;
@@ -38,7 +45,7 @@ pub async fn main() -> Result<(), Error> {
     );
     tokens = Arc::new(handle_refresh(&tokens, &config, &db_client).await?);
 
-    let mut poller = Poller::new(Arc::clone(&config), Arc::clone(&tokens));
+    let mut poller = Poller::new(config.patreon_campaign_id.clone(), Arc::clone(&tokens));
 
     let mut server_started = false;
 
@@ -71,7 +78,7 @@ pub async fn main() -> Result<(), Error> {
                 debug!("Data updated");
 
                 if !server_started {
-                    start_server(Arc::clone(&config), Arc::clone(&data));
+                    start_server(&config, Arc::clone(&data));
                     server_started = true;
                 }
             }
@@ -111,9 +118,42 @@ async fn handle_refresh(
     Ok(tokens)
 }
 
-fn start_server(config: Arc<Config>, patrons: Arc<RwLock<HashMap<String, patreon::Tier>>>) {
+fn configure_observability(config: &Config) -> sentry::ClientInitGuard {
+    let _guard = sentry::init(sentry::ClientOptions {
+        dsn: config
+            .sentry_dsn
+            .clone()
+            .map(|dsn| Dsn::from_str(dsn.as_str()).expect("Invalid DSN")),
+        debug: config.debug_mode,
+        release: sentry::release_name!(),
+        ..Default::default()
+    });
+
+    let sentry_layer = sentry_tracing::layer().event_filter(|meta| match meta.level() {
+        &tracing::Level::ERROR | &tracing::Level::WARN => EventFilter::Exception,
+        _ => EventFilter::Ignore,
+    });
+
+    let registry = tracing_subscriber::registry()
+        .with(EnvFilter::from_default_env())
+        .with(sentry_layer);
+
+    if config.json_log {
+        registry
+            .with(tracing_subscriber::fmt::layer().json())
+            .init();
+    } else {
+        registry.with(tracing_subscriber::fmt::layer()).init();
+    }
+
+    _guard
+}
+
+fn start_server(config: &Config, patrons: Arc<RwLock<HashMap<String, patreon::Tier>>>) {
+    let server_addr = config.server_addr.clone();
+
     tokio::spawn(async move {
-        println!("Starting server...");
-        http::listen(config, patrons).await;
+        info!("Starting server...");
+        http::listen(server_addr.as_str(), patrons).await;
     });
 }

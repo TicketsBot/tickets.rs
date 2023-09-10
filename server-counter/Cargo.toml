@@ -7,13 +7,14 @@ edition = "2018"
 [dependencies]
 model = { path = "../model" }
 cache = { path = "../cache" }
-tokio = { version = "~1", features = ["full"] }
-axum = "0.5"
+tokio = { version = "1", features = ["full"] }
+axum = "0.6"
 hyper = { version = "0.14", features = ["http1", "http2", "server", "runtime", "stream"] }
 tokio-postgres = "0.7"
+deadpool-postgres = "0.10"
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 envy = "0.4"
 log = "0.4"
-env_logger = "0.9"
+env_logger = "0.10"

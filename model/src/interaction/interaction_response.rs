@@ -5,7 +5,6 @@ use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
-use std::convert::TryFrom;
 
 // TODO: Reduce redundant code
 

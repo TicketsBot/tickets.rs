@@ -1,4 +1,3 @@
-use crate::config::Config;
 use crate::patreon::Tier;
 
 use std::sync::{Arc, RwLock};
@@ -31,25 +30,19 @@ struct PremiumResponse {
     user_id: Option<String>,
 }
 
-pub async fn listen(config: Arc<Config>, data: Arc<RwLock<HashMap<String, Tier>>>) {
-    let addr = SocketAddr::from_str(&config.server_addr).unwrap();
+pub async fn listen(server_addr: &str, data: Arc<RwLock<HashMap<String, Tier>>>) {
+    let addr = SocketAddr::from_str(server_addr).unwrap();
 
     let ping = warp::path("ping").and_then(ping);
 
-    let config = warp::any().map(move || Arc::clone(&config));
     let data = warp::any().map(move || Arc::clone(&data));
 
     let is_premium = warp::path("ispremium")
-        .and(config.clone())
         .and(data.clone())
         .and(warp::query::<HashMap<String, String>>())
         .and_then(is_premium);
 
-    let count = warp::path("count")
-        .and(config.clone())
-        .and(data.clone())
-        .and(warp::query::<HashMap<String, String>>())
-        .and_then(patron_count);
+    let count = warp::path("count").and(data.clone()).and_then(patron_count);
 
     warp::serve(ping.or(is_premium).or(count)).run(addr).await;
 }
@@ -59,19 +52,9 @@ async fn ping() -> Result<Json, warp::Rejection> {
 }
 
 async fn is_premium(
-    config: Arc<Config>,
     patrons: Arc<RwLock<HashMap<String, Tier>>>,
     query: HashMap<String, String>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    if query.get("key") != Some(&config.server_key) {
-        return Ok(reply::with_status(
-            reply::json(&json!({
-                "error": "Invalid secret key"
-            })),
-            StatusCode::FORBIDDEN,
-        ));
-    }
-
     let mut ids = match query.get("id") {
         Some(joined) => joined.split(','),
         None => {
@@ -127,19 +110,8 @@ async fn is_premium(
 }
 
 async fn patron_count(
-    config: Arc<Config>,
     patrons: Arc<RwLock<HashMap<String, Tier>>>,
-    query: HashMap<String, String>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    if query.get("key") != Some(&config.server_key) {
-        return Ok(reply::with_status(
-            reply::json(&json!({
-                "error": "Invalid secret key"
-            })),
-            StatusCode::FORBIDDEN,
-        ));
-    }
-
     let count = patrons.read().unwrap().len();
 
     Ok(reply::with_status(
