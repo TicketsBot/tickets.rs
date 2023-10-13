@@ -73,7 +73,7 @@ struct SocialConnections {
 
 #[derive(Debug, Deserialize)]
 struct DiscordConnection {
-    user_id: String,
+    user_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,7 +111,8 @@ impl PledgeResponse {
                     .social_connections
                     .as_ref()
                     .and_then(|sc| sc.discord.as_ref())
-                    .map(|d| d.user_id.clone())?;
+                    .map(|d| d.user_id.clone())
+                    .flatten()?;
 
                 Some((discord_id, tier))
             })
