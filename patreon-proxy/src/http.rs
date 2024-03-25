@@ -13,6 +13,7 @@ use warp::Filter;
 
 use std::net::SocketAddr;
 use std::str::FromStr;
+use tracing::log::error;
 
 #[derive(Serialize, Debug)]
 struct PingResponse {
@@ -42,9 +43,10 @@ pub async fn listen(server_addr: &str, data: Arc<RwLock<HashMap<String, Tier>>>)
         .and(warp::query::<HashMap<String, String>>())
         .and_then(is_premium);
 
+    let all = warp::path("all").and(data.clone()).and_then(all_patrons);
     let count = warp::path("count").and(data.clone()).and_then(patron_count);
 
-    warp::serve(ping.or(is_premium).or(count)).run(addr).await;
+    warp::serve(ping.or(is_premium).or(all).or(count)).run(addr).await;
 }
 
 async fn ping() -> Result<Json, warp::Rejection> {
@@ -118,6 +120,31 @@ async fn patron_count(
         reply::json(&json!({
             "count": count
         })),
+        StatusCode::OK,
+    ))
+}
+
+async fn all_patrons(
+    patrons: Arc<RwLock<HashMap<String, Tier>>>
+) -> Result<impl warp::Reply, warp::Rejection> {
+    let patrons = patrons.read().unwrap();
+
+    let value = match serde_json::to_value(&*patrons) {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Failed to serialize patrons: {}", e);
+
+            return Ok(reply::with_status(
+                reply::json(&json!({
+                    "error": "Unable to serialize patrons map"
+                })),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        },
+    };
+
+    Ok(reply::with_status(
+        reply::json(&json!(value)),
         StatusCode::OK,
     ))
 }
