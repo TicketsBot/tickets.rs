@@ -20,6 +20,7 @@ impl Poller {
         let client = reqwest::ClientBuilder::new()
             .use_rustls_tls()
             .timeout(Duration::from_secs(30))
+            .user_agent("tickets-patreon-proxy/1.0")
             .build()
             .expect("failed to build http client");
 
