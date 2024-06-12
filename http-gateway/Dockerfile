@@ -1,4 +1,4 @@
-FROM rustlang/rust:nightly-buster
+FROM rust:1-buster
 
 RUN apt-get install -y apt-transport-https
 RUN apt-get update && apt-get -y upgrade && apt-get -y install python3 openssl libssl-dev ca-certificates cmake

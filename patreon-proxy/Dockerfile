@@ -1,4 +1,4 @@
-FROM rustlang/rust:nightly-buster AS builder
+FROM rust:1-buster AS builder
 
 RUN apt-get update && apt-get -y upgrade && apt-get -y install git openssl libssl-dev ca-certificates cmake
 
@@ -7,7 +7,7 @@ WORKDIR /tmp/compile
 
 COPY . .
 
-RUN cargo +nightly build --release --bin patreon-proxy
+RUN cargo build --release --bin patreon-proxy
 
 # Prod container
 FROM debian:buster

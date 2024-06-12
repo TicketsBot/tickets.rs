@@ -539,7 +539,9 @@ impl<T: EventForwarder> Shard<T> {
                     }
 
                     #[cfg(feature = "resume-after-identify")]
-                    self.used_resume = true;
+                    {
+                        self.used_resume = true;
+                    }
                 } else {
                     self.log("No resume info found, IDENTIFYing instead");
 
