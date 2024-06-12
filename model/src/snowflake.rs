@@ -22,7 +22,7 @@ impl Snowflake {
         let mut seq = serializer.serialize_seq(Some(vec.len()))?;
 
         for snowflake in vec {
-            seq.serialize_element(&snowflake)?;
+            seq.serialize_element(&snowflake.0)?;
         }
 
         seq.end()
@@ -97,3 +97,25 @@ impl<'q> sqlx::Encode<'q, Postgres> for Snowflake {
         IsNull::No
     }
 }*/
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct VecStruct {
+        #[serde(serialize_with = "Snowflake::serialize_vec_to_ints")]
+        pub snowflakes: Vec<Snowflake>,
+    }
+
+    #[test]
+    fn test_serialize_snowflake_vec() {
+        let v = VecStruct {
+            snowflakes: vec![Snowflake(1), Snowflake(2), Snowflake(3)],
+        };
+
+        let json = serde_json::to_string(&v).unwrap();
+        assert_eq!(json, r#"{"snowflakes":[1,2,3]}"#);
+    }
+}
