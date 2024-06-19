@@ -33,6 +33,8 @@ use crate::config::Config;
 use crate::gateway::payloads::PresenceUpdate;
 use crate::gateway::whitelabel_utils::is_whitelabel;
 use crate::gateway::{GatewayError, Result};
+use crate::InternalCommand;
+use crate::ShardIdentifier;
 
 use super::payloads;
 use super::payloads::event::Event;
@@ -79,8 +81,6 @@ pub struct Shard<T: EventForwarder> {
     large_sharding_buckets: u16,
     cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
-    pub status_update_tx: mpsc::Sender<StatusUpdate>,
-    status_update_rx: Arc<TokioMutex<mpsc::Receiver<StatusUpdate>>>,
     pub(crate) user_id: Snowflake,
     pub(crate) session_data: Option<SessionData>,
     writer: mpsc::Sender<OutboundMessage>,
@@ -99,7 +99,8 @@ pub struct Shard<T: EventForwarder> {
     is_ready: bool,
     #[cfg(feature = "resume-after-identify")]
     used_resume: bool,
-    shutdown_rx: broadcast::Receiver<mpsc::Sender<(u16, Option<SessionData>)>>,
+    shutdown_rx: broadcast::Receiver<mpsc::Sender<(ShardIdentifier, Option<SessionData>)>>,
+    command_rx: Arc<TokioMutex<mpsc::Receiver<InternalCommand>>>,
     pub(crate) event_forwarder: Arc<T>,
 
     #[cfg(feature = "whitelabel")]
@@ -121,11 +122,11 @@ impl<T: EventForwarder> Shard<T> {
         user_id: Snowflake,
         event_forwarder: Arc<T>,
         ready_tx: Option<oneshot::Sender<()>>,
-        shutdown_rx: broadcast::Receiver<mpsc::Sender<(u16, Option<SessionData>)>>,
+        shutdown_rx: broadcast::Receiver<mpsc::Sender<(ShardIdentifier, Option<SessionData>)>>,
+        command_rx: mpsc::Receiver<InternalCommand>,
         #[cfg(feature = "whitelabel")] database: Arc<Database>,
     ) -> Shard<T> {
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
-        let (status_update_tx, status_update_rx) = mpsc::channel(1);
         let (writer_tx, writer_rx) = mpsc::channel(4);
         let (heartbeat_tx, heartbeat_rx) = mpsc::channel(1);
 
@@ -135,8 +136,6 @@ impl<T: EventForwarder> Shard<T> {
             large_sharding_buckets,
             cache,
             redis,
-            status_update_tx,
-            status_update_rx: Arc::new(TokioMutex::new(status_update_rx)),
             user_id,
             session_data: None,
             writer: writer_tx,
@@ -156,6 +155,7 @@ impl<T: EventForwarder> Shard<T> {
             #[cfg(feature = "resume-after-identify")]
             used_resume: false,
             shutdown_rx,
+            command_rx: Arc::new(TokioMutex::new(command_rx)),
             event_forwarder,
             #[cfg(feature = "whitelabel")]
             database,
@@ -253,13 +253,13 @@ impl<T: EventForwarder> Shard<T> {
         mut rx: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     ) -> Result<()> {
         #[cfg(feature = "compression")]
-            let mut decoder = Decompress::new(true);
+        let mut decoder = Decompress::new(true);
 
         let kill_shard_rx = Arc::clone(&self.kill_shard_rx);
         let kill_shard_rx = &mut *kill_shard_rx.lock().await;
 
-        let status_update_rx = Arc::clone(&self.status_update_rx);
-        let status_update_rx = &mut status_update_rx.lock().await;
+        let command_rx = Arc::clone(&self.command_rx);
+        let command_rx = &mut *command_rx.lock().await;
 
         let heartbeat_rx = &mut self
             .heartbeat_rx
@@ -280,7 +280,8 @@ impl<T: EventForwarder> Shard<T> {
 
                     match session_tx {
                         Ok(session_tx) => {
-                            if let Err(e) = session_tx.send((self.get_shard_id(), self.session_data.take())).await {
+                            let identifier = ShardIdentifier::new(self.user_id, self.get_shard_id());
+                            if let Err(e) = session_tx.send((identifier, self.session_data.take())).await {
                                 error!(shard_id = %self.get_shard_id(), error = %e, "Error sending session data");
                             }
                         }
@@ -400,14 +401,19 @@ impl<T: EventForwarder> Shard<T> {
                     }
                 }
 
-                // handle status update
-                presence = status_update_rx.recv() => {
-                    if let Some(presence) = presence {
-                        let (tx, rx) = oneshot::channel();
+                // handle internal commands
+                command = command_rx.recv() => {
+                    let Some(command) = command else {continue};
 
-                            let payload = PresenceUpdate::new(presence);
+                    match command {
+                        InternalCommand::StatusUpdate { status } => {
+                            let payload = PresenceUpdate::new(status);
+
+                            let (tx, rx) = oneshot::channel();
+
                             if let Err(e) = self.write(payload, tx).await {
                                 self.log_err("Error sending presence update payload to writer", &e);
+                                continue;
                             }
 
                             match rx.await {
@@ -415,6 +421,11 @@ impl<T: EventForwarder> Shard<T> {
                                 Err(e) => error!(shard_id = %self.get_shard_id(), error = %e, "Error writing presence update payload"),
                                 _ => {}
                             }
+                        }
+                        InternalCommand::Shutdown => {
+                            self.log("Received shutdown command (via internal command channel)");
+                            break;
+                        }
                     }
                 }
             }
@@ -770,7 +781,9 @@ impl<T: EventForwarder> Shard<T> {
                                     error!(shard_id = %shard_id, "Failed to kill, receiver already unallocated");
                                 }
                             }
-                            None => warn!(shard_id = %shard_id, "Tried to kill but kill_shard_tx was None"),
+                            None => {
+                                warn!(shard_id = %shard_id, "Tried to kill but kill_shard_tx was None")
+                            }
                         }
                     });
                 }

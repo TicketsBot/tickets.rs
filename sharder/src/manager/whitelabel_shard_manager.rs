@@ -5,30 +5,35 @@ use super::ShardManager;
 use crate::gateway::{Identify, Shard, ShardInfo};
 
 use crate::gateway::event_forwarding::EventForwarder;
-use crate::{Config, GatewayError};
+use crate::{
+    Config, GatewayError, InternalCommand, RedisSessionStore, SessionData, SessionStore,
+    ShardIdentifier,
+};
 use cache::PostgresCache;
 use common::token_change;
 use database::{Database, WhitelabelBot};
+use deadpool_redis::redis;
 use deadpool_redis::Pool;
 use futures::StreamExt;
 use model::user::{ActivityType, StatusType, StatusUpdate};
 use model::Snowflake;
 use std::collections::HashMap;
-use std::str;
+use std::fmt::Display;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
-use tokio::time::sleep;
+use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::time::{sleep, timeout};
+use tracing::{error, info, warn};
 
 pub struct WhitelabelShardManager<T: EventForwarder> {
     config: Arc<Config>,
-    shards: RwLock<HashMap<Snowflake, Arc<Shard<T>>>>,
-    // user_id -> bot_id
-    user_ids: RwLock<HashMap<Snowflake, Snowflake>>,
     database: Arc<Database>,
     cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
+    session_store: RedisSessionStore,
     event_forwarder: Arc<T>,
+    shutdown_tx: broadcast::Sender<mpsc::Sender<(ShardIdentifier, Option<SessionData>)>>,
+    shard_command_channels: RwLock<HashMap<Snowflake, mpsc::Sender<InternalCommand>>>,
 }
 
 impl<T: EventForwarder> WhitelabelShardManager<T> {
@@ -37,32 +42,32 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
         database: Arc<Database>,
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
+        session_store: RedisSessionStore,
         event_forwarder: Arc<T>,
     ) -> Self {
+        let (shutdown_tx, _) = broadcast::channel(1);
+
         WhitelabelShardManager {
             config: Arc::new(config),
-            shards: RwLock::new(HashMap::new()),
-            user_ids: RwLock::new(HashMap::new()),
             database,
             cache,
             redis,
+            session_store,
             event_forwarder,
+            shutdown_tx,
+            shard_command_channels: RwLock::new(HashMap::new()),
         }
     }
 
     async fn connect_bot(self: Arc<Self>, bot: WhitelabelBot) {
-        self.user_ids
-            .write()
-            .await
-            .insert(Snowflake(bot.user_id as u64), Snowflake(bot.bot_id as u64));
-
         let bot_id = Snowflake(bot.bot_id as u64);
 
+        let sm = Arc::clone(&self);
         tokio::spawn(async move {
             // retrieve bot status
             let (status, status_type) = match self.database.whitelabel_status.get(bot_id).await {
                 Ok((status, Some(status_type))) => Some((status, status_type)),
-                Ok((status, None)) => {
+                Ok((_, None)) => {
                     eprintln!("Bot {} has invalid status type", bot_id);
                     None
                 }
@@ -77,48 +82,82 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
             }
             .unwrap_or_else(|| ("to /help".to_owned(), ActivityType::Listening));
 
-            let shard_info = ShardInfo::new(0, 1);
-            let presence = StatusUpdate::new(status_type, status, StatusType::Online);
-            let identify = Identify::new(
-                bot.token.clone(),
-                None,
-                shard_info,
-                Some(presence),
-                super::get_intents(),
-            );
-
-            let shard = Shard::new(
-                self.config.clone(),
-                identify,
-                1,
-                Arc::clone(&self.cache),
-                Arc::clone(&self.redis),
-                bot_id,
-                Arc::clone(&self.event_forwarder),
-                #[cfg(feature = "whitelabel")]
-                Arc::clone(&self.database),
-            );
-
-            self.shards.write().await.insert(bot_id, Arc::clone(&shard));
+            let mut resume_data = sm
+                .session_store
+                .get(bot_id.0)
+                .await
+                .expect("Failed to fetch session data"); // TODO: Log, not panic
 
             loop {
-                let shard = Arc::clone(&shard);
+                let shard_info = ShardInfo::new(0, 1);
+                let presence = StatusUpdate::new(status_type, status.clone(), StatusType::Online);
+                let identify = Identify::new(
+                    bot.token.clone(),
+                    None,
+                    shard_info,
+                    Some(presence),
+                    super::get_intents(),
+                );
+
+                let (command_tx, command_rx) = mpsc::channel(4);
+
+                let shard = Shard::new(
+                    self.config.clone(),
+                    identify,
+                    1,
+                    Arc::clone(&self.cache),
+                    Arc::clone(&self.redis),
+                    bot_id,
+                    Arc::clone(&self.event_forwarder),
+                    None,
+                    self.shutdown_tx.subscribe(),
+                    command_rx,
+                    Arc::clone(&self.database),
+                );
+
+                // Validate bot still exists
+                match sm.database.whitelabel.get_bot_by_id(bot_id).await {
+                    Ok(Some(_)) => (),
+                    Ok(None) => {
+                        shard.log("Bot no longer exists, stopping");
+                        break;
+                    }
+                    Err(e) => {
+                        shard.log_err(
+                            "Error occurred while checking if bot still exists",
+                            &GatewayError::DatabaseError(e),
+                        );
+                        sleep(Duration::from_secs(10)).await;
+                        continue;
+                    }
+                }
+
                 shard.log("Starting...");
 
-                let res = Arc::clone(&shard).connect(None).await;
+                {
+                    sm.shard_command_channels
+                        .write()
+                        .await
+                        .insert(bot_id, command_tx);
+                }
+
+                let res = shard.connect(resume_data.clone()).await;
+
+                {
+                    sm.shard_command_channels.write().await.remove(&bot_id);
+                }
+
                 match res {
-                    Ok(()) => shard.log("Exited with Ok"),
+                    Ok(session_data) => {
+                        resume_data = session_data;
+                        self.log_for_bot(bot_id, "Exited with Ok");
+                    }
                     Err(GatewayError::AuthenticationError { data, .. }) => {
-                        shard.log_err(
-                            "Exited with authentication error, removing ",
+                        self.log_err_for_bot(
+                            bot_id,
+                            "Exited with authentication error, removing bot",
                             &GatewayError::custom(&data.error),
                         );
-
-                        let bot_id = Snowflake(bot.bot_id as u64);
-                        self.shards.write().await.remove(&bot_id);
-
-                        let user_id = Snowflake(bot.user_id as u64);
-                        self.user_ids.write().await.remove(&user_id);
 
                         if let Err(e) = self
                             .database
@@ -126,37 +165,25 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                             .append(Snowflake(bot.user_id as u64), data.error)
                             .await
                         {
-                            shard.log_err(
+                            self.log_err_for_bot(
+                                bot_id,
                                 "Error occurred while recording error to database",
                                 &GatewayError::DatabaseError(e),
                             );
                         }
 
-                        // TODO: Remove if statement
-                        if data.status_code != 4014 {
-                            self.delete_from_db(&bot.token).await;
+                        if let Err(e) = self.database.whitelabel.delete_by_bot_id(bot_id).await {
+                            self.log_err_for_bot(bot_id, "Error occurred while deleting bot", &GatewayError::DatabaseError(e));
                         }
-                    }
-                    Err(e) => shard.log_err("Exited with error", &e),
-                }
 
-                // we've received delete payload
-                if self.shards.read().await.get(&bot_id).is_none() {
-                    shard.log("Shard was removed from shard vec, not restarting");
-                    break;
-                } else {
-                    shard.log("Shard still exists, restarting");
+                        break;
+                    }
+                    Err(e) => self.log_err_for_bot(bot_id, "Exited with error", &e),
                 }
 
                 sleep(Duration::from_millis(500)).await;
             }
         });
-    }
-
-    async fn delete_from_db(&self, token: &str) {
-        if let Err(e) = self.database.whitelabel.delete_by_token(token).await {
-            eprintln!("Error removing bot: {}", e);
-        }
     }
 
     pub async fn listen_status_updates(self: Arc<Self>) -> Result<(), GatewayError> {
@@ -176,18 +203,19 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
             while let Some(m) = stream.next().await {
                 match m.get_payload::<String>().map(|s| s.parse::<Snowflake>()) {
                     Ok(Ok(bot_id)) => {
-                        if let Some(shard) = self.shards.read().await.get(&bot_id) {
-                            shard.log("Received status update payload");
+                        if let Some(tx) = self.shard_command_channels.read().await.get(&bot_id) {
+                            println!("[RPC] Received status update payload for bot {bot_id}");
 
                             // retrieve new status
                             // TODO: New tokio::spawn for this?
                             match database.whitelabel_status.get(bot_id).await {
                                 Ok((status, Some(status_type))) => {
-                                    let tx = shard.status_update_tx.clone();
                                     let status =
                                         StatusUpdate::new(status_type, status, StatusType::Online);
 
-                                    if let Err(e) = tx.send(status).await {
+                                    let cmd = InternalCommand::StatusUpdate { status };
+
+                                    if let Err(e) = tx.send(cmd).await {
                                         eprintln!(
                                             "An error occured while updating status for {}: {}",
                                             bot_id, e
@@ -195,7 +223,7 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                                     }
                                 }
 
-                                Ok((status, None)) => {
+                                Ok((_, None)) => {
                                     eprintln!("Bot {} has invalid status type", bot_id);
                                 }
 
@@ -229,16 +257,6 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
 
                 match serde_json::from_slice::<token_change::Payload>(m.get_payload_bytes()) {
                     Ok(payload) => {
-                        // check whether this shard has the old bot
-                        if payload.old_id.0 % (manager.config.sharder_total as u64)
-                            == manager.config.sharder_id as u64
-                        {
-                            if let Some(shard) = self.shards.write().await.remove(&payload.old_id) {
-                                shard.log("Received token update payload, stopping");
-                                shard.kill();
-                            }
-                        }
-
                         // start new bot
                         if payload.new_id.0 % (manager.config.sharder_total as u64)
                             == manager.config.sharder_id as u64
@@ -271,18 +289,25 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
             .await?
             .into_pubsub();
 
-        conn.subscribe(common::status_updates::KEY).await?;
+        conn.subscribe("tickets:whitelabeldelete").await?;
 
+        let sm = Arc::clone(&self);
         tokio::spawn(async move {
             let mut stream = conn.on_message();
 
             while let Some(m) = stream.next().await {
                 match m.get_payload::<String>().map(|s| s.parse::<Snowflake>()) {
-                    Ok(Ok(user_id)) => {
-                        if let Some(bot_id) = self.user_ids.write().await.remove(&user_id) {
-                            if let Some(shard) = self.shards.write().await.remove(&bot_id) {
-                                shard.log("Received delete payload, stopping");
-                                shard.kill();
+                    Ok(Ok(bot_id)) => {
+                        println!("[RPC] Received delete payload for {bot_id}");
+
+                        let channels = sm.shard_command_channels.read().await;
+                        let command_tx = channels.get(&bot_id);
+                        if let Some(command_tx) = command_tx {
+                            if let Err(e) = command_tx.send(InternalCommand::Shutdown).await {
+                                eprintln!(
+                                    "An error occurred while sending shutdown command for {}: {}",
+                                    bot_id, e
+                                );
                             }
                         }
                     }
@@ -296,10 +321,17 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
 
         Ok(())
     }
+
+    pub fn log_for_bot(&self, bot_id: Snowflake, msg: impl Display) {
+        info!(bot_id = %bot_id, "{msg}");
+    }
+
+    pub fn log_err_for_bot(&self, bot_id: Snowflake, msg: impl Display, err: &GatewayError) {
+        error!(bot_id = %bot_id, error = %err, "{msg}");
+    }
 }
 
 #[async_trait]
-#[cfg(feature = "whitelabel")]
 impl<T: EventForwarder> ShardManager for WhitelabelShardManager<T> {
     async fn connect(self: Arc<Self>) {
         // we should panic if we cant read db
@@ -312,6 +344,42 @@ impl<T: EventForwarder> ShardManager for WhitelabelShardManager<T> {
 
         for bot in bots {
             Arc::clone(&self).connect_bot(bot).await;
+        }
+    }
+
+    async fn shutdown(self: Arc<Self>) {
+        let (tx, mut rx) = mpsc::channel(self.shutdown_tx.receiver_count());
+
+        let receivers = self
+            .shutdown_tx
+            .send(tx)
+            .expect("Failed to send shutdown signal to shards");
+
+        let mut sessions = HashMap::new();
+        for _ in 0..receivers {
+            let (identifier, session_data) = match timeout(Duration::from_secs(30), rx.recv()).await
+            {
+                Ok(Some((identifier, Some(session_data)))) => (identifier, session_data),
+                Ok(Some((identifier, None))) => {
+                    let bot_id = identifier.bot_id;
+                    info!(bot_id = %bot_id, "Shard sent None session data");
+                    continue;
+                }
+                Ok(None) => {
+                    warn!("Shutdown session data receiver is closed");
+                    break;
+                }
+                Err(e) => {
+                    warn!(error = %e, "Timeout while waiting for shard to shutdown");
+                    break;
+                }
+            };
+
+            sessions.insert(identifier.bot_id.0, session_data);
+        }
+
+        if let Err(e) = self.session_store.set_bulk(sessions).await {
+            error!(error = %e, "Failed to save session data");
         }
     }
 }

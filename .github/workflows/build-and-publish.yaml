@@ -18,6 +18,8 @@ jobs:
         include:
           - package: main-sharder
             dockerfile: sharder/main.Dockerfile
+          - package: whitelabel-sharder
+            dockerfile: sharder/whitelabel.Dockerfile
           - package: http-gateway
             dockerfile: http-gateway/Dockerfile
           - package: premiumproxy

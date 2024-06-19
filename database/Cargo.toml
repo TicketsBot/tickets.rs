@@ -10,5 +10,5 @@ tokio = { version = "~1", features = ["full"] }
 futures = "0.3"
 thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-sqlx = { version = "0.6", features = ["macros", "runtime-tokio-native-tls", "postgres", "chrono", "json"], default-features = false } # rustls doesn't support IP addresses
+sqlx = { version = "0.7", features = ["macros", "runtime-tokio-native-tls", "postgres", "chrono", "json"], default-features = false } # rustls doesn't support IP addresses
 async-trait = "0.1"

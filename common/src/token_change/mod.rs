@@ -7,5 +7,4 @@ pub const KEY: &str = "tickets:tokenchange";
 pub struct Payload {
     pub token: String,
     pub new_id: Snowflake,
-    pub old_id: Snowflake,
 }

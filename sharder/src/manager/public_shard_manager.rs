@@ -6,6 +6,7 @@ use super::ShardManager;
 
 use crate::gateway::{Identify, Shard, ShardInfo};
 use crate::SessionData;
+use crate::ShardIdentifier;
 use crate::{RedisSessionStore, SessionStore};
 
 use std::collections::HashMap;
@@ -29,7 +30,7 @@ pub struct PublicShardManager<T: EventForwarder> {
     cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
     event_forwarder: Arc<T>,
-    shutdown_tx: broadcast::Sender<mpsc::Sender<(u16, Option<SessionData>)>>,
+    shutdown_tx: broadcast::Sender<mpsc::Sender<(ShardIdentifier, Option<SessionData>)>>,
 }
 
 impl<T: EventForwarder> PublicShardManager<T> {
@@ -65,6 +66,9 @@ impl<T: EventForwarder> PublicShardManager<T> {
             super::get_intents(),
         );
 
+        // Unused by public shard manager currently
+        let (_, command_rx) = mpsc::channel(1);
+
         Shard::new(
             Arc::clone(&self.config),
             identify,
@@ -75,6 +79,7 @@ impl<T: EventForwarder> PublicShardManager<T> {
             Arc::clone(&self.event_forwarder),
             ready_tx,
             self.shutdown_tx.subscribe(),
+            command_rx,
         )
     }
 }
@@ -143,9 +148,11 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
 
         let mut sessions = HashMap::new();
         for _ in 0..receivers {
-            let (shard_id, session_data) = match timeout(Duration::from_secs(30), rx.recv()).await {
-                Ok(Some((shard_id, Some(session_data)))) => (shard_id, session_data),
-                Ok(Some((shard_id, None))) => {
+            let (identifier, session_data) = match timeout(Duration::from_secs(30), rx.recv()).await
+            {
+                Ok(Some((identifier, Some(session_data)))) => (identifier, session_data),
+                Ok(Some((identifier, None))) => {
+                    let shard_id = identifier.shard_id;
                     info!(shard_id = %shard_id, "Shard sent None session data");
                     continue;
                 }
@@ -159,7 +166,7 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
                 }
             };
 
-            sessions.insert(shard_id.into(), session_data);
+            sessions.insert(identifier.shard_id.into(), session_data);
         }
 
         if let Err(e) = self.session_store.set_bulk(sessions).await {

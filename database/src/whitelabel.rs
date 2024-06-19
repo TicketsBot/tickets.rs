@@ -140,6 +140,17 @@ ON CONFLICT("user_id") DO
         Ok(())
     }
 
+    pub async fn delete_by_bot_id(&self, bot_id: Snowflake) -> Result<(), Error> {
+        let query = r#"DELETE FROM whitelabel WHERE "bot_id" = $1;"#;
+
+        sqlx::query(query)
+            .bind(bot_id.0 as i64)
+            .execute(&*self.db)
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn delete_by_token(&self, token: &str) -> Result<(), Error> {
         let query = r#"DELETE FROM whitelabel WHERE "token" = $1;"#;
 

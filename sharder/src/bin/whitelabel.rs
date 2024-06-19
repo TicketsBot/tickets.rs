@@ -1,24 +1,26 @@
 use std::sync::Arc;
 
-use sharder::{build_redis, Config, ShardManager, WhitelabelShardManager};
+use sharder::{await_shutdown, build_redis, Config, RedisSessionStore, ShardManager, WhitelabelShardManager};
+
+#[cfg(feature = "use-sentry")]
+use sharder::setup_sentry;
 
 use database::{sqlx::postgres::PgPoolOptions, Database};
 use sharder::build_cache;
 
-use tokio::signal;
-
 use jemallocator::Jemalloc;
 use sharder::event_forwarding::HttpEventForwarder;
+use tracing::info;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[cfg(not(feature = "whitelabel"))]
-fn main() {
-    panic!("Started whitelabel sharder without whitelabel feature flag")
-}
+// #[cfg(not(feature = "whitelabel"))]
+// fn main() {
+//     panic!("Started whitelabel sharder without whitelabel feature flag")
+// }
 
-#[cfg(feature = "whitelabel")]
+// #[cfg(feature = "whitelabel")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_envvar();
@@ -42,6 +44,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // init redis
     let redis = Arc::new(build_redis(&config));
 
+    let session_store = RedisSessionStore::new(
+        Arc::clone(&redis),
+        "tickets:resume:whitelabel".to_string(),
+        300,
+    );
+
     let event_forwarder = Arc::new(HttpEventForwarder::new(
         HttpEventForwarder::build_http_client(),
     ));
@@ -51,6 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         database,
         cache,
         redis,
+        session_store,
         event_forwarder,
     ));
 
@@ -59,6 +68,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Arc::clone(&sm).listen_status_updates().await.unwrap();
     Arc::clone(&sm).listen_new_tokens().await.unwrap();
     Arc::clone(&sm).listen_delete().await.unwrap();
+    
+    await_shutdown()
+        .await
+        .expect("Failed to wait for shutdown signal");
+    info!("Received shutdown signal");
 
-    Ok(signal::ctrl_c().await?)
+    sm.shutdown().await;
+    info!("Shard manager shutdown gracefully");
+
+    Ok(())
 }
