@@ -8,7 +8,6 @@ pub struct Config {
     // Required
     pub sharder_id: u16,
     pub sharder_total: u16,
-    pub large_sharding_buckets: u16,
     pub cache_uri: String,
     pub cache_threads: usize,
     pub redis_addr: String,
@@ -21,6 +20,8 @@ pub struct Config {
     pub metrics_addr: String,
 
     // Public Sharder
+    #[cfg(not(feature = "whitelabel"))]
+    pub large_sharding_buckets: u16,
     #[cfg(not(feature = "whitelabel"))]
     pub sharder_token: String,
     #[cfg(not(feature = "whitelabel"))]
