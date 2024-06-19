@@ -80,7 +80,12 @@ impl<T: Cache> Server<T> {
                 return Err(warp::reject::custom(Error::InvalidSignatureFormat(e)));
             }
 
-            Ok(Signature::new(bytes))
+            let signature = match Signature::from_bytes(&bytes) {
+                Ok(signature) => signature,
+                Err(e) => return Err(warp::reject::custom(Error::InvalidSignature(e))),
+            };
+
+            Ok(signature)
         })
     }
 

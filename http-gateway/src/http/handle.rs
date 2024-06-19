@@ -3,7 +3,7 @@ use crate::Error;
 use cache::Cache;
 use common::event_forwarding::ForwardedInteraction;
 use ed25519_dalek::{PublicKey, Signature, Verifier};
-use model::guild::{Member, Role};
+use model::guild::Member;
 use model::interaction::{
     ApplicationCommandInteraction, Interaction, InteractionResponse, InteractionType,
     MessageComponentInteraction,

@@ -14,7 +14,7 @@ FROM debian:buster
 
 RUN apt-get update && apt-get -y upgrade && apt-get -y install python3 openssl libssl-dev ca-certificates tini
 
-COPY --from=0 /tmp/compile/target/release/public /srv/sharder/sharder
+COPY --from=0 /tmp/compile/target/release/whitelabel /srv/sharder/sharder
 RUN chmod +x /srv/sharder/sharder
 
 RUN useradd -m container
