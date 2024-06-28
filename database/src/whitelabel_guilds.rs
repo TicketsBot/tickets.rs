@@ -66,6 +66,20 @@ impl WhitelabelGuilds {
         }
     }
 
+    pub async fn is_whitelabel_guild(&self, guild_id: Snowflake) -> Result<bool, Error> {
+        let query = r#"SELECT 1 FROM whitelabel_guilds WHERE "guild_id"=$1 LIMIT 1;"#;
+
+        match sqlx::query(query)
+            .bind(guild_id.0 as i64)
+            .fetch_one(&*self.db)
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(sqlx::Error::RowNotFound) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     pub async fn insert(&self, bot_id: Snowflake, guild_id: Snowflake) -> Result<(), Error> {
         let query = r#"INSERT INTO whitelabel_guilds("bot_id", "guild_id") VALUES($1, $2) ON CONFLICT("bot_id", "guild_id") DO NOTHING;"#;
 

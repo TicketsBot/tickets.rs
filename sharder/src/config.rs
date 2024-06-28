@@ -30,9 +30,8 @@ pub struct Config {
     pub bot_id: Snowflake,
 
     // Whitelabel Sharder
-    #[cfg(feature = "whitelabel")]
     pub database_uri: String,
-    #[cfg(feature = "whitelabel")]
+    #[serde(default = "one")]
     pub database_threads: u32,
 }
 
@@ -50,4 +49,8 @@ impl Config {
             None => format!("redis://{}/", self.redis_addr),
         }
     }
+}
+
+fn one() -> u32 {
+    return 1;
 }

@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use database::Database;
 use tracing::{error, info, warn};
 
 use super::Options;
@@ -27,6 +28,7 @@ pub struct PublicShardManager<T: EventForwarder> {
     config: Arc<Config>,
     options: Options,
     session_store: RedisSessionStore,
+    database: Arc<Database>,
     cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
     event_forwarder: Arc<T>,
@@ -38,6 +40,7 @@ impl<T: EventForwarder> PublicShardManager<T> {
         config: Config,
         options: Options,
         session_store: RedisSessionStore,
+        database: Arc<Database>,
         cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
         event_forwarder: Arc<T>,
@@ -48,6 +51,7 @@ impl<T: EventForwarder> PublicShardManager<T> {
             config: Arc::new(config),
             options,
             session_store,
+            database,
             cache,
             redis,
             event_forwarder,
@@ -80,6 +84,7 @@ impl<T: EventForwarder> PublicShardManager<T> {
             ready_tx,
             self.shutdown_tx.subscribe(),
             command_rx,
+            Arc::clone(&self.database),
         )
     }
 }

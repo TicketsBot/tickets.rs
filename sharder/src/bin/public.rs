@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
+use database::sqlx::postgres::PgPoolOptions;
+use database::Database;
 use model::user::{ActivityType, StatusType, StatusUpdate};
 use sharder::{
     await_shutdown, setup_sentry, Config, PublicShardManager, RedisSessionStore, ShardCount,
     ShardManager,
 };
 
-use sharder::{build_cache, build_redis, metrics_server};
+use sharder::{build_cache, build_redis, metrics_server, Result};
 
 use deadpool_redis::redis::cmd;
 use jemallocator::Jemalloc;
@@ -17,7 +19,7 @@ use tracing::info;
 static GLOBAL: Jemalloc = Jemalloc;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     // init sharder options
     let config = Config::from_envvar();
 
@@ -52,6 +54,12 @@ async fn main() {
         user_id: config.bot_id,
     };
 
+    // init db
+    let db_opts = PgPoolOptions::new()
+        .min_connections(1)
+        .max_connections(config.database_threads);
+    let database = Arc::new(Database::connect(&config.database_uri[..], db_opts).await?);
+
     // init cache
     let cache = Arc::new(build_cache(&config).await);
 
@@ -77,6 +85,7 @@ async fn main() {
         config,
         options,
         session_store,
+        database,
         cache,
         redis,
         event_forwarder,
@@ -93,6 +102,8 @@ async fn main() {
 
     sm.shutdown().await;
     info!("Shard manager shutdown gracefully");
+
+    Ok(())
 }
 
 #[cfg(not(feature = "whitelabel"))]

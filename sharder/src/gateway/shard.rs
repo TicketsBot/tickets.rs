@@ -23,7 +23,6 @@ use url::Url;
 
 use cache::{Cache, PostgresCache};
 use common::event_forwarding;
-#[cfg(feature = "whitelabel")]
 use database::Database;
 use model::guild::{Guild, Member};
 use model::user::StatusUpdate;
@@ -102,8 +101,6 @@ pub struct Shard<T: EventForwarder> {
     shutdown_rx: broadcast::Receiver<mpsc::Sender<(ShardIdentifier, Option<SessionData>)>>,
     command_rx: Arc<TokioMutex<mpsc::Receiver<InternalCommand>>>,
     pub(crate) event_forwarder: Arc<T>,
-
-    #[cfg(feature = "whitelabel")]
     pub(crate) database: Arc<Database>,
 }
 
@@ -124,7 +121,7 @@ impl<T: EventForwarder> Shard<T> {
         ready_tx: Option<oneshot::Sender<()>>,
         shutdown_rx: broadcast::Receiver<mpsc::Sender<(ShardIdentifier, Option<SessionData>)>>,
         command_rx: mpsc::Receiver<InternalCommand>,
-        #[cfg(feature = "whitelabel")] database: Arc<Database>,
+        database: Arc<Database>,
     ) -> Shard<T> {
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
         let (writer_tx, writer_rx) = mpsc::channel(4);
@@ -157,7 +154,6 @@ impl<T: EventForwarder> Shard<T> {
             shutdown_rx,
             command_rx: Arc::new(TokioMutex::new(command_rx)),
             event_forwarder,
-            #[cfg(feature = "whitelabel")]
             database,
         }
     }
@@ -653,15 +649,15 @@ impl<T: EventForwarder> Shard<T> {
 
         // cache
         if let Err(e) = match payload.data {
-            Event::ChannelCreate(channel) => self.cache.store_channel(channel).await,
-            Event::ChannelUpdate(channel) => self.cache.store_channel(channel).await,
-            Event::ChannelDelete(channel) => self.cache.delete_channel(channel.id).await,
-            Event::ThreadCreate(thread) => self.cache.store_channel(thread).await,
-            Event::ThreadUpdate(thread) => self.cache.store_channel(thread).await,
-            Event::ThreadDelete(thread) => self.cache.delete_channel(thread.id).await,
+            Event::ChannelCreate(channel) => self.cache.store_channel(channel).await.map_err(Into::into),
+            Event::ChannelUpdate(channel) => self.cache.store_channel(channel).await.map_err(Into::into),
+            Event::ChannelDelete(channel) => self.cache.delete_channel(channel.id).await.map_err(Into::into),
+            Event::ThreadCreate(thread) => self.cache.store_channel(thread).await.map_err(Into::into),
+            Event::ThreadUpdate(thread) => self.cache.store_channel(thread).await.map_err(Into::into),
+            Event::ThreadDelete(thread) => self.cache.delete_channel(thread.id).await.map_err(Into::into),
             Event::GuildCreate(mut guild) => {
                 apply_guild_id_to_channels(&mut guild);
-                let res = self.cache.store_guild(guild).await;
+                let res = self.cache.store_guild(guild).await.map_err(Into::into);
 
                 self.increment_received_count().await;
 
@@ -669,21 +665,35 @@ impl<T: EventForwarder> Shard<T> {
             }
             Event::GuildUpdate(mut guild) => {
                 apply_guild_id_to_channels(&mut guild);
-                self.cache.store_guild(guild).await
+                self.cache.store_guild(guild).await.map_err(Into::into)
             }
             Event::GuildDelete(guild) => {
                 if guild.unavailable.is_none() {
                     // we were kicked
-                    // TODO: don't delete if this is main bot & whitelabel bot is in guild
-                    self.cache.delete_guild(guild.id).await
+                    if is_whitelabel() {
+                        self.cache.delete_guild(guild.id).await.map_err(Into::into)
+                    } else {
+                        // If this is the public bot, and there is a whitelabel bot in the server, then do
+                        // not delete the guild from the cache.
+                        match self
+                            .database
+                            .whitelabel_guilds
+                            .is_whitelabel_guild(guild.id)
+                            .await
+                        {
+                            Ok(true) => Ok(()),
+                            Ok(false) => self.cache.delete_guild(guild.id).await.map_err(Into::into),
+                            Err(e) => Err(GatewayError::from(e)),
+                        }
+                    }
                 } else {
                     Ok(())
                 }
             }
-            Event::GuildBanAdd(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await,
-            Event::GuildEmojisUpdate(ev) => self.cache.store_emojis(ev.emojis, ev.guild_id).await,
-            Event::GuildMemberAdd(ev) => self.cache.store_member(ev.member, ev.guild_id).await,
-            Event::GuildMemberRemove(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await,
+            Event::GuildBanAdd(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await.map_err(Into::into),
+            Event::GuildEmojisUpdate(ev) => self.cache.store_emojis(ev.emojis, ev.guild_id).await.map_err(Into::into),
+            Event::GuildMemberAdd(ev) => self.cache.store_member(ev.member, ev.guild_id).await.map_err(Into::into),
+            Event::GuildMemberRemove(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await.map_err(Into::into),
             Event::GuildMemberUpdate(ev) => {
                 self.cache
                     .store_member(
@@ -699,12 +709,13 @@ impl<T: EventForwarder> Shard<T> {
                         ev.guild_id,
                     )
                     .await
+                    .map_err(Into::into)
             }
-            Event::GuildMembersChunk(ev) => self.cache.store_members(ev.members, ev.guild_id).await,
-            Event::GuildRoleCreate(ev) => self.cache.store_role(ev.role, ev.guild_id).await,
-            Event::GuildRoleUpdate(ev) => self.cache.store_role(ev.role, ev.guild_id).await,
-            Event::GuildRoleDelete(ev) => self.cache.delete_role(ev.role_id).await,
-            Event::UserUpdate(user) => self.cache.store_user(user).await,
+            Event::GuildMembersChunk(ev) => self.cache.store_members(ev.members, ev.guild_id).await.map_err(Into::into),
+            Event::GuildRoleCreate(ev) => self.cache.store_role(ev.role, ev.guild_id).await.map_err(Into::into),
+            Event::GuildRoleUpdate(ev) => self.cache.store_role(ev.role, ev.guild_id).await.map_err(Into::into),
+            Event::GuildRoleDelete(ev) => self.cache.delete_role(ev.role_id).await.map_err(Into::into),
+            Event::UserUpdate(user) => self.cache.store_user(user).await.map_err(Into::into),
             _ => Ok(()),
         } {
             error!(error = %e, "Error updating cache");

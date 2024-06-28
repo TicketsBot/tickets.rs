@@ -173,7 +173,11 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                         }
 
                         if let Err(e) = self.database.whitelabel.delete_by_bot_id(bot_id).await {
-                            self.log_err_for_bot(bot_id, "Error occurred while deleting bot", &GatewayError::DatabaseError(e));
+                            self.log_err_for_bot(
+                                bot_id,
+                                "Error occurred while deleting bot",
+                                &GatewayError::DatabaseError(e),
+                            );
                         }
 
                         break;

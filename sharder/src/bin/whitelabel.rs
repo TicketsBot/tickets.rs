@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use sharder::{await_shutdown, build_redis, Config, RedisSessionStore, ShardManager, WhitelabelShardManager};
+use sharder::{
+    await_shutdown, build_redis, Config, RedisSessionStore, ShardManager, WhitelabelShardManager,
+};
 
 #[cfg(feature = "use-sentry")]
 use sharder::setup_sentry;
@@ -68,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Arc::clone(&sm).listen_status_updates().await.unwrap();
     Arc::clone(&sm).listen_new_tokens().await.unwrap();
     Arc::clone(&sm).listen_delete().await.unwrap();
-    
+
     await_shutdown()
         .await
         .expect("Failed to wait for shutdown signal");
