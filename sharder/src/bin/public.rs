@@ -4,8 +4,8 @@ use database::sqlx::postgres::PgPoolOptions;
 use database::Database;
 use model::user::{ActivityType, StatusType, StatusUpdate};
 use sharder::{
-    await_shutdown, setup_sentry, Config, PublicShardManager, RedisSessionStore, ShardCount,
-    ShardManager,
+    await_shutdown, setup_sentry, Config, GatewayError, PublicShardManager, RedisSessionStore,
+    ShardCount, ShardManager,
 };
 
 use sharder::{build_cache, build_redis, metrics_server, Result};
@@ -18,8 +18,8 @@ use tracing::info;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+// Sentry doesn't support #[tokio::main]
+fn main() -> Result<()> {
     // init sharder options
     let config = Config::from_envvar();
 
@@ -29,6 +29,14 @@ async fn main() -> Result<()> {
     #[cfg(not(feature = "use-sentry"))]
     tracing_subscriber::fmt::init();
 
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async { run(config).await })
+}
+
+#[tracing::instrument(skip(config))]
+async fn run(config: Config) -> Result<()> {
     #[cfg(feature = "metrics")]
     {
         let metrics_addr = config.metrics_addr.clone();
@@ -55,18 +63,33 @@ async fn main() -> Result<()> {
     };
 
     // init db
+    info!(service="database", connections = %config.database_threads, "Connecting to database");
     let db_opts = PgPoolOptions::new()
         .min_connections(1)
         .max_connections(config.database_threads);
     let database = Arc::new(Database::connect(&config.database_uri[..], db_opts).await?);
+    info!(service = "database", "Database connected");
 
     // init cache
+    info!(
+        service = "cache",
+        threads = config.cache_threads,
+        "Connecting to cache"
+    );
     let cache = Arc::new(build_cache(&config).await);
+    info!(service = "cache", "Cache connected");
 
     // init redis
+    info!(
+        service = "redis",
+        threads = config.redis_threads,
+        "Connecting to redis"
+    );
     let redis = Arc::new(build_redis(&config));
+    info!(service = "redis", "Redis connected");
 
     // test redis connection
+    info!(service = "redis", "Testing redis connection");
     let mut conn = redis.get().await.expect("Failed to get redis conn");
 
     let res: String = cmd("PING")
@@ -75,6 +98,7 @@ async fn main() -> Result<()> {
         .expect("Redis PING failed");
 
     assert_eq!(res, "PONG");
+    info!(service = "redis", "Redis connection test successful");
 
     let session_store =
         RedisSessionStore::new(Arc::clone(&redis), "tickets:resume:public".to_string(), 300);
@@ -92,6 +116,7 @@ async fn main() -> Result<()> {
     )
     .await;
 
+    info!("Starting shard manager");
     let sm = Arc::new(sm);
     Arc::clone(&sm).connect().await;
 

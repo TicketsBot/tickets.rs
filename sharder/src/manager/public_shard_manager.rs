@@ -1,14 +1,14 @@
 use async_trait::async_trait;
 use database::Database;
+use serde_json::error;
+use tracing::debug;
 use tracing::{error, info, warn};
 
 use super::Options;
 use super::ShardManager;
 
 use crate::gateway::{Identify, Shard, ShardInfo};
-use crate::SessionData;
-use crate::ShardIdentifier;
-use crate::{RedisSessionStore, SessionStore};
+use crate::{RedisSessionStore, Result, SessionData, SessionStore, ShardIdentifier};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -85,46 +85,72 @@ impl<T: EventForwarder> PublicShardManager<T> {
             Arc::clone(&self.database),
         )
     }
+
+    #[tracing::instrument(skip(self, ready_tx))]
+    async fn start_shard(
+        &self,
+        shard_id: u16,
+        resume_data: Option<SessionData>,
+        ready_tx: Option<oneshot::Sender<()>>,
+    ) -> (bool, Option<SessionData>) {
+        let shard = self.build_shard(shard_id, ready_tx);
+
+        // TODO: Skip ready_rx await on error
+        match shard.connect(resume_data.clone()).await {
+            Ok(session_data) => {
+                info!("Shard exited normally");
+                return (true, session_data);
+            }
+            Err(GatewayError::AuthenticationError { data, .. }) => {
+                if data.should_reconnect() {
+                    warn!(error = ?data, "Authentication error, reconnecting");
+                    return (true, None);
+                } else {
+                    warn!(error = ?data, "Fatal authentication error, shutting down");
+                    return (false, None);
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "Shard exited with error, reconnecting");
+                return (true, None);
+            }
+        }
+    }
 }
 
 #[async_trait]
 impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
+    #[tracing::instrument(skip(self))]
     async fn connect(self: Arc<Self>) {
         for shard_id in self.options.shard_count.lowest..self.options.shard_count.highest {
             let (ready_tx, ready_rx) = oneshot::channel::<()>();
             let sm = Arc::clone(&self);
 
+            debug!("Fetching resume data");
+            let resume_data = match self.session_store.get(shard_id.into()).await {
+                Ok(data) => data,
+                Err(e) => {
+                    error!(error = %e, "Failed to get session data"); // Continue
+                    None
+                }
+            };
+
             tokio::spawn(async move {
                 let mut ready_tx = Some(ready_tx);
-
-                let mut resume_data = sm
-                    .session_store
-                    .get(shard_id.into())
-                    .await
-                    .expect("Failed to fetch session data"); // TODO: Log, not panic
+                let mut resume_data = resume_data;
 
                 loop {
-                    let shard = sm.build_shard(shard_id, ready_tx.take());
-                    shard.log("Starting...");
+                    let (reconnect, new_resume_data) = sm
+                        .as_ref()
+                        .start_shard(shard_id, resume_data.clone(), ready_tx.take())
+                        .await;
 
-                    // TODO: Skip ready_rx await on error
-                    match shard.connect(resume_data.clone()).await {
-                        Ok(session_data) => {
-                            resume_data = session_data;
-                            info!(shard_id = %shard_id, "Shard exited normally");
-                        }
-                        Err(GatewayError::AuthenticationError { data, .. }) => {
-                            if data.should_reconnect() {
-                                warn!(shard_id = %shard_id, error = ?data, "Authentication error, reconnecting");
-                            } else {
-                                warn!(shard_id = %shard_id, error = ?data, "Fatal authentication error, shutting down");
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            warn!(shard_id = %shard_id, error = %e, "Shard exited with error, reconnecting")
-                        }
+                    if !reconnect {
+                        warn!(%shard_id, "Shard exited with fatal error, not restarting");
+                        break;
                     }
+
+                    resume_data = new_resume_data;
 
                     sleep(Duration::from_millis(500)).await;
                 }
@@ -140,6 +166,7 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
         info!("Reported readiness to probe");
     }
 
+    #[tracing::instrument(skip(self))]
     async fn shutdown(self: Arc<Self>) {
         let cluster_size = self.options.shard_count.highest - self.options.shard_count.lowest;
         let (tx, mut rx) = mpsc::channel(cluster_size.into());

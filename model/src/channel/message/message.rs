@@ -115,6 +115,18 @@ pub enum MessageType {
     GuildInviteReminder = 22,
     ContextMenuCommand = 23,
     AutoModerationAction = 24,
+    RoleSubscriptionPurchase = 25,
+    InteractionPremiumUpsell = 26,
+    StageStart = 27,
+    StageEnd = 28,
+    StageSpeaker = 29,
+    StageTopic = 31,
+    GuildApplicationPremiumSubscription = 32,
+    GuildIncidentAlertModeEnabled = 36,
+    GuildIncidentAlertModeDisabled = 37,
+    GuildIncidentReportRaid = 38,
+    GuildIncidentReportFalseAlarm = 39,
+    PurchaseNotification = 40,
 }
 
 impl Default for MessageType {

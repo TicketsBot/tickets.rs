@@ -84,20 +84,6 @@ impl From<u64> for Snowflake {
     }
 }
 
-/*impl<'r> sqlx::Decode<'r, Postgres> for Snowflake {
-    fn decode(value: PgValueRef<'_>) -> Result<Self, BoxDynError> {
-        let i = i64::decode(value)?;
-        Ok(Snowflake(i as u64))
-    }
-}
-
-impl<'q> sqlx::Encode<'q, Postgres> for Snowflake {
-    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> IsNull {
-        buf.extend(&(self.0 as i64).to_le_bytes());
-        IsNull::No
-    }
-}*/
-
 #[cfg(test)]
 mod tests {
     use super::*;

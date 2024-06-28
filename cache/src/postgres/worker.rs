@@ -4,8 +4,8 @@ use model::channel::Channel;
 use model::guild::{Emoji, Guild, Member, Role, VoiceState};
 use model::user::User;
 use model::Snowflake;
+use tracing::{debug, error, info, warn};
 use std::cmp::Ordering::Equal;
-use std::fmt::Display;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_postgres::Client;
@@ -37,7 +37,10 @@ impl Worker {
         }
     }
 
+    #[tracing::instrument(name = "start_cache_worker", skip(self))]
     pub fn start(self) {
+        info!(id = self.id, "Starting cache worker listener");
+
         tokio::spawn(async move {
             loop {
                 let kill_rx = &mut *self.kill_rx.lock().await;
@@ -45,20 +48,20 @@ impl Worker {
 
                 tokio::select! {
                     _ = kill_rx => {
-                        self.log("got kill message");
+                        info!(id = self.id, "Shutting down cache worker");
                         break
                     }
                     recv = rx.recv() => {
                         let payload = match recv {
                             Some(p) => p,
                             None => { // Should never happen
-                                self.log("got None from payload channel");
+                                warn!(id = self.id, "Cache worker receiver dropped");
                                 break;
                             }
                         };
 
                         if let Err(e) = self.handle_payload(payload).await {
-                            self.log_err(e);
+                            error!(id = self.id, error = %e, "Failed to handle cache payload")
                         }
                     }
                 }
@@ -66,7 +69,9 @@ impl Worker {
         });
     }
 
+    #[tracing::instrument(name = "Handle cache payload", skip(self, payload))]
     async fn handle_payload(&self, payload: CachePayload) -> Result<()> {
+        debug!(id = self.id, payload = ?payload, "Handling cache payload");
         match payload {
             CachePayload::Schema { queries } => {
                 let mut batch = String::new();
@@ -141,14 +146,6 @@ impl Worker {
                 self.delete_voice_state(user_id, guild_id).await
             }
         }
-    }
-
-    fn log(&self, msg: impl Display) {
-        println!("[cache worker:{}] {}", self.id, msg);
-    }
-
-    fn log_err(&self, msg: impl Display) {
-        eprintln!("[cache worker:{}] {}", self.id, msg);
     }
 }
 

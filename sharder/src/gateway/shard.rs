@@ -19,6 +19,7 @@ use serde::Serialize;
 use serde_json::value::RawValue;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex as TokioMutex};
 use tokio::time::sleep;
+use tracing::trace;
 use url::Url;
 
 use cache::{Cache, PostgresCache};
@@ -32,6 +33,7 @@ use crate::config::Config;
 use crate::gateway::payloads::PresenceUpdate;
 use crate::gateway::whitelabel_utils::is_whitelabel;
 use crate::gateway::{GatewayError, Result};
+use crate::util;
 use crate::InternalCommand;
 use crate::ShardIdentifier;
 
@@ -121,8 +123,7 @@ impl<T: EventForwarder> Shard<T> {
         event_forwarder: Arc<T>,
         ready_tx: Option<oneshot::Sender<()>>,
         shutdown_rx: broadcast::Receiver<mpsc::Sender<(ShardIdentifier, Option<SessionData>)>>,
-        #[cfg(feature = "whitelabel")]
-        command_rx: mpsc::Receiver<InternalCommand>,
+        #[cfg(feature = "whitelabel")] command_rx: mpsc::Receiver<InternalCommand>,
         database: Arc<Database>,
     ) -> Shard<T> {
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
@@ -161,6 +162,7 @@ impl<T: EventForwarder> Shard<T> {
         }
     }
 
+    #[tracing::instrument(skip(self, resume_data), fields(shard_id = self.get_shard_id(), bot_id = %self.user_id, has_resume_data = resume_data.is_some()))]
     pub async fn connect(
         mut self,
         resume_data: Option<SessionData>,
@@ -183,10 +185,7 @@ impl<T: EventForwarder> Shard<T> {
         let uri = match Url::parse(&uri[..]) {
             Ok(uri) => uri,
             Err(e) => {
-                self.log_err(
-                    format!("Error parsing gateway URI ({uri})"),
-                    &GatewayError::UrlParseError(e),
-                );
+                error!(error = %e, uri = %uri, "Error parsing gateway URI");
 
                 let fallback_url =
                     format!("{DEFAULT_GATEWAY_URL}?v={GATEWAY_VERSION}&encoding=json");
@@ -197,19 +196,18 @@ impl<T: EventForwarder> Shard<T> {
         // If we can RESUME, we can connect straight away
         if self.session_data.is_none() {
             if let Err(e) = self.wait_for_ratelimit().await {
-                self.log_err(
-                    "Error while waiting for identify ratelimit, reconnecting",
-                    &e,
-                );
+                error!(error = %e, "Error waiting for ratelimit, reconnecting");
                 return Err(e);
             }
         }
 
-        self.log(format!("Connecting to gateway at {uri}"));
+        info!(%uri, "Connecting to gateway");
 
         let (wss, _) = connect_async(uri).await?;
         let (ws_tx, ws_rx) = wss.split();
         self.connect_time = Instant::now();
+
+        debug!("Connected to gateway");
 
         // start writer
         tokio::spawn(handle_writes(
@@ -247,6 +245,7 @@ impl<T: EventForwarder> Shard<T> {
         });
     }
 
+    #[tracing::instrument(name = "listen", skip(self, rx), fields(shard_id = self.get_shard_id(), bot_id = %self.user_id))]
     async fn listen(
         &mut self,
         mut rx: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
@@ -271,16 +270,17 @@ impl<T: EventForwarder> Shard<T> {
             .ok_or_else(|| GatewayError::custom("heartbeat_rx is None"))?;
         let mut has_done_heartbeat = false;
 
+        debug!("Starting read loop");
         loop {
             tokio::select! {
                 // handle kill
                 _ = &mut *kill_shard_rx => {
-                    self.log("Received kill message");
+                    info!("Received kill message");
                     break;
                 }
 
                 session_tx = self.shutdown_rx.recv() => {
-                    self.log("Received shutdown message");
+                    info!("Received shutdown message");
 
                     match session_tx {
                         Ok(session_tx) => {
@@ -288,6 +288,8 @@ impl<T: EventForwarder> Shard<T> {
                             if let Err(e) = session_tx.send((identifier, self.session_data.take())).await {
                                 error!(shard_id = %self.get_shard_id(), error = %e, "Error sending session data");
                             }
+
+                            info!("Reported session data");
                         }
                         Err(e) => error!(shard_id = %self.get_shard_id(), error = %e, "Error receiving shutdown message"),
                     }
@@ -297,12 +299,13 @@ impl<T: EventForwarder> Shard<T> {
 
                 _ = heartbeat_rx.recv() => {
                     let elapsed = self.last_ack.checked_duration_since(self.last_heartbeat);
+                    debug!(previous_ack_time = ?elapsed.map(|e| e.as_millis()), "Need to send heartbeat");
 
                     if has_done_heartbeat && (elapsed.is_none() || elapsed.unwrap() > self.heartbeat_interval) {
-                        error!(shard_id = %self.get_shard_id(), "Haven't received heartbeat ack, killing");
+                        error!("Haven't received heartbeat ack, killing");
                         if let Some(tx) = self.kill_shard_tx.lock().take() {
-                            if tx.send(()).is_err() {
-                                error!(shard_id = %self.get_shard_id(), "Error sending kill notification to shard");
+                            if let Err(e) = tx.send(()) {
+                                error!(error = ?e, "Error sending kill notification to shard");
                             }
                         }
 
@@ -310,7 +313,7 @@ impl<T: EventForwarder> Shard<T> {
                     }
 
                     if let Err(e) = self.do_heartbeat().await { // TODO: Don't block
-                        self.log_err("Error sending heartbeat, killing", &e);
+                        error!(error = %e, "Error sending heartbeat");
                         self.kill();
                         break;
                     }
@@ -322,19 +325,19 @@ impl<T: EventForwarder> Shard<T> {
                 payload = rx.next() => {
                     match payload {
                         None => {
-                            self.log("Payload was None, killing");
+                            warn!("Received None from websocket, killing");
                             self.kill();
                             break;
                         }
 
                         Some(Err(e)) => {
-                            self.log_err("Error reading data from websocket, killing", &GatewayError::WebsocketError(e));
+                            error!(error = %e, "Error reading data from websocket, killing");
                             self.kill();
                             break;
                         }
 
                         Some(Ok(Message::Close(frame))) => {
-                            self.log(format!("Got close from gateway: {frame:?}"));
+                            info!(?frame, "Got close from gateway");
                             self.kill();
 
                             if let Some(frame) = frame {
@@ -363,17 +366,17 @@ impl<T: EventForwarder> Shard<T> {
                         }
 
                         Some(Ok(Message::Text(data))) => {
+                            trace!(data = %data.as_str(), "Received payload");
+
                             let payload = match self.read_payload(data.as_str()) {
                                 Ok(payload) => payload,
                                 Err(e) => {
-                                    self.log_err("Error while deserializing payload", &e);
+                                    error!(error = %e, payload = %data.as_str(), "Error deserializing payload");
                                     continue;
                                 }
                             };
 
-                            if let Err(e) = self.process_payload(payload, data).await {
-                                self.log_err("An error occurred while processing a payload", &e);
-                            }
+                            self.process_payload(payload, data).await
                         }
 
                         #[cfg(feature = "compression")]
@@ -381,7 +384,7 @@ impl<T: EventForwarder> Shard<T> {
                             let data = match self.decompress(data, &mut decoder).await {
                                 Ok(data) => data,
                                 Err(e) => {
-                                    self.log_err("Error while decompressing payload", &e);
+                                    error!(error = %e, "Error decompressing payload");
                                     continue;
                                 }
                             };
@@ -418,7 +421,7 @@ impl<T: EventForwarder> Shard<T> {
                                 let (tx, rx) = oneshot::channel();
 
                                 if let Err(e) = self.write(payload, tx).await {
-                                    self.log_err("Error sending presence update payload to writer", &e);
+                                    error!(error = %e, "Error writing presence update payload");
                                     continue;
                                 }
 
@@ -429,7 +432,7 @@ impl<T: EventForwarder> Shard<T> {
                                 }
                             }
                             InternalCommand::Shutdown => {
-                                self.log("Received shutdown command (via internal command channel)");
+                                info!("Received shutdown command (via internal command)");
                                 break;
                             }
                         }
@@ -481,11 +484,13 @@ impl<T: EventForwarder> Shard<T> {
         return Ok(output);
     }
 
+    #[tracing::instrument(skip(self))]
     fn read_payload(&self, data: &str) -> Result<Payload> {
         Ok(serde_json::from_str(data)?)
     }
 
-    async fn process_payload(&mut self, payload: Payload, raw: String) -> Result<()> {
+    #[tracing::instrument(skip(self, payload, raw))]
+    async fn process_payload(&mut self, payload: Payload, raw: String) {
         if let Some(seq) = payload.seq {
             if let Some(ref mut session_data) = &mut self.session_data {
                 session_data.seq = seq; // TODO: Verify this works
@@ -494,66 +499,61 @@ impl<T: EventForwarder> Shard<T> {
 
         match payload.opcode {
             Opcode::Dispatch => {
-                if let Err(e) = self.handle_event(raw).await {
-                    if let GatewayError::JsonError(ref err) = e {
-                        // Log syntax or IO errors to stderr instead
-                        if err.classify() == Category::Data {
-                            #[cfg(feature = "use-sentry")]
-                            {
-                                // Ignore unknown payloads
-                                let err_str = err.to_string();
-                                if err_str.contains("unknown variant") {
-                                    return Ok(());
-                                }
-
-                                sentry::capture_event(sentry::protocol::Event {
-                                    level: sentry::Level::Warning,
-                                    message: Some("Payload deserializing data error".into()),
-                                    extra: BTreeMap::from([(
-                                        "error".into(),
-                                        Value::String(err_str),
-                                    )]),
-                                    ..Default::default()
-                                });
-                            }
-                        } else {
-                            self.log_err("Error processing dispatch", &e);
-                        }
-                    } else {
-                        self.log_err("Error processing dispatch", &e);
+                let dispatch = match serde_json::from_str(raw.as_str()) {
+                    Ok(dispatch) => dispatch,
+                    Err(e) => {
+                        error!(error = %e, raw = %raw, "Error deserializing dispatch payload");
+                        return;
                     }
+                };
+
+                if let Err(e) = self.handle_event(dispatch, raw).await {
+                    error!(error = %e, "Error handling dispatch event");
                 }
             }
 
             Opcode::Reconnect => {
-                self.log("Received reconnect payload from Discord");
+                info!("Received reconnect payload from Discord");
                 self.kill();
             }
 
             Opcode::InvalidSession => {
-                self.log("Received invalid session payload from Discord");
+                info!("Received invalid session payload from Discord");
 
                 self.session_data = None;
                 self.kill();
             }
 
             Opcode::Hello => {
-                let hello: payloads::Hello = serde_json::from_str(raw.as_str())?;
+                let hello: payloads::Hello = match serde_json::from_str(raw.as_str()) {
+                    Ok(hello) => hello,
+                    Err(e) => {
+                        error!(error = %e, raw = %raw, "Error deserializing HELLO payload");
+                        return;
+                    }
+                };
+
                 let interval = Duration::from_millis(hello.data.heartbeat_interval as u64);
                 self.heartbeat_interval = interval;
 
                 let resume_info = self.session_data.clone();
 
+                info!(
+                    heartbeat_interval = self.heartbeat_interval.as_millis(),
+                    has_resume_info = resume_info.is_some(),
+                    "Received HELLO payload"
+                );
+
                 if let Some(resume_info) = resume_info {
-                    self.log("Attempting RESUME");
+                    info!(resume_url = ?resume_info.resume_url, seq = %resume_info.seq, session_id = %resume_info.session_id, "Attempting resume");
 
                     if let Err(e) = self
                         .do_resume(resume_info.session_id, resume_info.seq)
                         .await
                     {
-                        self.log_err("Error sending RESUME payload, killing", &e);
+                        error!(error = %e, "Error sending RESUME payload, killing");
                         self.kill();
-                        return Ok(());
+                        return;
                     }
 
                     #[cfg(feature = "resume-after-identify")]
@@ -561,32 +561,36 @@ impl<T: EventForwarder> Shard<T> {
                         self.used_resume = true;
                     }
                 } else {
-                    self.log("No resume info found, IDENTIFYing instead");
+                    info!("No resume info found, IDENTIFYing instead");
 
                     if self.connect_time.elapsed() > interval {
-                        self.log("Connected over 45s ago, Discord will kick us off. Reconnecting.");
+                        info!(
+                            time_since_connect = self.connect_time.elapsed().as_millis(),
+                            "Connected over 45s ago, Discord will kick us off. Reconnecting."
+                        );
                         self.kill();
-                        return Ok(());
+                        return;
                     }
 
                     if self.connect_time.elapsed() > Duration::from_millis(500) {
+                        debug!("Connected over 500ms ago, waiting for ratelimit");
                         if let Err(e) = self.wait_for_ratelimit().await {
-                            self.log_err("Error waiting for ratelimit, reconnecting", &e);
+                            error!(error = %e, "Error waiting for ratelimit, reconnecting");
                             self.kill();
-                            return Ok(());
+                            return;
                         }
                     }
 
                     if let Err(e) = self.do_identify().await {
-                        self.log_err("Error identifying, killing", &e);
+                        error!(error = %e, "Error sending IDENTIFY payload, killing");
                         self.kill();
-                        return e.into();
+                        return;
                     }
 
-                    self.log("Identified");
+                    info!("Identified");
 
                     if let Err(e) = self.update_ratelimit_after_identify().await {
-                        self.log_err("Error setting identify ratelimit value", &e);
+                        error!(error = %e, "Error setting identify ratelimit value");
                     }
                 }
 
@@ -594,18 +598,16 @@ impl<T: EventForwarder> Shard<T> {
             }
 
             Opcode::HeartbeatAck => {
+                trace!("Received heartbeat ack");
                 self.last_ack = Instant::now();
             }
 
             _ => {}
         }
-
-        Ok(())
     }
 
-    async fn handle_event(&mut self, data: String) -> Result<()> {
-        let payload: Dispatch = serde_json::from_str(data.as_ref())?;
-
+    #[tracing::instrument(skip(self, payload, data), fields(event_type = %payload.data))]
+    async fn handle_event(&mut self, payload: Dispatch, data: String) -> Result<()> {
         // Gateway events
         match &payload.data {
             Event::Ready(ready) => {
@@ -617,25 +619,25 @@ impl<T: EventForwarder> Shard<T> {
 
                 self.ready_guild_count = ready.guilds.len() as u16;
 
-                self.log(format!(
-                    "Ready on {}#{} ({})",
-                    ready.user.username, ready.user.discriminator, ready.user.id
-                ));
+                info!(
+                    guild_count = ready.guilds.len(),
+                    username = ready.user.username,
+                    discriminator = %ready.user.discriminator,
+                    "Got READY event"
+                );
+
                 return Ok(());
             }
 
             Event::Resumed(_) => {
-                self.log("Received resumed acknowledgement");
+                info!("Received RESUME acknowledgement");
 
                 if !self.is_ready {
                     self.is_ready = true;
 
                     if let Some(tx) = self.ready_tx.lock().take() {
                         if tx.send(()).is_err() {
-                            self.log_err(
-                                "Error sending ready notification to probe",
-                                &GatewayError::ReceiverHungUpError,
-                            );
+                            error!("Ready notification received hung up, can't send ready notification");
                         }
                     }
                 }
@@ -646,7 +648,7 @@ impl<T: EventForwarder> Shard<T> {
             #[cfg(feature = "whitelabel")]
             Event::GuildCreate(g) => {
                 if let Err(e) = self.store_whitelabel_guild(g.id).await {
-                    self.log_err("Error while storing whitelabel guild data", &e);
+                    error!(error = %e, "Error storing whitelabel guild data");
                 }
             }
 
@@ -660,12 +662,28 @@ impl<T: EventForwarder> Shard<T> {
 
         // cache
         if let Err(e) = match payload.data {
-            Event::ChannelCreate(channel) => self.cache.store_channel(channel).await.map_err(Into::into),
-            Event::ChannelUpdate(channel) => self.cache.store_channel(channel).await.map_err(Into::into),
-            Event::ChannelDelete(channel) => self.cache.delete_channel(channel.id).await.map_err(Into::into),
-            Event::ThreadCreate(thread) => self.cache.store_channel(thread).await.map_err(Into::into),
-            Event::ThreadUpdate(thread) => self.cache.store_channel(thread).await.map_err(Into::into),
-            Event::ThreadDelete(thread) => self.cache.delete_channel(thread.id).await.map_err(Into::into),
+            Event::ChannelCreate(channel) => {
+                self.cache.store_channel(channel).await.map_err(Into::into)
+            }
+            Event::ChannelUpdate(channel) => {
+                self.cache.store_channel(channel).await.map_err(Into::into)
+            }
+            Event::ChannelDelete(channel) => self
+                .cache
+                .delete_channel(channel.id)
+                .await
+                .map_err(Into::into),
+            Event::ThreadCreate(thread) => {
+                self.cache.store_channel(thread).await.map_err(Into::into)
+            }
+            Event::ThreadUpdate(thread) => {
+                self.cache.store_channel(thread).await.map_err(Into::into)
+            }
+            Event::ThreadDelete(thread) => self
+                .cache
+                .delete_channel(thread.id)
+                .await
+                .map_err(Into::into),
             Event::GuildCreate(mut guild) => {
                 apply_guild_id_to_channels(&mut guild);
                 let res = self.cache.store_guild(guild).await.map_err(Into::into);
@@ -693,7 +711,9 @@ impl<T: EventForwarder> Shard<T> {
                             .await
                         {
                             Ok(true) => Ok(()),
-                            Ok(false) => self.cache.delete_guild(guild.id).await.map_err(Into::into),
+                            Ok(false) => {
+                                self.cache.delete_guild(guild.id).await.map_err(Into::into)
+                            }
                             Err(e) => Err(GatewayError::from(e)),
                         }
                     }
@@ -701,10 +721,26 @@ impl<T: EventForwarder> Shard<T> {
                     Ok(())
                 }
             }
-            Event::GuildBanAdd(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await.map_err(Into::into),
-            Event::GuildEmojisUpdate(ev) => self.cache.store_emojis(ev.emojis, ev.guild_id).await.map_err(Into::into),
-            Event::GuildMemberAdd(ev) => self.cache.store_member(ev.member, ev.guild_id).await.map_err(Into::into),
-            Event::GuildMemberRemove(ev) => self.cache.delete_member(ev.user.id, ev.guild_id).await.map_err(Into::into),
+            Event::GuildBanAdd(ev) => self
+                .cache
+                .delete_member(ev.user.id, ev.guild_id)
+                .await
+                .map_err(Into::into),
+            Event::GuildEmojisUpdate(ev) => self
+                .cache
+                .store_emojis(ev.emojis, ev.guild_id)
+                .await
+                .map_err(Into::into),
+            Event::GuildMemberAdd(ev) => self
+                .cache
+                .store_member(ev.member, ev.guild_id)
+                .await
+                .map_err(Into::into),
+            Event::GuildMemberRemove(ev) => self
+                .cache
+                .delete_member(ev.user.id, ev.guild_id)
+                .await
+                .map_err(Into::into),
             Event::GuildMemberUpdate(ev) => {
                 self.cache
                     .store_member(
@@ -722,10 +758,24 @@ impl<T: EventForwarder> Shard<T> {
                     .await
                     .map_err(Into::into)
             }
-            Event::GuildMembersChunk(ev) => self.cache.store_members(ev.members, ev.guild_id).await.map_err(Into::into),
-            Event::GuildRoleCreate(ev) => self.cache.store_role(ev.role, ev.guild_id).await.map_err(Into::into),
-            Event::GuildRoleUpdate(ev) => self.cache.store_role(ev.role, ev.guild_id).await.map_err(Into::into),
-            Event::GuildRoleDelete(ev) => self.cache.delete_role(ev.role_id).await.map_err(Into::into),
+            Event::GuildMembersChunk(ev) => self
+                .cache
+                .store_members(ev.members, ev.guild_id)
+                .await
+                .map_err(Into::into),
+            Event::GuildRoleCreate(ev) => self
+                .cache
+                .store_role(ev.role, ev.guild_id)
+                .await
+                .map_err(Into::into),
+            Event::GuildRoleUpdate(ev) => self
+                .cache
+                .store_role(ev.role, ev.guild_id)
+                .await
+                .map_err(Into::into),
+            Event::GuildRoleDelete(ev) => {
+                self.cache.delete_role(ev.role_id).await.map_err(Into::into)
+            }
             Event::UserUpdate(user) => self.cache.store_user(user).await.map_err(Into::into),
             _ => Ok(()),
         } {
@@ -745,7 +795,7 @@ impl<T: EventForwarder> Shard<T> {
                 let raw_payload = match RawValue::from_string(data) {
                     Ok(v) => v,
                     Err(e) => {
-                        error!(shard_id = %shard_id, error = %e, "Error convering JSON string to RawValue");
+                        error!(error = %e, "Error convering JSON string to RawValue");
                         return;
                     }
                 };
@@ -763,7 +813,7 @@ impl<T: EventForwarder> Shard<T> {
                     .forward_event(&config, wrapped, guild_id)
                     .await
                 {
-                    error!(shard_id = %shard_id, error = %e, "Error while executing worker HTTP request");
+                    error!(error = %e, "Error while executing worker HTTP request");
                 }
             });
         }
@@ -771,6 +821,7 @@ impl<T: EventForwarder> Shard<T> {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn increment_received_count(&mut self) {
         self.received_count += 1;
 
@@ -780,11 +831,11 @@ impl<T: EventForwarder> Shard<T> {
                 self.is_ready = true;
 
                 if let Some(tx) = self.ready_tx.lock().take() {
-                    info!(shard_id = %self.get_shard_id(), "Reporting readiness");
+                    info!(received_count = self.received_count, "Reporting readiness");
                     if tx.send(()).is_err() {
-                        error!(shard_id = %self.get_shard_id(), "Error sending ready notification to probe");
+                        error!("Error sending ready notification to probe (receiver hung up)");
                     }
-                    info!(shard_id = %self.get_shard_id(), "Reported readiness");
+                    info!("Reported readiness");
                 }
 
                 #[cfg(feature = "resume-after-identify")]
@@ -792,19 +843,22 @@ impl<T: EventForwarder> Shard<T> {
                     let kill_shard_tx = self.kill_shard_tx.lock().take();
                     let shard_id = self.get_shard_id();
 
-                    info!(shard_id = %shard_id, "Received 90% of guilds ({}), going to killing shard in 90 seconds", self.received_count);
+                    info!(
+                        received_count = self.received_count,
+                        "Received 90% of guilds, going to killing shard in 90 seconds"
+                    );
                     tokio::spawn(async move {
                         tokio::time::sleep(Duration::from_secs(90)).await;
-                        info!(shard_id = %shard_id, "Received 90% of guilds, killing shard");
+                        info!("Received 90% of guilds, killing shard");
 
                         match kill_shard_tx {
                             Some(kill_shard_tx) => {
                                 if kill_shard_tx.send(()).is_err() {
-                                    error!(shard_id = %shard_id, "Failed to kill, receiver already unallocated");
+                                    error!("Failed to kill, receiver already unallocated");
                                 }
                             }
                             None => {
-                                warn!(shard_id = %shard_id, "Tried to kill but kill_shard_tx was None")
+                                warn!("Tried to kill but kill_shard_tx was None")
                             }
                         }
                     });
@@ -824,7 +878,10 @@ impl<T: EventForwarder> Shard<T> {
         true
     }
 
+    #[tracing::instrument(skip(self))]
     async fn do_heartbeat(&mut self) -> Result<()> {
+        debug!("Sending heartbeat");
+
         let seq = self.session_data.as_ref().map(|s| s.seq);
         let payload = payloads::Heartbeat::new(seq);
 
@@ -837,6 +894,7 @@ impl<T: EventForwarder> Shard<T> {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn do_identify(&self) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.write(&self.identify, tx).await?;
@@ -844,8 +902,9 @@ impl<T: EventForwarder> Shard<T> {
         Ok(rx.await??)
     }
 
+    #[tracing::instrument(skip(self))]
     async fn wait_for_ratelimit(&self) -> Result<()> {
-        self.log("Waiting for IDENTIFY ratelimit");
+        info!("Waiting for IDENTIFY ratelimit");
 
         let key = self.get_ratelimit_key();
 
@@ -873,7 +932,7 @@ impl<T: EventForwarder> Shard<T> {
             }
         }
 
-        self.log("Got IDENTIFY ratelimit token");
+        info!("Got IDENTIFY ratelimit token");
         Ok(())
     }
 
@@ -895,6 +954,7 @@ impl<T: EventForwarder> Shard<T> {
 
     /// Shard.session_id & Shard.seq should not be None when calling this function
     /// if they are, the function will panic
+    #[tracing::instrument(skip(self))]
     async fn do_resume(&self, session_id: String, seq: usize) -> Result<()> {
         let payload = payloads::Resume::new(self.identify.data.token.clone(), session_id, seq);
 
@@ -904,6 +964,7 @@ impl<T: EventForwarder> Shard<T> {
         Ok(rx.await??)
     }
 
+    #[tracing::instrument(skip(self, value, expiry))]
     async fn redis_write<U: ToString>(
         &self,
         key: &str,
@@ -922,39 +983,6 @@ impl<T: EventForwarder> Shard<T> {
     /// helper
     pub fn get_shard_id(&self) -> u16 {
         self.identify.data.shard_info.shard_id
-    }
-
-    pub fn log(&self, msg: impl Display) {
-        if is_whitelabel() {
-            info!(bot_id = %self.user_id, "{msg}");
-        } else {
-            info!(shard_id = %self.get_shard_id(), "{msg}");
-        }
-    }
-
-    pub fn log_err(&self, msg: impl Display, err: &GatewayError) {
-        if is_whitelabel() {
-            error!(bot_id = %self.user_id, error = %err, "{msg}");
-        } else {
-            error!(shard_id = %self.get_shard_id(), error = %err, "{msg}");
-        }
-    }
-
-    pub fn log_debug(&self, msg: impl Display, raw_payload: &str, err: impl Error) {
-        if is_whitelabel() {
-            debug!(
-                "[shard:{}] {}: {}\nFull payload: {}",
-                self.user_id, msg, err, raw_payload
-            );
-        } else {
-            debug!(
-                "[shard:{:0>2}] {}: {}\nFull payload: {}",
-                self.get_shard_id(),
-                msg,
-                err,
-                raw_payload
-            );
-        }
     }
 }
 
