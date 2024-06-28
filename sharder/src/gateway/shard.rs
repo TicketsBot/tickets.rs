@@ -99,6 +99,7 @@ pub struct Shard<T: EventForwarder> {
     #[cfg(feature = "resume-after-identify")]
     used_resume: bool,
     shutdown_rx: broadcast::Receiver<mpsc::Sender<(ShardIdentifier, Option<SessionData>)>>,
+    #[cfg(feature = "whitelabel")]
     command_rx: Arc<TokioMutex<mpsc::Receiver<InternalCommand>>>,
     pub(crate) event_forwarder: Arc<T>,
     pub(crate) database: Arc<Database>,
@@ -120,6 +121,7 @@ impl<T: EventForwarder> Shard<T> {
         event_forwarder: Arc<T>,
         ready_tx: Option<oneshot::Sender<()>>,
         shutdown_rx: broadcast::Receiver<mpsc::Sender<(ShardIdentifier, Option<SessionData>)>>,
+        #[cfg(feature = "whitelabel")]
         command_rx: mpsc::Receiver<InternalCommand>,
         database: Arc<Database>,
     ) -> Shard<T> {
@@ -152,6 +154,7 @@ impl<T: EventForwarder> Shard<T> {
             #[cfg(feature = "resume-after-identify")]
             used_resume: false,
             shutdown_rx,
+            #[cfg(feature = "whitelabel")]
             command_rx: Arc::new(TokioMutex::new(command_rx)),
             event_forwarder,
             database,
@@ -254,8 +257,13 @@ impl<T: EventForwarder> Shard<T> {
         let kill_shard_rx = Arc::clone(&self.kill_shard_rx);
         let kill_shard_rx = &mut *kill_shard_rx.lock().await;
 
+        #[cfg(feature = "whitelabel")]
         let command_rx = Arc::clone(&self.command_rx);
+        #[cfg(feature = "whitelabel")]
         let command_rx = &mut *command_rx.lock().await;
+
+        #[cfg(not(feature = "whitelabel"))]
+        let (_, mut command_rx) = mpsc::unbounded_channel::<()>();
 
         let heartbeat_rx = &mut self
             .heartbeat_rx
@@ -399,28 +407,31 @@ impl<T: EventForwarder> Shard<T> {
 
                 // handle internal commands
                 command = command_rx.recv() => {
-                    let Some(command) = command else {continue};
+                    #[cfg(feature = "whitelabel")]
+                    {
+                        let Some(command) = command else {continue};
 
-                    match command {
-                        InternalCommand::StatusUpdate { status } => {
-                            let payload = PresenceUpdate::new(status);
+                        match command {
+                            InternalCommand::StatusUpdate { status } => {
+                                let payload = PresenceUpdate::new(status);
 
-                            let (tx, rx) = oneshot::channel();
+                                let (tx, rx) = oneshot::channel();
 
-                            if let Err(e) = self.write(payload, tx).await {
-                                self.log_err("Error sending presence update payload to writer", &e);
-                                continue;
+                                if let Err(e) = self.write(payload, tx).await {
+                                    self.log_err("Error sending presence update payload to writer", &e);
+                                    continue;
+                                }
+
+                                match rx.await {
+                                    Ok(Err(e)) => error!(shard_id = %self.get_shard_id(), error = %e, "Error writing presence update payload"),
+                                    Err(e) => error!(shard_id = %self.get_shard_id(), error = %e, "Error writing presence update payload"),
+                                    _ => {}
+                                }
                             }
-
-                            match rx.await {
-                                Ok(Err(e)) => error!(shard_id = %self.get_shard_id(), error = %e, "Error writing presence update payload"),
-                                Err(e) => error!(shard_id = %self.get_shard_id(), error = %e, "Error writing presence update payload"),
-                                _ => {}
+                            InternalCommand::Shutdown => {
+                                self.log("Received shutdown command (via internal command channel)");
+                                break;
                             }
-                        }
-                        InternalCommand::Shutdown => {
-                            self.log("Received shutdown command (via internal command channel)");
-                            break;
                         }
                     }
                 }

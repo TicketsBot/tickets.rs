@@ -70,9 +70,6 @@ impl<T: EventForwarder> PublicShardManager<T> {
             super::get_intents(),
         );
 
-        // Unused by public shard manager currently
-        let (_, command_rx) = mpsc::channel(1);
-
         Shard::new(
             Arc::clone(&self.config),
             identify,
@@ -83,6 +80,7 @@ impl<T: EventForwarder> PublicShardManager<T> {
             Arc::clone(&self.event_forwarder),
             ready_tx,
             self.shutdown_tx.subscribe(),
+            #[cfg(feature = "whitelabel")]
             command_rx,
             Arc::clone(&self.database),
         )
