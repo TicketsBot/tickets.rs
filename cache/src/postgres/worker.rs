@@ -150,6 +150,7 @@ impl Worker {
 }
 
 impl Worker {
+    #[tracing::instrument(skip(self, guilds))]
     async fn store_guilds(&self, mut guilds: Vec<Guild>) -> Result<()> {
         if guilds.is_empty() {
             return Ok(());
@@ -239,6 +240,7 @@ impl Worker {
         unimplemented!()
     }
 
+    #[tracing::instrument(skip(self))]
     async fn delete_guild(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM guilds WHERE "guild_id" = $1;"#;
         self.client
@@ -248,6 +250,7 @@ impl Worker {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     async fn get_guild_count(&self) -> Result<usize> {
         let query = r#"SELECT COUNT(guild_id) FROM guilds;"#;
 
@@ -261,6 +264,7 @@ impl Worker {
         Ok(count as usize)
     }
 
+    #[tracing::instrument(skip(self, channels), fields(channel_count = channels.len()))]
     async fn store_channels(&self, channels: Vec<Channel>) -> Result<()> {
         let mut channels = channels
             .into_iter()
@@ -312,6 +316,7 @@ impl Worker {
         unimplemented!()
     }
 
+    #[tracing::instrument(skip(self))]
     async fn delete_channel(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM channels WHERE "channel_id" = $1;"#;
         self.client
@@ -321,6 +326,7 @@ impl Worker {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, users), fields(user_count = users.len()))]
     async fn store_users(&self, mut users: Vec<User>) -> Result<()> {
         if users.is_empty() {
             return Ok(());
@@ -373,6 +379,7 @@ impl Worker {
         unimplemented!()
     }
 
+    #[tracing::instrument(skip(self))]
     async fn delete_user(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM users WHERE "user_id" = $1;"#;
         self.client
@@ -382,6 +389,7 @@ impl Worker {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, members), fields(member_count = members.len()))]
     async fn store_members(&self, members: Vec<Member>, guild_id: Snowflake) -> Result<()> {
         let mut members = members
             .into_iter()
@@ -444,6 +452,7 @@ impl Worker {
         unimplemented!()
     }
 
+    #[tracing::instrument(skip(self))]
     async fn delete_member(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM members WHERE "guild_id" = $1 AND "user_id" = $2;"#;
         self.client
@@ -453,6 +462,7 @@ impl Worker {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, roles), fields(role_count = roles.len()))]
     async fn store_roles(&self, mut roles: Vec<Role>, guild_id: Snowflake) -> Result<()> {
         if roles.is_empty() {
             return Ok(());
@@ -496,6 +506,7 @@ impl Worker {
         unimplemented!()
     }
 
+    #[tracing::instrument(skip(self))]
     async fn delete_role(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM roles WHERE "role_id" = $1;"#;
         self.client
@@ -505,6 +516,7 @@ impl Worker {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, emojis), fields(emoji_count = emojis.len()))]
     async fn store_emojis(&self, emojis: Vec<Emoji>, guild_id: Snowflake) -> Result<()> {
         let mut emojis = emojis
             .into_iter()
@@ -554,6 +566,7 @@ impl Worker {
         unimplemented!()
     }
 
+    #[tracing::instrument(skip(self))]
     async fn delete_emoji(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM emojis WHERE "emoji_id" = $1;"#;
         self.client
@@ -563,6 +576,7 @@ impl Worker {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, voice_states), fields(voice_state_count = voice_states.len()))]
     async fn store_voice_states(&self, voice_states: Vec<VoiceState>) -> Result<()> {
         let mut voice_states = voice_states
             .into_iter()
@@ -616,6 +630,7 @@ impl Worker {
         unimplemented!()
     }
 
+    #[tracing::instrument(skip(self))]
     async fn delete_voice_state(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM voice_states WHERE "guild_id" = $1 AND "user_id" = $2;"#;
         self.client
