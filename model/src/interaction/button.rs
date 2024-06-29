@@ -1,5 +1,5 @@
 use super::ComponentType;
-use crate::guild::Emoji;
+use crate::{guild::Emoji, Snowflake};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
@@ -14,6 +14,8 @@ pub struct Button {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emoji: Option<Emoji>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub sku_id: Option<Snowflake>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<Box<str>>,
     #[serde(default = "bool::default")]
     pub disabled: bool,
@@ -27,4 +29,5 @@ pub enum ButtonStyle {
     Success = 3,
     Danger = 4,
     Link = 5,
+    Premium = 6,
 }

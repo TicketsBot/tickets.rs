@@ -75,7 +75,9 @@ impl fmt::Display for Event {
             Event::ApplicationCommandCreate(_) => write!(f, "APPLICATION_COMMAND_CREATE"),
             Event::ApplicationCommandUpdate(_) => write!(f, "APPLICATION_COMMAND_UPDATE"),
             Event::ApplicationCommandDelete(_) => write!(f, "APPLICATION_COMMAND_DELETE"),
-            Event::ApplicationCommandPermissionsUpdate(_) => write!(f, "APPLICATION_COMMAND_PERMISSIONS_UPDATE"),
+            Event::ApplicationCommandPermissionsUpdate(_) => {
+                write!(f, "APPLICATION_COMMAND_PERMISSIONS_UPDATE")
+            }
             Event::ChannelCreate(_) => write!(f, "CHANNEL_CREATE"),
             Event::ChannelUpdate(_) => write!(f, "CHANNEL_UPDATE"),
             Event::ChannelDelete(_) => write!(f, "CHANNEL_DELETE"),
