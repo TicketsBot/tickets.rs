@@ -1,10 +1,10 @@
+use crate::channel::message::{Attachment, Message};
 use crate::channel::Channel;
 use crate::guild::{Member, Role};
 use crate::user::User;
 use crate::Snowflake;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::channel::message::{Attachment, Message};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ApplicationCommandInteractionDataResolved {

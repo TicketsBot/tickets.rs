@@ -31,6 +31,7 @@ impl HttpEventForwarder {
 
 #[async_trait]
 impl EventForwarder for HttpEventForwarder {
+    #[tracing::instrument(skip(self, config, event))]
     async fn forward_event(
         &self,
         config: &Config,

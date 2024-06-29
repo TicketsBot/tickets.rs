@@ -14,22 +14,20 @@ use tokio::sync::Mutex;
 #[cfg(feature = "metrics")]
 use lazy_static::lazy_static;
 
-#[cfg(feature = "metrics")]
-use prometheus::{HistogramVec, register_histogram_vec};
-use tokio::sync::{mpsc, oneshot};
-use tokio_postgres::{Connection, NoTls, Socket};
-use tokio_postgres::tls::NoTlsStream;
 use crate::postgres::worker::{PayloadReceiver, Worker};
+#[cfg(feature = "metrics")]
+use prometheus::{register_histogram_vec, HistogramVec};
+use tokio::sync::{mpsc, oneshot};
+use tokio_postgres::tls::NoTlsStream;
+use tokio_postgres::{Connection, NoTls, Socket};
 
 use backoff::ExponentialBackoff;
 
 #[cfg(feature = "metrics")]
 lazy_static! {
-    static ref HISTOGRAM: HistogramVec = register_histogram_vec!(
-        "cache_timings",
-        "Cache Timings",
-        &["table"]
-    ).expect("Failed to register cache timings histogram");
+    static ref HISTOGRAM: HistogramVec =
+        register_histogram_vec!("cache_timings", "Cache Timings", &["table"])
+            .expect("Failed to register cache timings histogram");
 }
 
 pub struct PostgresCache {
@@ -57,10 +55,15 @@ impl PostgresCache {
                     let _: Result<()> =
                         backoff::future::retry(ExponentialBackoff::default(), || async {
                             info!(id, "Starting cache worker");
-                            let (kill_tx, conn) =
-                                Self::spawn_worker(id, opts.clone(), &uri[..], Arc::clone(&worker_rx)).await?;
+                            let (kill_tx, conn) = Self::spawn_worker(
+                                id,
+                                opts.clone(),
+                                &uri[..],
+                                Arc::clone(&worker_rx),
+                            )
+                            .await?;
                             info!(id, "Cache worker started and connected");
-                                
+
                             if let Err(e) = conn.await {
                                 error!(id, error = %e, "Failed to connect to database");
                                 return Err(backoff::Error::Transient(CacheError::DatabaseError(
@@ -69,11 +72,11 @@ impl PostgresCache {
                             }
 
                             info!(id, "Cache worker disconnected");
-                            
+
                             kill_tx.send(());
                             Err(backoff::Error::Transient(CacheError::Disconnected))
                         })
-                            .await;
+                        .await;
                 }
             });
         }

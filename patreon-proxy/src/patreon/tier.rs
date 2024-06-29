@@ -1,5 +1,5 @@
-use serde::{Serialize, Serializer};
 use crate::patreon::tier::Tier::{Premium, Whitelabel};
+use serde::{Serialize, Serializer};
 
 #[derive(Debug)]
 pub enum Tier {
@@ -35,7 +35,10 @@ impl Tier {
 }
 
 impl Serialize for Tier {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         serializer.serialize_i32(self.tier_id())
     }
 }

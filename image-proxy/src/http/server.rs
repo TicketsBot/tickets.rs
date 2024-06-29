@@ -1,4 +1,5 @@
 use super::proxy::proxy;
+use super::UsedTokenStore;
 use crate::Config;
 use axum::http::{HeaderValue, Method};
 use axum::routing::get;
@@ -16,7 +17,6 @@ use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::AllowMethods;
 use tower_http::cors::{AllowOrigin, CorsLayer};
-use super::UsedTokenStore;
 
 pub struct Server {
     config: Config,

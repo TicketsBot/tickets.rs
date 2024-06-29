@@ -271,9 +271,7 @@ impl<T: EventForwarder> Shard<T> {
         debug!("Starting read loop");
         loop {
             #[cfg(feature = "whitelabel")]
-            let command_rx = async {
-                command_rx.recv().await
-            };
+            let command_rx = async { command_rx.recv().await };
 
             #[cfg(not(feature = "whitelabel"))]
             let command_rx = future::pending::<InternalCommand>();

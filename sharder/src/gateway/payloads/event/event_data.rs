@@ -76,6 +76,12 @@ pub struct GuildIntegrationsUpdate {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct GuildJoinRequestUpdate {
+    pub status: String,
+    pub guild_id: Snowflake,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct GuildJoinRequestDelete {
     pub user_id: Snowflake,
     pub guild_id: Snowflake,
@@ -229,4 +235,12 @@ pub struct VoiceServerUpdate {
 pub struct WebhookUpdate {
     pub guild_id: Snowflake,
     pub channel_id: Snowflake,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct VoiceChannelStatusUpdate {
+    id: Snowflake,
+    guild_id: Snowflake,
+    status: Option<String>,
+    old: Option<String>,
 }

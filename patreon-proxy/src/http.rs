@@ -46,7 +46,9 @@ pub async fn listen(server_addr: &str, data: Arc<RwLock<HashMap<String, Tier>>>)
     let all = warp::path("all").and(data.clone()).and_then(all_patrons);
     let count = warp::path("count").and(data.clone()).and_then(patron_count);
 
-    warp::serve(ping.or(is_premium).or(all).or(count)).run(addr).await;
+    warp::serve(ping.or(is_premium).or(all).or(count))
+        .run(addr)
+        .await;
 }
 
 async fn ping() -> Result<Json, warp::Rejection> {
@@ -125,7 +127,7 @@ async fn patron_count(
 }
 
 async fn all_patrons(
-    patrons: Arc<RwLock<HashMap<String, Tier>>>
+    patrons: Arc<RwLock<HashMap<String, Tier>>>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let patrons = patrons.read().unwrap();
 
@@ -139,8 +141,8 @@ async fn all_patrons(
                     "error": "Unable to serialize patrons map"
                 })),
                 StatusCode::INTERNAL_SERVER_ERROR,
-            ))
-        },
+            ));
+        }
     };
 
     Ok(reply::with_status(

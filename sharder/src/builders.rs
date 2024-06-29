@@ -43,15 +43,15 @@ pub fn setup_sentry(config: &Config) -> sentry::ClientInitGuard {
         sentry::ClientOptions {
             release: sentry::release_name!(),
             attach_stacktrace: true,
-            sample_rate: 1.0,
-            traces_sample_rate: 1.0,
+            sample_rate: 0.1,
+            traces_sample_rate: 0.1,
             ..Default::default()
         },
     ));
 
     let sentry_layer = sentry_tracing::layer().span_filter(|md| match md.level() {
         &Level::ERROR | &Level::WARN | &Level::INFO => true,
-        _ => false,    
+        _ => false,
     });
 
     tracing_subscriber::registry()

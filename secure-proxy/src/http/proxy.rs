@@ -1,6 +1,7 @@
 use super::CustomRejection;
 use super::Server;
 use crate::Config;
+use axum::body::{Bytes, Full};
 use axum::http::StatusCode;
 use axum::response::Response;
 use axum::{extract::Json, Extension};
@@ -15,7 +16,6 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use axum::body::{Bytes, Full};
 use tokio::time::timeout;
 #[cfg(feature = "pre-resolve")]
 use tower::Service;
@@ -102,12 +102,12 @@ pub(crate) async fn proxy(
         req = req.header(key.as_str(), value.as_str());
     }
 
-    let body= if let Some(body) = data.json_body {
+    let body = if let Some(body) = data.json_body {
         req = req.header(hyper::header::CONTENT_TYPE, "application/json");
 
         let Ok(json) = serde_json::to_string(&body) else {
             //return Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to serialize JSON").into());
-            return Err((StatusCode::METHOD_NOT_ALLOWED, "Unsupported method").into())
+            return Err((StatusCode::METHOD_NOT_ALLOWED, "Unsupported method").into());
         };
 
         json.into()
@@ -166,8 +166,8 @@ pub(crate) async fn proxy(
     }
 
     let proxied_response = Response::builder()
-            .status(StatusCode::OK)
-            .header("x-status-code", res.status().as_u16());
+        .status(StatusCode::OK)
+        .header("x-status-code", res.status().as_u16());
 
     // Read data
     let data = match hyper::body::to_bytes(res.into_body()).await {
@@ -182,7 +182,11 @@ pub(crate) async fn proxy(
         Ok(v) => v,
         Err(e) => {
             warn!("Failed to set response body: {e}");
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, "Error setting response body").into());
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error setting response body",
+            )
+                .into());
         }
     };
 

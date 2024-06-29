@@ -15,3 +15,6 @@ pub use voice_state::VoiceState;
 
 mod member;
 pub use member::Member;
+
+mod join_request;
+pub use join_request::{FormResponse, JoinRequest};

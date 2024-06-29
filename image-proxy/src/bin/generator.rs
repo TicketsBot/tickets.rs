@@ -26,7 +26,15 @@ fn main() {
     let mut claims = BTreeMap::new();
     claims.insert("url", args.url);
     claims.insert("request_id", uuid::Uuid::new_v4().to_string());
-    claims.insert("exp", SystemTime::now().add(Duration::from_secs(60)).duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs().to_string());
+    claims.insert(
+        "exp",
+        SystemTime::now()
+            .add(Duration::from_secs(60))
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .to_string(),
+    );
 
     let token = claims.sign_with_key(&key).unwrap();
     println!("{token}");

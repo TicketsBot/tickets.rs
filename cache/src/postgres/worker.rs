@@ -4,11 +4,11 @@ use model::channel::Channel;
 use model::guild::{Emoji, Guild, Member, Role, VoiceState};
 use model::user::User;
 use model::Snowflake;
-use tracing::{debug, error, info, warn};
 use std::cmp::Ordering::Equal;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_postgres::Client;
+use tracing::{debug, error, info, warn};
 
 pub struct Worker {
     id: usize,
@@ -416,8 +416,9 @@ impl Worker {
             false
         });
 
-        let mut query =
-            String::from(r#"INSERT INTO members("guild_id", "user_id", "data", "last_seen") VALUES"#);
+        let mut query = String::from(
+            r#"INSERT INTO members("guild_id", "user_id", "data", "last_seen") VALUES"#,
+        );
 
         let mut first = true;
         for member in members {
