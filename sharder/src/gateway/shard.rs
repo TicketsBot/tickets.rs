@@ -238,7 +238,7 @@ impl<T: EventForwarder> Shard<T> {
             match kill_shard_tx {
                 Some(kill_shard_tx) => {
                     if kill_shard_tx.send(()).is_err() {
-                        error!(shard_id = %shard_id, "Failed to kill, receiver already unallocated");
+                        warn!(shard_id = %shard_id, "Failed to kill, receiver already unallocated");
                     }
                 }
                 None => warn!(shard_id = %shard_id, "Tried to kill but kill_shard_tx was None"),
