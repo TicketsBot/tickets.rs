@@ -61,7 +61,7 @@ pub enum Event {
     UserUpdate(User),
     VoiceStateUpdate(VoiceState),
     VoiceServerUpdate(super::VoiceServerUpdate),
-    WebhookUpdate(super::WebhooksUpdate),
+    WebhookUpdate(super::WebhookUpdate),
 }
 
 impl fmt::Display for Event {

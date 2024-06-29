@@ -3,6 +3,7 @@ use cache::{Options, PostgresCache};
 use deadpool::managed::PoolConfig;
 use deadpool::Runtime;
 use deadpool_redis::{Config as RedisConfig, Pool};
+use tracing::Level;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
@@ -43,14 +44,19 @@ pub fn setup_sentry(config: &Config) -> sentry::ClientInitGuard {
             release: sentry::release_name!(),
             attach_stacktrace: true,
             sample_rate: 1.0,
-            traces_sample_rate: 0.1,
+            traces_sample_rate: 1.0,
             ..Default::default()
         },
     ));
 
+    let sentry_layer = sentry_tracing::layer().span_filter(|md| match md.level() {
+        &Level::ERROR | &Level::WARN | &Level::INFO => true,
+        _ => false,    
+    });
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
-        .with(sentry_tracing::layer())
+        .with(sentry_layer)
         .with(EnvFilter::from_default_env())
         .init();
 

@@ -4,7 +4,7 @@ use database::sqlx::postgres::PgPoolOptions;
 use database::Database;
 use model::user::{ActivityType, StatusType, StatusUpdate};
 use sharder::{
-    await_shutdown, setup_sentry, Config, GatewayError, PublicShardManager, RedisSessionStore,
+    await_shutdown, setup_sentry, Config, PublicShardManager, RedisSessionStore,
     ShardCount, ShardManager,
 };
 

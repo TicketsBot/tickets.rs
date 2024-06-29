@@ -226,7 +226,7 @@ pub struct VoiceServerUpdate {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct WebhooksUpdate {
+pub struct WebhookUpdate {
     pub guild_id: Snowflake,
     pub channel_id: Snowflake,
 }

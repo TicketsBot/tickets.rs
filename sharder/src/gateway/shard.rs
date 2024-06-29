@@ -162,7 +162,7 @@ impl<T: EventForwarder> Shard<T> {
         }
     }
 
-    #[tracing::instrument(skip(self, resume_data), fields(shard_id = self.get_shard_id(), bot_id = %self.user_id, has_resume_data = resume_data.is_some()))]
+    #[tracing::instrument(skip(self, resume_data), fields(shard_id = self.get_shard_id(), bot_id = %self.user_id))]
     pub async fn connect(
         mut self,
         resume_data: Option<SessionData>,
@@ -331,7 +331,7 @@ impl<T: EventForwarder> Shard<T> {
                         }
 
                         Some(Err(e)) => {
-                            error!(error = %e, "Error reading data from websocket, killing");
+                            warn!(error = %e, "Error reading data from websocket, killing");
                             self.kill();
                             break;
                         }
@@ -854,7 +854,7 @@ impl<T: EventForwarder> Shard<T> {
                         match kill_shard_tx {
                             Some(kill_shard_tx) => {
                                 if kill_shard_tx.send(()).is_err() {
-                                    error!("Failed to kill, receiver already unallocated");
+                                    warn!("Failed to kill, receiver already unallocated");
                                 }
                             }
                             None => {

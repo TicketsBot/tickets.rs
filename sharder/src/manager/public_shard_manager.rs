@@ -86,7 +86,7 @@ impl<T: EventForwarder> PublicShardManager<T> {
         )
     }
 
-    #[tracing::instrument(skip(self, ready_tx))]
+    #[tracing::instrument(skip(self, resume_data, ready_tx))]
     async fn start_shard(
         &self,
         shard_id: u16,
