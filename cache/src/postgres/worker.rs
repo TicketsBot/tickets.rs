@@ -301,7 +301,7 @@ impl Worker {
         }
 
         query.push_str(
-            r#" ON CONFLICT("channel_id", "guild_id") DO UPDATE SET "data" = excluded.data;"#,
+            r#" ON CONFLICT("channel_id") DO UPDATE SET "data" = excluded.data;"#,
         );
 
         self.client
