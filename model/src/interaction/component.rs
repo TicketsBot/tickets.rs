@@ -20,6 +20,10 @@ pub enum ComponentType {
     Button = 2,
     SelectMenu = 3,
     InputText = 4,
+    UserSelect = 5,
+    RoleSelect = 6,
+    MentionableSelect = 7,
+    ChannelSelect = 8,
 }
 
 impl TryFrom<u64> for ComponentType {
@@ -31,6 +35,10 @@ impl TryFrom<u64> for ComponentType {
             2 => Self::Button,
             3 => Self::SelectMenu,
             4 => Self::InputText,
+            5 => Self::UserSelect,
+            6 => Self::RoleSelect,
+            7 => Self::MentionableSelect,
+            8 => Self::ChannelSelect,
             _ => return Err(format!("invalid component type \"{}\"", value).into_boxed_str()),
         })
     }
@@ -50,7 +58,13 @@ impl<'de> Deserialize<'de> for Component {
         let component = match component_type {
             ComponentType::ActionRow => serde_json::from_value(value).map(Component::ActionRow),
             ComponentType::Button => serde_json::from_value(value).map(Component::Button),
-            ComponentType::SelectMenu => serde_json::from_value(value).map(Component::SelectMenu),
+            ComponentType::SelectMenu
+            | ComponentType::UserSelect
+            | ComponentType::RoleSelect
+            | ComponentType::MentionableSelect
+            | ComponentType::ChannelSelect => {
+                serde_json::from_value(value).map(Component::SelectMenu)
+            }
             ComponentType::InputText => serde_json::from_value(value).map(Component::InputText),
         }
         .map_err(D::Error::custom)?;

@@ -43,7 +43,10 @@ mod button;
 pub use button::{Button, ButtonStyle};
 
 mod select_menu;
-pub use select_menu::{SelectMenu, SelectOption};
+pub use select_menu::{SelectDefaultValue, SelectDefaultValueType, SelectMenu, SelectOption};
 
 mod input_text;
 pub use input_text::{InputText, TextStyleType};
+
+mod guild_application_command_permissions;
+pub use guild_application_command_permissions::GuildApplicationCommandPermissions;

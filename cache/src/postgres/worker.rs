@@ -300,9 +300,7 @@ impl Worker {
             ));
         }
 
-        query.push_str(
-            r#" ON CONFLICT("channel_id") DO UPDATE SET "data" = excluded.data;"#,
-        );
+        query.push_str(r#" ON CONFLICT("channel_id") DO UPDATE SET "data" = excluded.data;"#);
 
         self.client
             .simple_query(&query[..])

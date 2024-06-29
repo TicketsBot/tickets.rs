@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use model::channel::message::Message;
 use model::channel::{Channel, ThreadMember};
 use model::guild::{Guild, UnavailableGuild, VoiceState};
-use model::interaction::ApplicationCommand;
+use model::interaction::{ApplicationCommand, GuildApplicationCommandPermissions};
 use model::stage::StageInstance;
 use model::user::{PresenceUpdate, User};
 
@@ -18,6 +18,7 @@ pub enum Event {
     ApplicationCommandCreate(ApplicationCommand),
     ApplicationCommandUpdate(ApplicationCommand),
     ApplicationCommandDelete(ApplicationCommand),
+    ApplicationCommandPermissionsUpdate(GuildApplicationCommandPermissions),
     ChannelCreate(Channel),
     ChannelUpdate(Channel),
     ChannelDelete(Channel),
@@ -74,6 +75,7 @@ impl fmt::Display for Event {
             Event::ApplicationCommandCreate(_) => write!(f, "APPLICATION_COMMAND_CREATE"),
             Event::ApplicationCommandUpdate(_) => write!(f, "APPLICATION_COMMAND_UPDATE"),
             Event::ApplicationCommandDelete(_) => write!(f, "APPLICATION_COMMAND_DELETE"),
+            Event::ApplicationCommandPermissionsUpdate(_) => write!(f, "APPLICATION_COMMAND_PERMISSIONS_UPDATE"),
             Event::ChannelCreate(_) => write!(f, "CHANNEL_CREATE"),
             Event::ChannelUpdate(_) => write!(f, "CHANNEL_UPDATE"),
             Event::ChannelDelete(_) => write!(f, "CHANNEL_DELETE"),
