@@ -119,20 +119,17 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                 match sm.database.whitelabel.get_bot_by_id(bot_id).await {
                     Ok(Some(_)) => (),
                     Ok(None) => {
-                        shard.log("Bot no longer exists, stopping");
+                        info!("Bot no longer exists, stopping");
                         break;
                     }
                     Err(e) => {
-                        shard.log_err(
-                            "Error occurred while checking if bot still exists",
-                            &GatewayError::DatabaseError(e),
-                        );
+                        error!(error = %e, "Error checking if bot still exists in the database");
                         sleep(Duration::from_secs(10)).await;
                         continue;
                     }
                 }
 
-                shard.log("Starting...");
+                info!("Starting");
 
                 {
                     sm.shard_command_channels

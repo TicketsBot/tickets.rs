@@ -12,6 +12,7 @@ use deadpool_redis::redis;
 use deadpool_redis::{redis::cmd, Pool};
 #[cfg(feature = "compression")]
 use flate2::{Decompress, FlushDecompress, Status};
+use futures::future;
 use futures::StreamExt;
 use futures_util::SinkExt;
 use parking_lot::Mutex;
@@ -261,9 +262,6 @@ impl<T: EventForwarder> Shard<T> {
         #[cfg(feature = "whitelabel")]
         let command_rx = &mut *command_rx.lock().await;
 
-        #[cfg(not(feature = "whitelabel"))]
-        let (_, mut command_rx) = mpsc::unbounded_channel::<()>();
-
         let heartbeat_rx = &mut self
             .heartbeat_rx
             .take()
@@ -272,6 +270,14 @@ impl<T: EventForwarder> Shard<T> {
 
         debug!("Starting read loop");
         loop {
+            #[cfg(feature = "whitelabel")]
+            let command_rx = async {
+                command_rx.recv().await
+            };
+
+            #[cfg(not(feature = "whitelabel"))]
+            let command_rx = future::pending::<InternalCommand>();
+
             tokio::select! {
                 // handle kill
                 _ = &mut *kill_shard_rx => {
@@ -409,7 +415,7 @@ impl<T: EventForwarder> Shard<T> {
                 }
 
                 // handle internal commands
-                command = command_rx.recv() => {
+                command = command_rx => {
                     #[cfg(feature = "whitelabel")]
                     {
                         let Some(command) = command else {continue};
