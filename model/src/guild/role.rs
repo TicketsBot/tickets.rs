@@ -13,6 +13,16 @@ pub struct Role {
     pub permissions: PermissionBitSet,
     pub managed: bool,
     pub mentionable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<RoleTags>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RoleTags {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bot_id: Option<Snowflake>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    integration_id: Option<Snowflake>,
 }
 
 impl PartialEq for Role {
