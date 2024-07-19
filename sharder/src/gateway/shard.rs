@@ -681,7 +681,21 @@ impl<T: EventForwarder> Shard<T> {
                 self.cache.store_channel(thread).await.map_err(Into::into)
             }
             Event::ThreadUpdate(thread) => {
-                self.cache.store_channel(thread).await.map_err(Into::into)
+                let mut delete = false;
+
+                // TODO: Use if-let chain (if let Some(...) = ... && ...) once stabilised
+                if let Some(metadata) = thread.thread_metadata.as_ref() {
+                    if metadata.archived {
+                        delete = true;
+                    }
+                }
+
+
+                if delete {
+                    self.cache.delete_channel(thread.id).await.map_err(Into::into)
+                } else {
+                    self.cache.store_channel(thread).await.map_err(Into::into)
+                }
             }
             Event::ThreadDelete(thread) => self
                 .cache
