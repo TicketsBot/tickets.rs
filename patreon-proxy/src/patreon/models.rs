@@ -21,9 +21,22 @@ pub struct Member {
 #[derive(Debug, Deserialize)]
 pub struct MemberAttributes {
     pub last_charge_date: Option<DateTime<Utc>>,
+    pub last_charge_status: Option<ChargeStatus>,
     pub next_charge_date: Option<DateTime<Utc>>,
     pub pledge_cadence: Option<u16>,
     pub patron_status: Option<PatronStatus>, // null = never pledged
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum ChargeStatus {
+    Paid,
+    Declined,
+    Deleted,
+    Pending,
+    Refunded,
+    Fraud,
+    Other,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -93,6 +106,8 @@ impl PledgeResponse {
             .iter()
             .filter(|member| {
                 member.attributes.patron_status == Some(PatronStatus::ActivePatron)
+                    && (member.attributes.last_charge_status == Some(ChargeStatus::Paid)
+                        || member.attributes.last_charge_status == Some(ChargeStatus::Pending))
                     && !member
                         .relationships
                         .currently_entitled_tiers
@@ -119,7 +134,7 @@ impl PledgeResponse {
                     .and_then(|sc| sc.discord.as_ref())
                     .map(|d| d.user_id.clone())
                     .flatten()?;
-
+                
                 Some((discord_id, entitlements))
             })
             .filter(|(_, skus)| !skus.is_empty())
