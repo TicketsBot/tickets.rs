@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use serde_enum_str::Deserialize_enum_str;
 
 use std::collections::HashMap;
 
@@ -27,7 +28,7 @@ pub struct MemberAttributes {
     pub patron_status: Option<PatronStatus>, // null = never pledged
 }
 
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize_enum_str, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub enum ChargeStatus {
     Paid,
@@ -37,6 +38,8 @@ pub enum ChargeStatus {
     Refunded,
     Fraud,
     Other,
+    #[serde(other)]
+    Unknown(String),
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -134,7 +137,7 @@ impl PledgeResponse {
                     .and_then(|sc| sc.discord.as_ref())
                     .map(|d| d.user_id.clone())
                     .flatten()?;
-                
+
                 Some((discord_id, entitlements))
             })
             .filter(|(_, skus)| !skus.is_empty())
@@ -143,5 +146,34 @@ impl PledgeResponse {
 
     fn get_meta_by_id(&self, id: &str) -> Option<&PatronMetadata> {
         self.included.iter().find(|metadata| metadata.id == id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deserialize_charge_status_known() {
+        let cases = vec![
+            ("Paid", ChargeStatus::Paid),
+            ("Declined", ChargeStatus::Declined),
+            ("Deleted", ChargeStatus::Deleted),
+            ("Pending", ChargeStatus::Pending),
+            ("Refunded", ChargeStatus::Refunded),
+            ("Fraud", ChargeStatus::Fraud),
+            ("Other", ChargeStatus::Other),
+        ];
+        
+        for (input, expected) in cases {
+            let actual = serde_json::from_str::<ChargeStatus>(&format!("\"{}\"", input)).unwrap();
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn test_deserialize_charge_status_unknown() {
+        let actual = serde_json::from_str::<ChargeStatus>("\"Blah Blah\"").unwrap();
+        assert_eq!(actual, ChargeStatus::Unknown("Blah Blah".to_string()));
     }
 }
