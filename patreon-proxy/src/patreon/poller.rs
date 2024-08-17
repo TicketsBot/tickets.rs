@@ -1,5 +1,5 @@
+use super::Entitlement;
 use super::PledgeResponse;
-use super::Tier;
 use crate::database::Tokens;
 use std::collections::HashMap;
 
@@ -31,11 +31,11 @@ impl Poller {
         }
     }
 
-    pub async fn poll(&self) -> Result<HashMap<String, Tier>, Error> {
-        let mut patrons: HashMap<String, Tier> = HashMap::new();
+    pub async fn poll(&self) -> Result<HashMap<String, Vec<Entitlement>>, Error> {
+        let mut patrons: HashMap<String, Vec<Entitlement>> = HashMap::new();
 
         let campaign_id = self.campaign_id.as_str();
-        let first = format!("https://www.patreon.com/api/oauth2/v2/campaigns/{campaign_id}/members?include=currently_entitled_tiers,user&fields%5Bmember%5D=last_charge_date,last_charge_status,patron_status&fields%5Buser%5D=social_connections");
+        let first = format!("https://www.patreon.com/api/oauth2/v2/campaigns/{campaign_id}/members?include=currently_entitled_tiers,user&fields%5Bmember%5D=last_charge_date,last_charge_status,patron_status,pledge_cadence,next_charge_date&fields%5Buser%5D=social_connections");
 
         let mut res = self.poll_page(first.as_str()).await?;
         while let Some(next) = res.links.as_ref().and_then(|l| l.next.as_ref()) {

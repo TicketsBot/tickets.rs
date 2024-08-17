@@ -1,21 +1,24 @@
 use crate::patreon::tier::Tier::{Premium, Whitelabel};
 use serde::{Serialize, Serializer};
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Tier {
     Premium,
     Whitelabel,
 }
 
 // TODO: Don't store these as constants
-const TIERS_PREMIUM: &[&str] = &["4071609"];
-const TIERS_WHITELABEL: &[&str] = &["5259899", "7502618"];
+pub const TIERS_PREMIUM_LEGACY: &[&str] = &["4071609"];
+pub const TIERS_WHITELABEL_LEGACY: &[&str] = &["5259899", "7502618"];
+pub const TIERS_PREMIUM: &[&str] = &[];
+pub const TIERS_WHITELABEL: &[&str] = &[];
 
 impl Tier {
     pub fn get_by_patreon_id(patreon_id: &str) -> Option<Tier> {
-        if TIERS_WHITELABEL.contains(&patreon_id) {
+        if TIERS_WHITELABEL_LEGACY.contains(&patreon_id) || TIERS_WHITELABEL.contains(&patreon_id) {
             Some(Tier::Whitelabel)
-        } else if TIERS_PREMIUM.contains(&patreon_id) {
+        } else if TIERS_PREMIUM_LEGACY.contains(&patreon_id) || TIERS_PREMIUM.contains(&patreon_id)
+        {
             Some(Tier::Premium)
         } else {
             None
@@ -31,6 +34,20 @@ impl Tier {
 
     pub fn values<'a>() -> &'a [Tier] {
         &[Premium, Whitelabel]
+    }
+
+    pub fn sku_label(&self) -> &'static str {
+        match self {
+            Tier::Premium => "premium",
+            Tier::Whitelabel => "whitelabel",
+        }
+    }
+
+    pub fn inherited_tiers(&self) -> Vec<Tier> {
+        match self {
+            Tier::Premium => vec![],
+            Tier::Whitelabel => vec![Tier::Premium],
+        }
     }
 }
 

@@ -7,6 +7,7 @@ mod patreon;
 use config::Config;
 use database::Database;
 use patreon::oauth;
+use patreon::Entitlement;
 use patreon::Poller;
 
 use std::collections::HashMap;
@@ -48,7 +49,12 @@ pub async fn main() -> Result<(), Error> {
 
     let mut server_started = false;
 
-    let data: Arc<RwLock<HashMap<String, patreon::Tier>>> = Arc::new(RwLock::new(HashMap::new()));
+    let data: Arc<RwLock<HashMap<String, Vec<Entitlement>>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+
+    let last_poll_time = Arc::new(RwLock::new(
+        DateTime::from_timestamp_millis(0).expect("Failed to create DateTime from timestamp"),
+    ));
 
     loop {
         info!("Starting loop");
@@ -74,10 +80,15 @@ pub async fn main() -> Result<(), Error> {
                     debug!("Overwritten data");
                 }
 
+                {
+                    let mut last_poll_time = last_poll_time.write().unwrap();
+                    *last_poll_time = Utc::now();
+                }
+
                 debug!("Data updated");
 
                 if !server_started {
-                    start_server(&config, Arc::clone(&data));
+                    start_server(&config, Arc::clone(&data), Arc::clone(&last_poll_time));
                     server_started = true;
                 }
             }
@@ -148,11 +159,15 @@ fn configure_observability(config: &Config) -> sentry::ClientInitGuard {
     _guard
 }
 
-fn start_server(config: &Config, patrons: Arc<RwLock<HashMap<String, patreon::Tier>>>) {
+fn start_server(
+    config: &Config,
+    patrons: Arc<RwLock<HashMap<String, Vec<Entitlement>>>>,
+    last_poll_time: Arc<RwLock<DateTime<Utc>>>,
+) {
     let server_addr = config.server_addr.clone();
 
     tokio::spawn(async move {
         info!("Starting server...");
-        http::listen(server_addr.as_str(), patrons).await;
+        http::listen(server_addr.as_str(), patrons, last_poll_time).await;
     });
 }

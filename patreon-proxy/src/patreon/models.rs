@@ -1,7 +1,9 @@
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use crate::patreon::Tier;
 use std::collections::HashMap;
+
+use super::Entitlement;
 
 #[derive(Debug, Deserialize)]
 pub struct PledgeResponse {
@@ -12,13 +14,16 @@ pub struct PledgeResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct Member {
-    attributes: MemberAttributes,
-    relationships: Relationships,
+    pub attributes: MemberAttributes,
+    pub relationships: Relationships,
 }
 
 #[derive(Debug, Deserialize)]
-struct MemberAttributes {
-    patron_status: Option<PatronStatus>, // null = never pledged
+pub struct MemberAttributes {
+    pub last_charge_date: Option<DateTime<Utc>>,
+    pub next_charge_date: Option<DateTime<Utc>>,
+    pub pledge_cadence: Option<u16>,
+    pub patron_status: Option<PatronStatus>, // null = never pledged
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -30,50 +35,50 @@ pub enum PatronStatus {
 }
 
 #[derive(Debug, Deserialize)]
-struct Relationships {
-    user: User,
-    currently_entitled_tiers: EntitledTiers,
+pub struct Relationships {
+    pub user: User,
+    pub currently_entitled_tiers: EntitledTiers,
 }
 
 #[derive(Debug, Deserialize)]
-struct User {
-    data: UserData,
+pub struct User {
+    pub data: UserData,
 }
 
 #[derive(Debug, Deserialize)]
-struct UserData {
-    id: String,
+pub struct UserData {
+    pub id: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct EntitledTiers {
-    data: Vec<EntitledTier>,
+pub struct EntitledTiers {
+    pub data: Vec<EntitledTier>,
 }
 
 #[derive(Debug, Deserialize)]
-struct EntitledTier {
-    id: String,
+pub struct EntitledTier {
+    pub id: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PatronMetadata {
-    id: String,
-    attributes: PatronAttributes,
+    pub id: String,
+    pub attributes: PatronAttributes,
 }
 
 #[derive(Debug, Deserialize)]
-struct PatronAttributes {
-    social_connections: Option<SocialConnections>,
+pub struct PatronAttributes {
+    pub social_connections: Option<SocialConnections>,
 }
 
 #[derive(Debug, Deserialize)]
-struct SocialConnections {
-    discord: Option<DiscordConnection>,
+pub struct SocialConnections {
+    pub discord: Option<DiscordConnection>,
 }
 
 #[derive(Debug, Deserialize)]
-struct DiscordConnection {
-    user_id: Option<String>,
+pub struct DiscordConnection {
+    pub user_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,7 +88,7 @@ pub struct Links {
 
 impl PledgeResponse {
     // returns user ID -> tier
-    pub fn convert(&self) -> HashMap<String, Tier> {
+    pub fn convert(&self) -> HashMap<String, Vec<Entitlement>> {
         self.data
             .iter()
             .filter(|member| {
@@ -94,17 +99,18 @@ impl PledgeResponse {
                         .data
                         .is_empty() // Make sure the user is subscribed to a tier
             })
-            .filter_map(|member| -> Option<(String, super::Tier)> {
+            .filter_map(|member| -> Option<(String, Vec<super::Entitlement>)> {
                 let meta = self.get_meta_by_id(member.relationships.user.data.id.as_str())?;
 
                 // Find all subscribed tiers (is this possible?)
-                let tier = member
+                let entitlements = member
                     .relationships
                     .currently_entitled_tiers
                     .data
                     .iter()
-                    .filter_map(|tier| Tier::get_by_patreon_id(tier.id.as_str()))
-                    .max_by_key(|tier| tier.tier_id())?;
+                    .map(|tier| Entitlement::entitled_skus(tier.id.as_str(), &member.attributes))
+                    .flatten()
+                    .collect();
 
                 let discord_id = meta
                     .attributes
@@ -114,8 +120,9 @@ impl PledgeResponse {
                     .map(|d| d.user_id.clone())
                     .flatten()?;
 
-                Some((discord_id, tier))
+                Some((discord_id, entitlements))
             })
+            .filter(|(_, skus)| !skus.is_empty())
             .collect()
     }
 
