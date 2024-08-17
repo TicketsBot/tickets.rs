@@ -42,12 +42,14 @@ pub enum ChargeStatus {
     Unknown(String),
 }
 
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize_enum_str, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PatronStatus {
     ActivePatron,
     FormerPatron,
     DeclinedPatron,
+    #[serde(other)]
+    Unknown(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -175,5 +177,25 @@ mod tests {
     fn test_deserialize_charge_status_unknown() {
         let actual = serde_json::from_str::<ChargeStatus>("\"Blah Blah\"").unwrap();
         assert_eq!(actual, ChargeStatus::Unknown("Blah Blah".to_string()));
+    }
+
+    #[test]
+    fn test_deserialize_patron_status_known() {
+        let cases = vec![
+            ("active_patron", PatronStatus::ActivePatron),
+            ("former_patron", PatronStatus::FormerPatron),
+            ("declined_patron", PatronStatus::DeclinedPatron),
+        ];
+        
+        for (input, expected) in cases {
+            let actual = serde_json::from_str::<PatronStatus>(&format!("\"{}\"", input)).unwrap();
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn test_deserialize_patron_status_unknown() {
+        let actual = serde_json::from_str::<PatronStatus>("\"Blah Blah\"").unwrap();
+        assert_eq!(actual, PatronStatus::Unknown("Blah Blah".to_string()));
     }
 }
