@@ -75,8 +75,11 @@ pub struct EntitledTiers {
 
 #[derive(Debug, Deserialize)]
 pub struct EntitledTier {
-    pub id: String,
+    pub id: TierId,
 }
+
+#[derive(Copy, Clone, Debug)]
+pub struct TierId(pub usize);
 
 #[derive(Debug, Deserialize)]
 pub struct PatronMetadata {
@@ -128,7 +131,7 @@ impl PledgeResponse {
                     .currently_entitled_tiers
                     .data
                     .iter()
-                    .map(|tier| Entitlement::entitled_skus(tier.id.as_str(), &member.attributes))
+                    .map(|tier| Entitlement::entitled_skus(tier.id.into(), &member.attributes))
                     .flatten()
                     .collect();
 
@@ -151,6 +154,23 @@ impl PledgeResponse {
     }
 }
 
+impl<'de> Deserialize<'de> for TierId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let id = String::deserialize(deserializer)?;
+        let id = id.parse().map_err(serde::de::Error::custom)?;
+        Ok(TierId(id))
+    }
+}
+
+impl Into<usize> for TierId {
+    fn into(self) -> usize {
+        self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,7 +186,7 @@ mod tests {
             ("Fraud", ChargeStatus::Fraud),
             ("Other", ChargeStatus::Other),
         ];
-        
+
         for (input, expected) in cases {
             let actual = serde_json::from_str::<ChargeStatus>(&format!("\"{}\"", input)).unwrap();
             assert_eq!(actual, expected);
@@ -186,7 +206,7 @@ mod tests {
             ("former_patron", PatronStatus::FormerPatron),
             ("declined_patron", PatronStatus::DeclinedPatron),
         ];
-        
+
         for (input, expected) in cases {
             let actual = serde_json::from_str::<PatronStatus>(&format!("\"{}\"", input)).unwrap();
             assert_eq!(actual, expected);
@@ -197,5 +217,12 @@ mod tests {
     fn test_deserialize_patron_status_unknown() {
         let actual = serde_json::from_str::<PatronStatus>("\"Blah Blah\"").unwrap();
         assert_eq!(actual, PatronStatus::Unknown("Blah Blah".to_string()));
+    }
+
+    #[test]
+    fn test_deserialize_tier_id() {
+        let json = r#"{"id": "123456"}"#;
+        let unmarshalled = serde_json::from_str::<EntitledTier>(json).unwrap();
+        assert_eq!(unmarshalled.id.0, 123456);
     }
 }

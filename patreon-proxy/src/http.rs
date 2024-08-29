@@ -26,6 +26,7 @@ struct PremiumResponse {
     premium: bool,
     tier: i32,
     user_id: String,
+    patreon_tier_id: usize,
     expires_at: DateTime<Utc>,
 }
 
@@ -124,6 +125,7 @@ async fn is_premium(
             premium: true,
             tier: entitlement.tier.tier_id(),
             user_id: user_id.unwrap().to_owned(),
+            patreon_tier_id: entitlement.patreon_tier_id,
             expires_at: entitlement.expires_at,
         })
     } else {

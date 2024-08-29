@@ -7,22 +7,29 @@ use super::{models::MemberAttributes, tier::TIERS_PREMIUM_LEGACY, Tier};
 pub struct Entitlement {
     pub tier: Tier,
     pub label: String,
+    pub patreon_tier_id: usize,
     pub is_legacy: bool,
     pub expires_at: DateTime<Utc>,
 }
 
 impl Entitlement {
-    pub fn new(tier: Tier, is_legacy: bool, expires_at: DateTime<Utc>) -> Entitlement {
+    pub fn new(
+        tier: Tier,
+        patreon_tier_id: usize,
+        is_legacy: bool,
+        expires_at: DateTime<Utc>,
+    ) -> Entitlement {
         Entitlement {
             label: tier.sku_label().to_string(),
             tier,
+            patreon_tier_id,
             is_legacy,
             expires_at,
         }
     }
 
     pub fn from_patreon_tier_id(
-        patreon_id: &str,
+        patreon_id: usize,
         member_attributes: &MemberAttributes,
     ) -> Option<Entitlement> {
         let tier = Tier::get_by_patreon_id(patreon_id)?;
@@ -34,11 +41,11 @@ impl Entitlement {
 
         let expires_at = calculate_expiry(member_attributes);
 
-        Some(Entitlement::new(tier, is_legacy, expires_at))
+        Some(Entitlement::new(tier, patreon_id, is_legacy, expires_at))
     }
 
     pub fn entitled_skus(
-        patreon_id: &str,
+        patreon_id: usize,
         member_attributes: &MemberAttributes,
     ) -> Vec<Entitlement> {
         let mut entitlements = vec![];
@@ -47,7 +54,12 @@ impl Entitlement {
             for inherited in root.tier.inherited_tiers() {
                 let expires_at = calculate_expiry(&member_attributes);
 
-                entitlements.push(Entitlement::new(inherited, root.is_legacy, expires_at));
+                entitlements.push(Entitlement::new(
+                    inherited,
+                    patreon_id,
+                    root.is_legacy,
+                    expires_at,
+                ));
             }
 
             entitlements.push(root);
