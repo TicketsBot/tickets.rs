@@ -36,7 +36,7 @@ impl Entitlement {
 
         let is_legacy = match tier {
             Tier::Premium => TIERS_PREMIUM_LEGACY.contains(&patreon_id),
-            Tier::Whitelabel => !TIERS_PREMIUM_LEGACY.contains(&patreon_id),
+            Tier::Whitelabel => TIERS_WHITELABEL_LEGACY.contains(&patreon_id),
         };
 
         let expires_at = calculate_expiry(member_attributes);
