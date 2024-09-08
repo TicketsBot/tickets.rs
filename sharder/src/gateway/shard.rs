@@ -626,7 +626,6 @@ impl<T: EventForwarder> Shard<T> {
                 info!(
                     guild_count = ready.guilds.len(),
                     username = ready.user.username,
-                    discriminator = %ready.user.discriminator,
                     "Got READY event"
                 );
 

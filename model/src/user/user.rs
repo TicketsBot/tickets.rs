@@ -8,8 +8,7 @@ pub struct User {
     #[serde(skip_serializing)]
     pub id: Snowflake,
     pub username: String,
-    #[serde(serialize_with = "Discriminator::serialize_to_int")]
-    pub discriminator: Discriminator,
+    pub global_name: Option<String>,
     pub avatar: Option<ImageHash>,
     #[serde(default)]
     pub bot: bool,
@@ -42,7 +41,7 @@ impl User {
         User {
             id: user_id,
             username: "".to_string(),
-            discriminator: Discriminator(0),
+            global_name: None,
             avatar: None,
             bot: false,
             system: false,
