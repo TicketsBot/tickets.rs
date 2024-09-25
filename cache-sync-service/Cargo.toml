@@ -1,0 +1,18 @@
+[package]
+name = "cache-sync-service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+event-stream = { path = "../event-stream" }
+common = { path = "../common" }
+cache = { path = "../cache" }
+sharder = { path = "../sharder" }
+model = { path = "../model" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+envy = "0.4"
+thiserror = "1.0"
+tracing = { version = "0.1" }
+tracing-subscriber = { version = "0.2" }

@@ -14,5 +14,7 @@ members = [
     "stats-channel-updater",
     "global-resolver",
     "image-proxy",
-    "secure-proxy"
+    "secure-proxy",
+    "event-stream",
+    "cache-sync-service"
 ]

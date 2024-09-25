@@ -1,8 +1,5 @@
 #[cfg(feature = "use-sentry")]
-use std::collections::BTreeMap;
-#[cfg(feature = "use-sentry")]
 use std::default::Default;
-use std::fmt::Display;
 use std::str;
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,18 +20,12 @@ use tokio::time::sleep;
 use tracing::trace;
 use url::Url;
 
-use cache::{Cache, PostgresCache};
 use common::event_forwarding;
-use database::Database;
-use model::guild::{Guild, Member};
-use model::user::StatusUpdate;
 use model::Snowflake;
 
 use crate::config::Config;
-use crate::gateway::payloads::PresenceUpdate;
 use crate::gateway::whitelabel_utils::is_whitelabel;
 use crate::gateway::{GatewayError, Result};
-use crate::util;
 use crate::InternalCommand;
 use crate::ShardIdentifier;
 
@@ -48,9 +39,6 @@ use crate::gateway::event_forwarding::{is_whitelisted, EventForwarder};
 use crate::CloseEvent;
 use futures_util::stream::{SplitSink, SplitStream};
 use redis::AsyncCommands;
-use serde_json::error::Category;
-use serde_json::Value;
-use std::error::Error;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
     connect_async,
@@ -81,7 +69,6 @@ pub struct Shard<T: EventForwarder> {
     pub(crate) config: Arc<Config>,
     pub(crate) identify: payloads::Identify,
     large_sharding_buckets: u16,
-    cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
     pub(crate) user_id: Snowflake,
     pub(crate) session_data: Option<SessionData>,
@@ -105,7 +92,6 @@ pub struct Shard<T: EventForwarder> {
     #[cfg(feature = "whitelabel")]
     command_rx: Arc<TokioMutex<mpsc::Receiver<InternalCommand>>>,
     pub(crate) event_forwarder: Arc<T>,
-    pub(crate) database: Arc<Database>,
 }
 
 #[cfg(feature = "compression")]
@@ -118,14 +104,12 @@ impl<T: EventForwarder> Shard<T> {
         config: Arc<Config>,
         identify: payloads::Identify,
         large_sharding_buckets: u16,
-        cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
         user_id: Snowflake,
         event_forwarder: Arc<T>,
         ready_tx: Option<oneshot::Sender<()>>,
         shutdown_rx: broadcast::Receiver<mpsc::Sender<(ShardIdentifier, Option<SessionData>)>>,
         #[cfg(feature = "whitelabel")] command_rx: mpsc::Receiver<InternalCommand>,
-        database: Arc<Database>,
     ) -> Shard<T> {
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
         let (writer_tx, writer_rx) = mpsc::channel(4);
@@ -135,7 +119,6 @@ impl<T: EventForwarder> Shard<T> {
             config,
             identify,
             large_sharding_buckets,
-            cache,
             redis,
             user_id,
             session_data: None,
@@ -159,7 +142,6 @@ impl<T: EventForwarder> Shard<T> {
             #[cfg(feature = "whitelabel")]
             command_rx: Arc::new(TokioMutex::new(command_rx)),
             event_forwarder,
-            database,
         }
     }
 
@@ -648,8 +630,10 @@ impl<T: EventForwarder> Shard<T> {
                 return Ok(());
             }
 
-            #[cfg(feature = "whitelabel")]
             Event::GuildCreate(g) => {
+                self.increment_received_count().await;
+
+                #[cfg(feature = "whitelabel")]
                 if let Err(e) = self.store_whitelabel_guild(g.id).await {
                     error!(error = %e, "Error storing whitelabel guild data");
                 }
@@ -658,181 +642,32 @@ impl<T: EventForwarder> Shard<T> {
             _ => {}
         }
 
-        // cache
-        let guild_id = super::event_forwarding::get_guild_id(&payload.data);
-        let should_forward =
-            is_whitelisted(&payload.data) && self.meets_forward_threshold(&payload.data);
+        if is_whitelisted(&payload.data) {        
+            let guild_id: Option<Snowflake> = super::event_forwarding::get_guild_id(&payload.data);
 
-        // cache
-        if let Err(e) = match payload.data {
-            Event::ChannelCreate(channel) => {
-                self.cache.store_channel(channel).await.map_err(Into::into)
-            }
-            Event::ChannelUpdate(channel) => {
-                self.cache.store_channel(channel).await.map_err(Into::into)
-            }
-            Event::ChannelDelete(channel) => self
-                .cache
-                .delete_channel(channel.id)
+            let raw_payload = match RawValue::from_string(data) {
+                Ok(v) => v,
+                Err(e) => {
+                    error!(error = %e, "Error convering JSON string to RawValue");
+                    return Err(e.into());
+                },
+            };
+            
+            // prepare payload
+            let wrapped = event_forwarding::Event {
+                bot_token: self.identify.data.token.clone(),
+                bot_id: self.user_id.0,
+                is_whitelabel: is_whitelabel(),
+                shard_id: self.get_shard_id(),
+                event: raw_payload,
+            };
+
+            if let Err(e) = self.event_forwarder
+                .forward_event(&self.config, wrapped, guild_id)
                 .await
-                .map_err(Into::into),
-            Event::ThreadCreate(thread) => {
-                self.cache.store_channel(thread).await.map_err(Into::into)
+            {
+                error!(error = %e, "Error while executing worker HTTP request");
             }
-            Event::ThreadUpdate(thread) => {
-                let mut delete = false;
-
-                // TODO: Use if-let chain (if let Some(...) = ... && ...) once stabilised
-                if let Some(metadata) = thread.thread_metadata.as_ref() {
-                    if metadata.archived {
-                        delete = true;
-                    }
-                }
-
-
-                if delete {
-                    self.cache.delete_channel(thread.id).await.map_err(Into::into)
-                } else {
-                    self.cache.store_channel(thread).await.map_err(Into::into)
-                }
-            }
-            Event::ThreadDelete(thread) => self
-                .cache
-                .delete_channel(thread.id)
-                .await
-                .map_err(Into::into),
-            Event::GuildCreate(mut guild) => {
-                apply_guild_id_to_channels(&mut guild);
-                let res = self.cache.store_guild(guild).await.map_err(Into::into);
-
-                self.increment_received_count().await;
-
-                res
-            }
-            Event::GuildUpdate(mut guild) => {
-                apply_guild_id_to_channels(&mut guild);
-                self.cache.store_guild(guild).await.map_err(Into::into)
-            }
-            Event::GuildDelete(guild) => {
-                if guild.unavailable.is_none() {
-                    // we were kicked
-                    if is_whitelabel() {
-                        self.cache.delete_guild(guild.id).await.map_err(Into::into)
-                    } else {
-                        // If this is the public bot, and there is a whitelabel bot in the server, then do
-                        // not delete the guild from the cache.
-                        match self
-                            .database
-                            .whitelabel_guilds
-                            .is_whitelabel_guild(guild.id)
-                            .await
-                        {
-                            Ok(true) => Ok(()),
-                            Ok(false) => {
-                                self.cache.delete_guild(guild.id).await.map_err(Into::into)
-                            }
-                            Err(e) => Err(GatewayError::from(e)),
-                        }
-                    }
-                } else {
-                    Ok(())
-                }
-            }
-            Event::GuildBanAdd(ev) => self
-                .cache
-                .delete_member(ev.user.id, ev.guild_id)
-                .await
-                .map_err(Into::into),
-            Event::GuildEmojisUpdate(ev) => self
-                .cache
-                .store_emojis(ev.emojis, ev.guild_id)
-                .await
-                .map_err(Into::into),
-            Event::GuildMemberAdd(ev) => self
-                .cache
-                .store_member(ev.member, ev.guild_id)
-                .await
-                .map_err(Into::into),
-            Event::GuildMemberRemove(ev) => self
-                .cache
-                .delete_member(ev.user.id, ev.guild_id)
-                .await
-                .map_err(Into::into),
-            Event::GuildMemberUpdate(ev) => {
-                self.cache
-                    .store_member(
-                        Member {
-                            user: Some(ev.user),
-                            nick: ev.nick,
-                            roles: ev.roles,
-                            joined_at: ev.joined_at,
-                            premium_since: ev.premium_since,
-                            deaf: false, // TODO: Don't update these fields somehow?
-                            mute: false, // TODO: Don't update these fields somehow?
-                        },
-                        ev.guild_id,
-                    )
-                    .await
-                    .map_err(Into::into)
-            }
-            Event::GuildMembersChunk(ev) => self
-                .cache
-                .store_members(ev.members, ev.guild_id)
-                .await
-                .map_err(Into::into),
-            Event::GuildRoleCreate(ev) => self
-                .cache
-                .store_role(ev.role, ev.guild_id)
-                .await
-                .map_err(Into::into),
-            Event::GuildRoleUpdate(ev) => self
-                .cache
-                .store_role(ev.role, ev.guild_id)
-                .await
-                .map_err(Into::into),
-            Event::GuildRoleDelete(ev) => {
-                self.cache.delete_role(ev.role_id).await.map_err(Into::into)
-            }
-            Event::UserUpdate(user) => self.cache.store_user(user).await.map_err(Into::into),
-            _ => Ok(()),
-        } {
-            error!(error = %e, "Error updating cache");
-        }
-
-        // push to workers, even if error occurred
-        if should_forward {
-            let shard_id = self.get_shard_id();
-            let self_id = self.user_id.0;
-            let token = self.identify.data.token.clone();
-
-            let config = Arc::clone(&self.config);
-            let event_forwarder = Arc::clone(&self.event_forwarder);
-
-            tokio::spawn(async move {
-                let raw_payload = match RawValue::from_string(data) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        error!(error = %e, "Error convering JSON string to RawValue");
-                        return;
-                    }
-                };
-
-                // prepare payload
-                let wrapped = event_forwarding::Event {
-                    bot_token: token.as_str(),
-                    bot_id: self_id,
-                    is_whitelabel: is_whitelabel(),
-                    shard_id,
-                    event: raw_payload,
-                };
-
-                if let Err(e) = event_forwarder
-                    .forward_event(&config, wrapped, guild_id)
-                    .await
-                {
-                    error!(error = %e, "Error while executing worker HTTP request");
-                }
-            });
         }
 
         Ok(())
@@ -858,7 +693,6 @@ impl<T: EventForwarder> Shard<T> {
                 #[cfg(feature = "resume-after-identify")]
                 if !self.used_resume {
                     let kill_shard_tx = self.kill_shard_tx.lock().take();
-                    let shard_id = self.get_shard_id();
 
                     info!(
                         received_count = self.received_count,
@@ -1013,20 +847,6 @@ async fn handle_writes(
 
         if let Err(e) = msg.tx.send(res.map_err(|e| e.into())) {
             error!(error = ?e, "Error while sending write result back to caller");
-        }
-    }
-}
-
-fn apply_guild_id_to_channels(guild: &mut Guild) {
-    if let Some(channels) = &mut guild.channels {
-        for channel in channels {
-            channel.guild_id = Some(guild.id)
-        }
-    }
-
-    if let Some(threads) = &mut guild.threads {
-        for thread in threads {
-            thread.guild_id = Some(guild.id)
         }
     }
 }

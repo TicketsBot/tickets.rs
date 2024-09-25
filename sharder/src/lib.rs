@@ -11,7 +11,7 @@ pub use manager::PublicShardManager;
 pub use manager::WhitelabelShardManager;
 
 mod builders;
-pub use builders::{build_cache, build_redis, setup_sentry};
+pub use builders::{build_redis, setup_sentry};
 
 mod config;
 pub use config::Config;

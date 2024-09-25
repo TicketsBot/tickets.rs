@@ -1,18 +1,16 @@
 use std::sync::Arc;
 
-use database::sqlx::postgres::PgPoolOptions;
-use database::Database;
 use model::user::{ActivityType, StatusType, StatusUpdate};
 use sharder::{
     await_shutdown, setup_sentry, Config, PublicShardManager, RedisSessionStore, ShardCount,
     ShardManager,
 };
 
-use sharder::{build_cache, build_redis, metrics_server, Result};
+use sharder::{build_redis, metrics_server, Result};
 
 use deadpool_redis::redis::cmd;
 use jemallocator::Jemalloc;
-use sharder::event_forwarding::HttpEventForwarder;
+use sharder::event_forwarding::KafkaEventForwarder;
 use tracing::info;
 
 #[global_allocator]
@@ -62,23 +60,6 @@ async fn run(config: Config) -> Result<()> {
         user_id: config.bot_id,
     };
 
-    // init db
-    info!(service="database", connections = %config.database_threads, "Connecting to database");
-    let db_opts = PgPoolOptions::new()
-        .min_connections(1)
-        .max_connections(config.database_threads);
-    let database = Arc::new(Database::connect(&config.database_uri[..], db_opts).await?);
-    info!(service = "database", "Database connected");
-
-    // init cache
-    info!(
-        service = "cache",
-        threads = config.cache_threads,
-        "Connecting to cache"
-    );
-    let cache = Arc::new(build_cache(&config).await);
-    info!(service = "cache", "Cache connected");
-
     // init redis
     info!(
         service = "redis",
@@ -103,14 +84,13 @@ async fn run(config: Config) -> Result<()> {
     let session_store =
         RedisSessionStore::new(Arc::clone(&redis), "tickets:resume:public".to_string(), 300);
 
-    let event_forwarder = Arc::new(HttpEventForwarder::default());
+    info!(service = "kafka", "Connecting to Kafka");
+    let event_forwarder = Arc::new(KafkaEventForwarder::new(&config).expect("Failed to connect to Kafka"));
 
     let sm = PublicShardManager::new(
         config,
         options,
         session_store,
-        database,
-        cache,
         redis,
         event_forwarder,
     )

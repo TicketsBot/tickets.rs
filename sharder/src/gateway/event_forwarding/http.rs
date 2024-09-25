@@ -35,10 +35,10 @@ impl EventForwarder for HttpEventForwarder {
     async fn forward_event(
         &self,
         config: &Config,
-        event: event_forwarding::Event<'_>,
+        event: event_forwarding::Event,
         _guild_id: Option<Snowflake>,
     ) -> Result<()> {
-        let uri = config.get_worker_svc_uri();
+        let uri = config.get_worker_svc_uri().expect("worker_svc_uri not set");
 
         // reqwest::Client uses Arcs internally, meaning this method clones the same client but
         // allows us to make use of connection pooling
@@ -62,6 +62,10 @@ impl EventForwarder for HttpEventForwarder {
             ));
         }
 
+        Ok(())
+    }
+
+    async fn flush(&self) -> Result<()> {
         Ok(())
     }
 }

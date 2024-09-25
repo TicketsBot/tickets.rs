@@ -103,6 +103,9 @@ pub enum GatewayError {
     #[cfg(feature = "metrics")]
     #[error("error occurred while running hyper server: {0}")]
     HyperError(#[from] hyper::Error),
+
+    #[error("error occurred while streaming events: {0}")]
+    StreamError(#[from] event_stream::StreamError),
 }
 
 impl GatewayError {

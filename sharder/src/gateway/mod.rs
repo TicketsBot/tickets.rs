@@ -1,8 +1,7 @@
 mod shard;
 pub use shard::Shard;
 
-mod payloads;
-pub use payloads::Identify;
+pub mod payloads;
 
 mod session_store;
 pub use session_store::{RedisSessionStore, SessionData, SessionStore};

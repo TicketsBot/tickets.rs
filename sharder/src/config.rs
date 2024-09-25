@@ -8,13 +8,13 @@ pub struct Config {
     // Required
     pub sharder_id: u16,
     pub sharder_total: u16,
-    pub cache_uri: String,
-    pub cache_threads: usize,
     pub redis_addr: String,
     pub redis_password: Option<String>,
     pub redis_threads: usize,
-    pub worker_svc_uri: String,
     pub sentry_dsn: String,
+    pub worker_svc_uri: Option<String>,
+    pub kafka_brokers: Vec<String>,
+    pub kafka_topic: String,
 
     #[cfg(feature = "metrics")]
     pub metrics_addr: String,
@@ -30,7 +30,9 @@ pub struct Config {
     pub bot_id: Snowflake,
 
     // Whitelabel Sharder
+    #[cfg(feature = "whitelabel")]
     pub database_uri: String,
+    #[cfg(feature = "whitelabel")]
     #[serde(default = "one")]
     pub database_threads: u32,
 }
@@ -40,17 +42,14 @@ impl Config {
         envy::from_env::<Config>().expect("Parsing config failed")
     }
 
-    pub fn get_worker_svc_uri(&self) -> String {
-        format!("http://{}/event", self.worker_svc_uri)
+    pub fn get_worker_svc_uri(&self) -> Option<String> {
+        self.worker_svc_uri.clone().map(|s| format!("http://{}/event", s))
     }
+
     pub fn get_redis_uri(&self) -> String {
         match &self.redis_password {
             Some(pwd) => format!("redis://:{}@{}/", pwd, self.redis_addr),
             None => format!("redis://{}/", self.redis_addr),
         }
     }
-}
-
-fn one() -> u32 {
-    return 1;
 }

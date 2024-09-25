@@ -1,19 +1,15 @@
 use async_trait::async_trait;
-use database::Database;
-use serde_json::error;
 use tracing::debug;
 use tracing::{error, info, warn};
 
 use super::Options;
 use super::ShardManager;
 
-use crate::gateway::{Identify, Shard, ShardInfo};
-use crate::{RedisSessionStore, Result, SessionData, SessionStore, ShardIdentifier};
+use crate::gateway::{payloads::Identify, Shard, ShardInfo};
+use crate::{RedisSessionStore, SessionData, SessionStore, ShardIdentifier};
 
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use cache::PostgresCache;
 
 use crate::config::Config;
 use crate::gateway::event_forwarding::EventForwarder;
@@ -28,8 +24,6 @@ pub struct PublicShardManager<T: EventForwarder> {
     config: Arc<Config>,
     options: Options,
     session_store: RedisSessionStore,
-    database: Arc<Database>,
-    cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
     event_forwarder: Arc<T>,
     shutdown_tx: broadcast::Sender<mpsc::Sender<(ShardIdentifier, Option<SessionData>)>>,
@@ -40,8 +34,6 @@ impl<T: EventForwarder> PublicShardManager<T> {
         config: Config,
         options: Options,
         session_store: RedisSessionStore,
-        database: Arc<Database>,
-        cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
         event_forwarder: Arc<T>,
     ) -> Self {
@@ -51,8 +43,6 @@ impl<T: EventForwarder> PublicShardManager<T> {
             config: Arc::new(config),
             options,
             session_store,
-            database,
-            cache,
             redis,
             event_forwarder,
             shutdown_tx,
@@ -74,7 +64,6 @@ impl<T: EventForwarder> PublicShardManager<T> {
             Arc::clone(&self.config),
             identify,
             self.options.large_sharding_buckets,
-            Arc::clone(&self.cache),
             Arc::clone(&self.redis),
             self.options.user_id,
             Arc::clone(&self.event_forwarder),
@@ -82,7 +71,6 @@ impl<T: EventForwarder> PublicShardManager<T> {
             self.shutdown_tx.subscribe(),
             #[cfg(feature = "whitelabel")]
             command_rx,
-            Arc::clone(&self.database),
         )
     }
 
@@ -201,6 +189,10 @@ impl<T: EventForwarder> ShardManager for PublicShardManager<T> {
 
         if let Err(e) = self.session_store.set_bulk(sessions).await {
             error!(error = %e, "Failed to save session data");
+        }
+
+        if let Err(e) = self.event_forwarder.flush().await {
+            error!(error = %e, "Failed to flush event forwarder");
         }
     }
 }

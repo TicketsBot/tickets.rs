@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::PremiumType;
-use crate::{Discriminator, ImageHash, Snowflake};
+use crate::{ImageHash, Snowflake};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct User {

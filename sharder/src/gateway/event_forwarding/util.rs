@@ -49,14 +49,28 @@ pub fn get_guild_id(event: &Event) -> Option<Snowflake> {
 pub fn is_whitelisted(event: &Event) -> bool {
     matches!(
         event,
-        Event::ChannelDelete(_)
-            | Event::GuildCreate(_)
-            | Event::GuildDelete(_)
-            | Event::GuildMemberUpdate(_)
-            | Event::GuildMemberRemove(_)
-            | Event::MessageCreate(_)
-            | Event::GuildRoleDelete(_)
+        // Cache events
+        Event::ChannelCreate(_)
+            | Event::ChannelUpdate(_)
+            | Event::ChannelDelete(_)
+            | Event::ThreadCreate(_)
             | Event::ThreadUpdate(_)
+            | Event::ThreadDelete(_)
+            | Event::GuildCreate(_)
+            | Event::GuildUpdate(_)
+            | Event::GuildDelete(_)
+            | Event::GuildBanAdd(_)
+            | Event::GuildMemberRemove(_)
+            | Event::GuildMemberUpdate(_)
+            | Event::GuildMembersChunk(_) // We never receive these
+            | Event::GuildRoleCreate(_)
+            | Event::GuildRoleUpdate(_)
+            | Event::GuildRoleDelete(_)
+            | Event::UserUpdate(_)
+            | Event::GuildEmojisUpdate(_)
+
+            // Worker events
+            | Event::MessageCreate(_)
             | Event::ThreadMembersUpdate(_)
     )
 }
