@@ -25,6 +25,8 @@ jobs:
             dockerfile: http-gateway/Dockerfile
           - package: premiumproxy
             dockerfile: patreon-proxy/Dockerfile
+          - package: cache-sync-service
+            dockerfile: cache-sync-service/Dockerfile
     permissions:
       contents: read
       packages: write
