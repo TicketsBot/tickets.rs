@@ -1,8 +1,8 @@
 use std::time::Duration;
 
+use async_trait::async_trait;
 use common::event_forwarding;
 use event_stream::Publisher;
-use async_trait::async_trait;
 use model::Snowflake;
 
 use crate::{Config, Result};
@@ -17,9 +17,7 @@ impl KafkaEventForwarder {
     pub fn new(config: &Config) -> Result<Self> {
         let publisher = Publisher::new(config.kafka_brokers.clone(), config.kafka_topic.clone())?;
 
-        Ok(Self {
-            publisher,
-        })
+        Ok(Self { publisher })
     }
 }
 
@@ -32,7 +30,8 @@ impl EventForwarder for KafkaEventForwarder {
         event: event_forwarding::Event,
         guild_id: Option<Snowflake>,
     ) -> Result<()> {
-        self.publisher.send(&event, guild_id.map(|s| s.0).unwrap_or(0))?;
+        self.publisher
+            .send(&event, guild_id.map(|s| s.0).unwrap_or(0))?;
         Ok(())
     }
 

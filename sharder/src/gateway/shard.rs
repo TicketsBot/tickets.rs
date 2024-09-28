@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+#[cfg(feature = "whitelabel")]
+use database::Database;
 use deadpool_redis::redis;
 use deadpool_redis::{redis::cmd, Pool};
 #[cfg(feature = "compression")]
@@ -26,6 +28,8 @@ use model::Snowflake;
 use crate::config::Config;
 use crate::gateway::whitelabel_utils::is_whitelabel;
 use crate::gateway::{GatewayError, Result};
+#[cfg(feature = "whitelabel")]
+use crate::payloads::PresenceUpdate;
 use crate::InternalCommand;
 use crate::ShardIdentifier;
 
@@ -91,6 +95,8 @@ pub struct Shard<T: EventForwarder> {
     shutdown_rx: broadcast::Receiver<mpsc::Sender<(ShardIdentifier, Option<SessionData>)>>,
     #[cfg(feature = "whitelabel")]
     command_rx: Arc<TokioMutex<mpsc::Receiver<InternalCommand>>>,
+    #[cfg(feature = "whitelabel")]
+    pub(crate) database: Arc<Database>,
     pub(crate) event_forwarder: Arc<T>,
 }
 
@@ -109,6 +115,7 @@ impl<T: EventForwarder> Shard<T> {
         event_forwarder: Arc<T>,
         ready_tx: Option<oneshot::Sender<()>>,
         shutdown_rx: broadcast::Receiver<mpsc::Sender<(ShardIdentifier, Option<SessionData>)>>,
+        #[cfg(feature = "whitelabel")] database: Arc<Database>,
         #[cfg(feature = "whitelabel")] command_rx: mpsc::Receiver<InternalCommand>,
     ) -> Shard<T> {
         let (kill_shard_tx, kill_shard_rx) = oneshot::channel();
@@ -141,6 +148,8 @@ impl<T: EventForwarder> Shard<T> {
             shutdown_rx,
             #[cfg(feature = "whitelabel")]
             command_rx: Arc::new(TokioMutex::new(command_rx)),
+            #[cfg(feature = "whitelabel")]
+            database,
             event_forwarder,
         }
     }
@@ -642,7 +651,7 @@ impl<T: EventForwarder> Shard<T> {
             _ => {}
         }
 
-        if is_whitelisted(&payload.data) {        
+        if is_whitelisted(&payload.data) {
             let guild_id: Option<Snowflake> = super::event_forwarding::get_guild_id(&payload.data);
 
             let raw_payload = match RawValue::from_string(data) {
@@ -650,9 +659,9 @@ impl<T: EventForwarder> Shard<T> {
                 Err(e) => {
                     error!(error = %e, "Error convering JSON string to RawValue");
                     return Err(e.into());
-                },
+                }
             };
-            
+
             // prepare payload
             let wrapped = event_forwarding::Event {
                 bot_token: self.identify.data.token.clone(),
@@ -662,7 +671,8 @@ impl<T: EventForwarder> Shard<T> {
                 event: raw_payload,
             };
 
-            if let Err(e) = self.event_forwarder
+            if let Err(e) = self
+                .event_forwarder
                 .forward_event(&self.config, wrapped, guild_id)
                 .await
             {

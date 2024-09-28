@@ -2,14 +2,14 @@ use async_trait::async_trait;
 
 use super::ShardManager;
 
-use crate::gateway::{Identify, Shard, ShardInfo};
+use crate::gateway::payloads::Identify;
+use crate::gateway::{Shard, ShardInfo};
 
 use crate::gateway::event_forwarding::EventForwarder;
 use crate::{
     Config, GatewayError, InternalCommand, RedisSessionStore, SessionData, SessionStore,
     ShardIdentifier,
 };
-use cache::PostgresCache;
 use common::token_change;
 use database::{Database, WhitelabelBot};
 use deadpool_redis::redis;
@@ -28,7 +28,6 @@ use tracing::{error, info, warn};
 pub struct WhitelabelShardManager<T: EventForwarder> {
     config: Arc<Config>,
     database: Arc<Database>,
-    cache: Arc<PostgresCache>,
     redis: Arc<Pool>,
     session_store: RedisSessionStore,
     event_forwarder: Arc<T>,
@@ -40,7 +39,6 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
     pub fn new(
         config: Config,
         database: Arc<Database>,
-        cache: Arc<PostgresCache>,
         redis: Arc<Pool>,
         session_store: RedisSessionStore,
         event_forwarder: Arc<T>,
@@ -50,7 +48,6 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
         WhitelabelShardManager {
             config: Arc::new(config),
             database,
-            cache,
             redis,
             session_store,
             event_forwarder,
@@ -105,14 +102,13 @@ impl<T: EventForwarder> WhitelabelShardManager<T> {
                     self.config.clone(),
                     identify,
                     1,
-                    Arc::clone(&self.cache),
                     Arc::clone(&self.redis),
                     bot_id,
                     Arc::clone(&self.event_forwarder),
                     None,
                     self.shutdown_tx.subscribe(),
-                    command_rx,
                     Arc::clone(&self.database),
+                    command_rx,
                 );
 
                 // Validate bot still exists

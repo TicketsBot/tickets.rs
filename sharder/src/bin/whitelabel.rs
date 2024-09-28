@@ -8,10 +8,9 @@ use sharder::{
 use sharder::setup_sentry;
 
 use database::{sqlx::postgres::PgPoolOptions, Database};
-use sharder::build_cache;
 
 use jemallocator::Jemalloc;
-use sharder::event_forwarding::HttpEventForwarder;
+use sharder::event_forwarding::KafkaEventForwarder;
 use tracing::info;
 
 #[global_allocator]
@@ -39,10 +38,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_connections(config.database_threads);
     let database = Arc::new(Database::connect(&config.database_uri[..], db_opts).await?);
 
-    // init cache
-    let cache = Arc::new(build_cache(&config).await);
-    //cache.create_schema().await.unwrap();
-
     // init redis
     let redis = Arc::new(build_redis(&config));
 
@@ -52,14 +47,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         300,
     );
 
-    let event_forwarder = Arc::new(HttpEventForwarder::new(
-        HttpEventForwarder::build_http_client(),
-    ));
+    info!(service = "kafka", "Connecting to Kafka");
+    let event_forwarder =
+        Arc::new(KafkaEventForwarder::new(&config).expect("Failed to connect to Kafka"));
 
     let sm = Arc::new(WhitelabelShardManager::new(
         config,
         database,
-        cache,
         redis,
         session_store,
         event_forwarder,

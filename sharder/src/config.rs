@@ -43,7 +43,9 @@ impl Config {
     }
 
     pub fn get_worker_svc_uri(&self) -> Option<String> {
-        self.worker_svc_uri.clone().map(|s| format!("http://{}/event", s))
+        self.worker_svc_uri
+            .clone()
+            .map(|s| format!("http://{}/event", s))
     }
 
     pub fn get_redis_uri(&self) -> String {
@@ -52,4 +54,9 @@ impl Config {
             None => format!("redis://{}/", self.redis_addr),
         }
     }
+}
+
+#[cfg(feature = "whitelabel")]
+fn one() -> u32 {
+    1
 }

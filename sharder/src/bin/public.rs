@@ -85,16 +85,10 @@ async fn run(config: Config) -> Result<()> {
         RedisSessionStore::new(Arc::clone(&redis), "tickets:resume:public".to_string(), 300);
 
     info!(service = "kafka", "Connecting to Kafka");
-    let event_forwarder = Arc::new(KafkaEventForwarder::new(&config).expect("Failed to connect to Kafka"));
+    let event_forwarder =
+        Arc::new(KafkaEventForwarder::new(&config).expect("Failed to connect to Kafka"));
 
-    let sm = PublicShardManager::new(
-        config,
-        options,
-        session_store,
-        redis,
-        event_forwarder,
-    )
-    .await;
+    let sm = PublicShardManager::new(config, options, session_store, redis, event_forwarder).await;
 
     info!("Starting shard manager");
     let sm = Arc::new(sm);
