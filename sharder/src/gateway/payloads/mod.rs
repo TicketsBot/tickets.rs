@@ -31,3 +31,5 @@ pub use hello::Hello;
 
 mod heartbeat_ack;
 pub use heartbeat_ack::HeartbeatAck;
+
+pub mod parser;

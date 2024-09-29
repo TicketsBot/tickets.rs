@@ -35,7 +35,9 @@ use crate::ShardIdentifier;
 
 use super::payloads;
 use super::payloads::event::Event;
-use super::payloads::{Dispatch, Opcode, Payload};
+use super::payloads::parser::find_opcode;
+use super::payloads::parser::find_seq;
+use super::payloads::{Dispatch, Opcode};
 use super::session_store::SessionData;
 use super::timer;
 use super::OutboundMessage;
@@ -363,15 +365,7 @@ impl<T: EventForwarder> Shard<T> {
                         Some(Ok(Message::Text(data))) => {
                             trace!(data = %data.as_str(), "Received payload");
 
-                            let payload = match self.read_payload(data.as_str()) {
-                                Ok(payload) => payload,
-                                Err(e) => {
-                                    error!(error = %e, payload = %data.as_str(), "Error deserializing payload");
-                                    continue;
-                                }
-                            };
-
-                            self.process_payload(payload, data).await
+                            self.process_payload(data).await
                         }
 
                         #[cfg(feature = "compression")]
@@ -386,15 +380,7 @@ impl<T: EventForwarder> Shard<T> {
 
                             let value: Value = serde_json::from_slice(data.as_bytes())?;
 
-                            let payload = match self.read_payload(&value).await {
-                                Ok(payload) => payload,
-                                Err(e) => {
-                                    self.log_err("Error while deserializing payload", &e);
-                                    continue;
-                                }
-                            };
-
-                            if let Err(e) = Arc::clone(&self).process_payload(payload, value, data.as_bytes()).await {
+                            if let Err(e) = Arc::clone(&self).process_payload(value, data.as_bytes()).await {
                                 self.log_err("An error occurred while processing a payload", &e);
                             }
                         }
@@ -479,20 +465,23 @@ impl<T: EventForwarder> Shard<T> {
         return Ok(output);
     }
 
-    #[tracing::instrument(skip(self))]
-    fn read_payload(&self, data: &str) -> Result<Payload> {
-        Ok(serde_json::from_str(data)?)
-    }
+    #[tracing::instrument(skip(self, raw))]
+    async fn process_payload(&mut self, raw: String) {
+        let opcode = match find_opcode(raw.as_str()) {
+            Some(v) => v,
+            None => {
+                error!(raw = %raw, "Missing opcode");
+                return;
+            }
+        };
 
-    #[tracing::instrument(skip(self, payload, raw))]
-    async fn process_payload(&mut self, payload: Payload, raw: String) {
-        if let Some(seq) = payload.seq {
+        if let Some(seq) = find_seq(raw.as_str()) {
             if let Some(ref mut session_data) = &mut self.session_data {
                 session_data.seq = seq; // TODO: Verify this works
             }
         }
 
-        match payload.opcode {
+        match opcode {
             Opcode::Dispatch => {
                 let dispatch = match serde_json::from_str(raw.as_str()) {
                     Ok(dispatch) => dispatch,
