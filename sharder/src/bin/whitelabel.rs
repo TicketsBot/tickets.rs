@@ -9,12 +9,21 @@ use sharder::setup_sentry;
 
 use database::{sqlx::postgres::PgPoolOptions, Database};
 
-use jemallocator::Jemalloc;
 use sharder::event_forwarding::KafkaEventForwarder;
 use tracing::info;
 
+#[cfg(feature = "use-jemalloc")]
+use jemallocator::Jemalloc;
+#[cfg(feature = "use-mimalloc")]
+use mimalloc::MiMalloc;
+
+#[cfg(feature = "use-jemalloc")]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
+
+#[cfg(feature = "use-mimalloc")]
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 // #[cfg(not(feature = "whitelabel"))]
 // fn main() {

@@ -9,12 +9,21 @@ use sharder::{
 use sharder::{build_redis, metrics_server, Result};
 
 use deadpool_redis::redis::cmd;
-use jemallocator::Jemalloc;
 use sharder::event_forwarding::KafkaEventForwarder;
 use tracing::info;
 
+#[cfg(feature = "use-jemalloc")]
+use jemallocator::Jemalloc;
+#[cfg(feature = "use-mimalloc")]
+use mimalloc::MiMalloc;
+
+#[cfg(feature = "use-jemalloc")]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
+
+#[cfg(feature = "use-mimalloc")]
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 // Sentry doesn't support #[tokio::main]
 fn main() -> Result<()> {

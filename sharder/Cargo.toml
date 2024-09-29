@@ -24,7 +24,8 @@ chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 deadpool = { version = "0.9", features = ["managed"] }
 deadpool-redis = "0.11"
-jemallocator = "0.5"
+jemallocator = { version = "0.5", optional = true }
+mimalloc = { version = "0.1", optional = true }
 reqwest = { version = "0.11", features = ["json", "rustls-tls-webpki-roots"] }
 flate2 = { version = "1.0", features = ["tokio", "zlib-ng-compat"], default-features = false, optional = true }
 envy = "0.4"
@@ -40,13 +41,15 @@ hyper = { version = "0.14", features = ["server", "http1", "http2"], optional = 
 event-stream = { path = "../event-stream" }
 
 [features]
-default = ["skip-initial-guild-creates", "use-sentry", "metrics", "resume-after-identify"]
+default = ["use-mimalloc", "skip-initial-guild-creates", "use-sentry", "metrics", "resume-after-identify"]
 compression = ["flate2", "reqwest/gzip"]
 whitelabel = []
 skip-initial-guild-creates = []
 use-sentry = ["sentry", "sentry-tracing", "sentry-panic"]
 metrics = ["prometheus", "lazy_static", "hyper"]
 resume-after-identify = []
+use-mimalloc = ["mimalloc"]
+use-jemalloc = ["jemallocator"]
 
 [[bin]]
 name = "public"
