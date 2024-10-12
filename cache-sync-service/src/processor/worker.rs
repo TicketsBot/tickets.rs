@@ -8,7 +8,9 @@ use model::{
     guild::{Guild, Member},
     Snowflake,
 };
-use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
+use prometheus::{
+    register_counter_vec, register_gauge, register_histogram_vec, CounterVec, Gauge, HistogramVec,
+};
 use serde_json::value::RawValue;
 use sharder::payloads::{event::Event, Dispatch};
 use tracing::{debug, error, trace};
@@ -18,6 +20,11 @@ lazy_static! {
         "cache_events",
         "Number of cache events processed",
         &["event_type"]
+    )
+    .unwrap();
+    static ref CONCURRENT_EVENTS_GUAGE: Gauge = register_gauge!(
+        "concurrent_events",
+        "Number of events being processed concurrently"
     )
     .unwrap();
     static ref TIME_TO_CACHE: HistogramVec = register_histogram_vec!(
@@ -57,10 +64,15 @@ impl<C: Cache> Worker<C> {
 
             debug!(%ev.bot_id, "Received event");
 
+            CONCURRENT_EVENTS_GUAGE.inc();
+
             if let Err(e) = self.handle_event(ev.event).await {
                 error!(error = %e, "Failed to handle event.");
+                CONCURRENT_EVENTS_GUAGE.dec();
                 continue;
             }
+
+            CONCURRENT_EVENTS_GUAGE.dec();
         }
     }
 
