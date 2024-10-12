@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 event-stream = { path = "../event-stream" }
-common = { path = "../common" }
+common = { path = "../common", features = ["prometheus-server"] }
 cache = { path = "../cache" }
 sharder = { path = "../sharder" }
 model = { path = "../model" }

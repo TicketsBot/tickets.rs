@@ -1,5 +1,6 @@
 use cache::{Options, PostgresCache};
 use cache_sync_service::{processor::Manager, Config, Result};
+use common::prometheus_server;
 use tokio::signal::ctrl_c;
 use tracing::info;
 
@@ -8,6 +9,9 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let config = Config::from_env()?;
+
+    prometheus_server::start_server(config.metric_server_addr.as_str()).await
+        .expect("Failed to start metrics server");
 
     info!("Connecting to Postgres...");
     let cache = connect_postgres(&config).await?;

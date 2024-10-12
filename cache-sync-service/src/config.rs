@@ -8,6 +8,7 @@ pub struct Config {
     pub group_id: String,
     pub topic: String,
     pub postgres_uri: String,
+    pub metric_server_addr: String,
 }
 
 impl Config {

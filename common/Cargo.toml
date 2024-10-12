@@ -9,3 +9,13 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value"] }
 serde_repr = "0.1"
 model = { path = "../model" }
+tracing = "0.1"
+# prometheus-server
+prometheus = { version = "0.13", optional = true }
+tokio = { version = "1.0", features = ["full"], optional = true }
+hyper = { version = "1.0", features = ["server", "http1"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio"], optional = true }
+http-body-util = { version = "0.1", optional = true }
+
+[features]
+prometheus-server = ["prometheus", "tokio", "hyper", "hyper-util", "http-body-util"]
