@@ -16,3 +16,5 @@ envy = "0.4"
 thiserror = "1.0"
 tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.2" }
+prometheus = "0.13"
+lazy_static = "1.5"

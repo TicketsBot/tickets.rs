@@ -1,15 +1,31 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use crate::Result;
 use cache::Cache;
 use event_stream::Consumer;
+use lazy_static::lazy_static;
 use model::{
     guild::{Guild, Member},
     Snowflake,
 };
+use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use serde_json::value::RawValue;
 use sharder::payloads::{event::Event, Dispatch};
 use tracing::{debug, error, trace};
+
+lazy_static! {
+    static ref EVENT_COUNTER: CounterVec = register_counter_vec!(
+        "cache_events",
+        "Number of cache events processed",
+        &["event_type"]
+    ).unwrap();
+
+    static ref TIME_TO_CACHE: HistogramVec = register_histogram_vec!(
+        "time_to_cache",
+        "Time taken to cache an event",
+        &["event_type"]
+    ).unwrap();
+}
 
 pub struct Worker<C: Cache> {
     id: usize,
@@ -51,6 +67,11 @@ impl<C: Cache> Worker<C> {
         let payload: Dispatch = serde_json::from_str(raw.get())?;
 
         trace!(?payload, "Received event");
+
+        let event_name = payload.data.to_string();
+        EVENT_COUNTER.with_label_values(&[event_name.as_str()]).inc();
+
+        let now = Instant::now();
 
         match payload.data {
             Event::ChannelCreate(c) => self.cache.store_channel(c).await?,
@@ -100,7 +121,9 @@ impl<C: Cache> Worker<C> {
                     )
                     .await?
             }
-            Event::GuildMembersChunk(ev) => self.cache.store_members(ev.members, ev.guild_id).await?,
+            Event::GuildMembersChunk(ev) => {
+                self.cache.store_members(ev.members, ev.guild_id).await?
+            }
             Event::GuildRoleCreate(ev) => self.cache.store_role(ev.role, ev.guild_id).await?,
             Event::GuildRoleUpdate(ev) => self.cache.store_role(ev.role, ev.guild_id).await?,
             Event::GuildRoleDelete(ev) => self.cache.delete_role(ev.role_id).await?,
@@ -108,6 +131,10 @@ impl<C: Cache> Worker<C> {
             Event::GuildEmojisUpdate(ev) => self.cache.store_emojis(ev.emojis, ev.guild_id).await?,
             _ => {}
         };
+
+        TIME_TO_CACHE
+            .with_label_values(&[event_name.as_str()])
+            .observe(now.elapsed().as_secs_f64());
 
         Ok(())
     }
