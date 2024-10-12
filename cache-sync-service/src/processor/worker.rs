@@ -18,13 +18,14 @@ lazy_static! {
         "cache_events",
         "Number of cache events processed",
         &["event_type"]
-    ).unwrap();
-
+    )
+    .unwrap();
     static ref TIME_TO_CACHE: HistogramVec = register_histogram_vec!(
         "time_to_cache",
         "Time taken to cache an event",
         &["event_type"]
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 pub struct Worker<C: Cache> {
@@ -69,10 +70,13 @@ impl<C: Cache> Worker<C> {
         trace!(?payload, "Received event");
 
         let event_name = payload.data.to_string();
-        EVENT_COUNTER.with_label_values(&[event_name.as_str()]).inc();
+        EVENT_COUNTER
+            .with_label_values(&[event_name.as_str()])
+            .inc();
 
         let now = Instant::now();
 
+        let mut cachable = true;
         match payload.data {
             Event::ChannelCreate(c) => self.cache.store_channel(c).await?,
             Event::ChannelUpdate(c) => self.cache.store_channel(c).await?,
@@ -129,12 +133,16 @@ impl<C: Cache> Worker<C> {
             Event::GuildRoleDelete(ev) => self.cache.delete_role(ev.role_id).await?,
             Event::UserUpdate(ev) => self.cache.store_user(ev).await?,
             Event::GuildEmojisUpdate(ev) => self.cache.store_emojis(ev.emojis, ev.guild_id).await?,
-            _ => {}
+            _ => {
+                cachable = false;
+            }
         };
 
-        TIME_TO_CACHE
-            .with_label_values(&[event_name.as_str()])
-            .observe(now.elapsed().as_secs_f64());
+        if cachable {
+            TIME_TO_CACHE
+                .with_label_values(&[event_name.as_str()])
+                .observe(now.elapsed().as_secs_f64());
+        }
 
         Ok(())
     }

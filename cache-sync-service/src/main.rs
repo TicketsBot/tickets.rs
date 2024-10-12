@@ -10,7 +10,8 @@ async fn main() -> Result<()> {
 
     let config = Config::from_env()?;
 
-    prometheus_server::start_server(config.metric_server_addr.as_str()).await
+    prometheus_server::start_server(config.metric_server_addr.as_str())
+        .await
         .expect("Failed to start metrics server");
 
     info!("Connecting to Postgres...");
