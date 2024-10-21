@@ -425,6 +425,7 @@ dependencies = [
  "backoff",
  "chrono",
  "dashmap",
+ "deadpool-postgres 0.14.0",
  "futures-util",
  "lazy_static",
  "model",
@@ -433,7 +434,6 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-postgres",
  "tracing",
 ]
 
@@ -735,15 +735,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "deadpool"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6541a3916932fe57768d4be0b1ffb5ec7cbf74ca8c903fdfd5c0fe8aa958f0ed"
+dependencies = [
+ "deadpool-runtime",
+ "num_cpus",
+ "tokio",
+]
+
+[[package]]
 name = "deadpool-postgres"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "836a24a9d49deefe610b8b60c767a7412e9a931d79a89415cd2d2d71630ca8d7"
 dependencies = [
- "deadpool",
+ "deadpool 0.9.5",
  "log",
  "tokio",
  "tokio-postgres",
+]
+
+[[package]]
+name = "deadpool-postgres"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ab8a4ea925ce79678034870834602a2980f4b88c09e97feb266496dbb4493d2"
+dependencies = [
+ "async-trait",
+ "deadpool 0.12.1",
+ "getrandom 0.2.15",
+ "tokio",
+ "tokio-postgres",
+ "tracing",
 ]
 
 [[package]]
@@ -752,7 +777,7 @@ version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b8bde44cbfdf17ae5baa45c9f43073b320f1a19955389315629304a23909ad2"
 dependencies = [
- "deadpool",
+ "deadpool 0.9.5",
  "redis",
 ]
 
@@ -1169,8 +1194,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4567c8db10ae91089c99af84c68c38da3ec2f087c3f82960bcdbf3656b6f4d7"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2244,7 +2271,7 @@ name = "patreon-proxy"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "deadpool-postgres",
+ "deadpool-postgres 0.10.5",
  "envy",
  "reqwest 0.11.27",
  "rustls 0.21.12",
@@ -2382,8 +2409,6 @@ dependencies = [
  "chrono",
  "fallible-iterator",
  "postgres-protocol",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -3420,7 +3445,7 @@ version = "0.1.0"
 dependencies = [
  "axum 0.6.20",
  "cache",
- "deadpool-postgres",
+ "deadpool-postgres 0.10.5",
  "env_logger 0.10.2",
  "envy",
  "hyper 0.14.29",
@@ -3497,7 +3522,7 @@ dependencies = [
  "chrono",
  "common",
  "database",
- "deadpool",
+ "deadpool 0.9.5",
  "deadpool-redis",
  "envy",
  "event-stream",

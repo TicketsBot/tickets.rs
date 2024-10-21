@@ -1,26 +1,22 @@
 use crate::{CacheError, Options, Result};
+use deadpool_postgres::Object;
 use model::channel::Channel;
 use model::guild::{Emoji, Guild, Member, Role};
 use model::user::User;
 use model::Snowflake;
-use tokio_postgres::Client;
 
 pub struct Worker {
-    id: usize,
     options: Options,
-    client: Client,
+    conn: Conn,
 }
 
+type Conn = Object;
+
 impl Worker {
-    pub fn new(
-        id: usize,
-        options: Options,
-        client: Client,
-    ) -> Worker {
+    pub fn new(options: Options, conn: Conn) -> Worker {
         Worker {
-            id,
             options,
-            client,
+            conn,
         }
     }
 
@@ -48,7 +44,7 @@ impl Worker {
         ];
 
         for query in queries {
-            self.client
+            self.conn
                 .execute(query, &[])
                 .await
                 .map_err(CacheError::DatabaseError)?;
@@ -83,7 +79,7 @@ impl Worker {
 
         query.push_str(r#" ON CONFLICT("guild_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        self.client
+        self.conn
             .simple_query(&query[..])
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -114,7 +110,7 @@ impl Worker {
     }
 
     pub async fn get_guild(&self, id: Snowflake) -> Result<Option<Guild>> {
-        /*self.client
+        /*self.conn
             .query(
                 r#"SELECT "data" FROM guilds WHERE "guild_id" = $1;"#,
                 &[&(id.0 as i64)],
@@ -128,7 +124,7 @@ impl Worker {
     #[tracing::instrument(skip(self))]
     pub async fn delete_guild(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM guilds WHERE "guild_id" = $1;"#;
-        self.client
+        self.conn
             .execute(query, &[&(id.0 as i64)])
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -139,8 +135,7 @@ impl Worker {
     pub async fn get_guild_count(&self) -> Result<usize> {
         let query = r#"SELECT COUNT(guild_id) FROM guilds;"#;
 
-        let row = self
-            .client
+        let row = self.conn
             .query_one(query, &[])
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -187,7 +182,7 @@ impl Worker {
 
         query.push_str(r#" ON CONFLICT("channel_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        self.client
+        self.conn
             .simple_query(&query[..])
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -202,7 +197,7 @@ impl Worker {
     #[tracing::instrument(skip(self))]
     pub async fn delete_channel(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM channels WHERE "channel_id" = $1;"#;
-        self.client
+        self.conn
             .execute(query, &[&(id.0 as i64)])
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -235,7 +230,7 @@ impl Worker {
 
         query.push_str(r#" ON CONFLICT("user_id") DO UPDATE SET "data" = excluded.data, "last_seen" = excluded.last_seen;"#);
 
-        self.client
+        self.conn
             .simple_query(&query[..])
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -262,7 +257,7 @@ impl Worker {
     #[tracing::instrument(skip(self))]
     pub async fn delete_user(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM users WHERE "user_id" = $1;"#;
-        self.client
+        self.conn
             .execute(query, &[&(id.0 as i64)])
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -305,7 +300,7 @@ impl Worker {
             r#" ON CONFLICT("guild_id", "user_id") DO UPDATE SET "data" = excluded.data, "last_seen" = excluded.last_seen;"#,
         );
 
-        self.client
+        self.conn
             .simple_query(&query[..])
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -320,7 +315,7 @@ impl Worker {
     #[tracing::instrument(skip(self))]
     pub async fn delete_member(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM members WHERE "guild_id" = $1 AND "user_id" = $2;"#;
-        self.client
+        self.conn
             .execute(query, &[&(guild_id.0 as i64), &(user_id.0 as i64)])
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -356,7 +351,7 @@ impl Worker {
             r#" ON CONFLICT("role_id", "guild_id") DO UPDATE SET "data" = excluded.data;"#,
         );
 
-        self.client
+        self.conn
             .simple_query(&query[..])
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -371,7 +366,7 @@ impl Worker {
     #[tracing::instrument(skip(self))]
     pub async fn delete_role(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM roles WHERE "role_id" = $1;"#;
-        self.client
+        self.conn
             .execute(query, &[&(id.0 as i64)])
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -416,7 +411,7 @@ impl Worker {
             r#" ON CONFLICT("emoji_id", "guild_id") DO UPDATE SET "data" = excluded.data;"#,
         );
 
-        self.client
+        self.conn
             .simple_query(&query[..])
             .await
             .map_err(CacheError::DatabaseError)?;
@@ -431,7 +426,7 @@ impl Worker {
     #[tracing::instrument(skip(self))]
     pub async fn delete_emoji(&self, id: Snowflake) -> Result<()> {
         let query = r#"DELETE FROM emojis WHERE "emoji_id" = $1;"#;
-        self.client
+        self.conn
             .execute(query, &[&(id.0 as i64)])
             .await
             .map_err(CacheError::DatabaseError)?;

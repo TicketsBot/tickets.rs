@@ -4,6 +4,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub workers: usize,
+    pub batch_size: usize,
     pub brokers: Vec<String>,
     pub group_id: String,
     pub topic: String,

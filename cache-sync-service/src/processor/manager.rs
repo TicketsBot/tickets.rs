@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use cache::Cache;
+use cache::PostgresCache;
 use event_stream::Consumer;
 use tracing::debug;
 
@@ -8,13 +8,13 @@ use crate::{Config, Result};
 
 use super::worker::Worker;
 
-pub struct Manager<C: Cache> {
+pub struct Manager {
     config: Config,
-    cache: Arc<C>,
+    cache: Arc<PostgresCache>,
 }
 
-impl<C: Cache> Manager<C> {
-    pub fn new(config: Config, cache: C) -> Self {
+impl Manager {
+    pub fn new(config: Config, cache: PostgresCache) -> Self {
         let cache = Arc::new(cache);
 
         Self { config, cache }
@@ -33,7 +33,12 @@ impl<C: Cache> Manager<C> {
         debug!("Consumer connected!");
 
         for i in 0..self.config.workers {
-            let worker = Worker::new(i, Arc::clone(&consumer), Arc::clone(&self.cache));
+            let worker = Worker::new(
+                i,
+                self.config.batch_size,
+                Arc::clone(&consumer),
+                Arc::clone(&self.cache),
+            );
 
             tokio::spawn(async move {
                 worker.run().await;
