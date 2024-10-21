@@ -1,6 +1,3 @@
-#[cfg(feature = "postgres")]
-use crate::CachePayload;
-
 pub type Result<T> = std::result::Result<T, CacheError>;
 
 #[derive(thiserror::Error, Debug)]
@@ -14,10 +11,6 @@ pub enum CacheError {
 
     #[error("Got wrong type for column")]
     WrongType(),
-
-    #[cfg(feature = "postgres")]
-    #[error("Error sending cache payload to worker: {0}")]
-    SendError(#[from] tokio::sync::mpsc::error::SendError<CachePayload>),
 
     #[cfg(feature = "postgres")]
     #[error("Error receiving response from worker: {0}")]
