@@ -7,7 +7,6 @@ pub struct Options {
     pub threads: bool,
     pub roles: bool,
     pub emojis: bool,
-    pub voice_states: bool,
 }
 
 impl Options {
@@ -19,7 +18,6 @@ impl Options {
         threads: bool,
         roles: bool,
         emojis: bool,
-        voice_states: bool,
     ) -> Options {
         Options {
             users,
@@ -29,7 +27,6 @@ impl Options {
             threads,
             roles,
             emojis,
-            voice_states,
         }
     }
 }
@@ -44,7 +41,6 @@ impl Default for Options {
             threads: true,
             roles: true,
             emojis: true,
-            voice_states: true,
         }
     }
 }

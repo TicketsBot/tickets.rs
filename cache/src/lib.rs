@@ -7,7 +7,7 @@ pub use options::Options;
 #[cfg(feature = "postgres")]
 mod postgres;
 #[cfg(feature = "postgres")]
-pub use postgres::{CachePayload, PostgresCache};
+pub use postgres::PostgresCache;
 
 #[cfg(feature = "memory")]
 mod memory;

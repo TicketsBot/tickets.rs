@@ -2,7 +2,7 @@ use super::Result;
 
 use async_trait::async_trait;
 use model::channel::Channel;
-use model::guild::{Emoji, Guild, Member, Role, VoiceState};
+use model::guild::{Emoji, Guild, Member, Role};
 use model::user::User;
 use model::Snowflake;
 
@@ -38,13 +38,4 @@ pub trait Cache: Send + Sync + 'static {
     async fn store_emojis(&self, emojis: Vec<Emoji>, guild_id: Snowflake) -> Result<()>;
     async fn get_emoji(&self, emoji_id: Snowflake) -> Result<Option<Emoji>>;
     async fn delete_emoji(&self, emoji_id: Snowflake) -> Result<()>;
-
-    async fn store_voice_state(&self, voice_state: VoiceState) -> Result<()>;
-    async fn store_voice_states(&self, voice_states: Vec<VoiceState>) -> Result<()>;
-    async fn get_voice_state(
-        &self,
-        user_id: Snowflake,
-        guild_id: Snowflake,
-    ) -> Result<Option<VoiceState>>;
-    async fn delete_voice_state(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<()>;
 }
