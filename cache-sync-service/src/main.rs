@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
 }
 
 async fn connect_postgres(config: &Config) -> Result<PostgresCache> {
-    let opts = Options::new(true, true, true, true, true, true, false, false);
+    let opts = Options::new(true, true, true, true, true, true, false);
     PostgresCache::connect(config.postgres_uri.clone(), opts, config.workers)
         .await
         .map_err(Into::into)

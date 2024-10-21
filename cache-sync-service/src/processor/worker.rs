@@ -1,7 +1,10 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use crate::Result;
-use cache::Cache;
+use cache::{postgres::Worker as CacheWorker, PostgresCache};
 use event_stream::Consumer;
 use lazy_static::lazy_static;
 use model::{
@@ -13,6 +16,7 @@ use prometheus::{
 };
 use serde_json::value::RawValue;
 use sharder::payloads::{event::Event, Dispatch};
+use tokio::{task::JoinSet, time::timeout};
 use tracing::{debug, error, trace};
 
 lazy_static! {
@@ -35,16 +39,23 @@ lazy_static! {
     .unwrap();
 }
 
-pub struct Worker<C: Cache> {
+pub struct Worker {
     id: usize,
+    batch_size: usize,
     consumer: Arc<Consumer>,
-    cache: Arc<C>,
+    cache: Arc<PostgresCache>,
 }
 
-impl<C: Cache> Worker<C> {
-    pub fn new(id: usize, consumer: Arc<Consumer>, cache: Arc<C>) -> Self {
+impl Worker {
+    pub fn new(
+        id: usize,
+        batch_size: usize,
+        consumer: Arc<Consumer>,
+        cache: Arc<PostgresCache>,
+    ) -> Self {
         Self {
             id,
+            batch_size,
             consumer,
             cache,
         }
@@ -53,8 +64,9 @@ impl<C: Cache> Worker<C> {
     pub async fn run(&self) {
         debug!(%self.id, "Starting worker");
 
-        loop {
-            let ev = match self.consumer.recv().await {
+        'event_loop: loop {
+            let mut batch = Vec::with_capacity(self.batch_size);
+            let fst = match self.consumer.recv().await {
                 Ok(ev) => ev,
                 Err(e) => {
                     error!(error = %e, "Failed to receive event");
@@ -62,21 +74,48 @@ impl<C: Cache> Worker<C> {
                 }
             };
 
-            debug!(%ev.bot_id, "Received event");
+            batch.push(fst);
 
-            CONCURRENT_EVENTS_GUAGE.inc();
-
-            if let Err(e) = self.handle_event(ev.event).await {
-                error!(error = %e, "Failed to handle event.");
-                CONCURRENT_EVENTS_GUAGE.dec();
-                continue;
+            for _ in 0..self.batch_size-1 {
+                match timeout(Duration::from_secs(1), self.consumer.recv()).await {
+                    Ok(Ok(ev)) => batch.push(ev),
+                    Ok(Err(e)) => {
+                        error!(error = %e, "Failed to receive event");
+                        continue 'event_loop;
+                    }
+                    Err(_) => break, // Timeout
+                }
             }
 
-            CONCURRENT_EVENTS_GUAGE.dec();
+            debug!(size = batch.len(), "Received batch");
+
+            // CONCURRENT_EVENTS_GUAGE.add(batch.len());
+
+            let cache_worker = match self.cache.build_worker().await {
+                Ok(w) => Arc::new(w),
+                Err(e) => {
+                    error!(error = %e, "Failed to build cache worker");
+                    continue;
+                }
+            };
+
+            let mut set = JoinSet::new();
+            for ev in batch {
+                let cache_worker = Arc::clone(&cache_worker);
+                set.spawn(Self::handle_event(cache_worker, ev.event));
+            }
+
+            while let Some(res) = set.join_next().await {
+                if let Err(e) = res {
+                    error!(error = %e, "Failed to handle event");
+                }
+            }
+
+            // CONCURRENT_EVENTS_GUAGE.add(-batch.len());
         }
     }
 
-    async fn handle_event(&self, raw: Box<RawValue>) -> Result<()> {
+    async fn handle_event(cache_worker: Arc<CacheWorker>, raw: Box<RawValue>) -> Result<()> {
         let payload: Dispatch = serde_json::from_str(raw.get())?;
 
         trace!(?payload, "Received event");
@@ -90,41 +129,43 @@ impl<C: Cache> Worker<C> {
 
         let mut cachable = true;
         match payload.data {
-            Event::ChannelCreate(c) => self.cache.store_channel(c).await?,
-            Event::ChannelUpdate(c) => self.cache.store_channel(c).await?,
-            Event::ChannelDelete(c) => self.cache.delete_channel(c.id).await?,
-            Event::ThreadCreate(t) => self.cache.store_channel(t).await?,
+            Event::ChannelCreate(c) => cache_worker.store_channels(vec![c]).await?,
+            Event::ChannelUpdate(c) => cache_worker.store_channels(vec![c]).await?,
+            Event::ChannelDelete(c) => cache_worker.delete_channel(c.id).await?,
+            Event::ThreadCreate(t) => cache_worker.store_channels(vec![t]).await?,
             Event::ThreadUpdate(t) => {
                 if t.thread_metadata
                     .as_ref()
                     .map(|m| m.archived)
                     .unwrap_or(false)
                 {
-                    self.cache.delete_channel(t.id).await?
+                    cache_worker.delete_channel(t.id).await?
                 } else {
-                    self.cache.store_channel(t).await?
+                    cache_worker.store_channels(vec![t]).await?
                 }
             }
-            Event::ThreadDelete(t) => self.cache.delete_channel(t.id).await?,
+            Event::ThreadDelete(t) => cache_worker.delete_channel(t.id).await?,
             Event::GuildCreate(mut g) => {
                 apply_guild_id_to_channels(&mut g);
-                self.cache.store_guild(g).await?;
+                cache_worker.store_guilds(vec![g]).await?;
             }
             Event::GuildUpdate(mut g) => {
                 apply_guild_id_to_channels(&mut g);
-                self.cache.store_guild(g).await?;
+                cache_worker.store_guilds(vec![g]).await?;
             }
-            Event::GuildDelete(g) => self.cache.delete_guild(g.id).await?,
+            Event::GuildDelete(g) => cache_worker.delete_guild(g.id).await?,
             // When removing members, also remove the user, as it's too expensive to check if the user is in another guild.
             // It is cheaper to just fetch the user again later.
-            Event::GuildBanAdd(ev) => self.remove_member_and_user(ev.user.id, ev.guild_id).await?,
+            Event::GuildBanAdd(ev) => {
+                Self::remove_member_and_user(&cache_worker, ev.user.id, ev.guild_id).await?
+            }
             Event::GuildMemberRemove(ev) => {
-                self.remove_member_and_user(ev.user.id, ev.guild_id).await?
+                Self::remove_member_and_user(&cache_worker, ev.user.id, ev.guild_id).await?
             }
             Event::GuildMemberUpdate(ev) => {
-                self.cache
-                    .store_member(
-                        Member {
+                cache_worker
+                    .store_members(
+                        vec![Member {
                             user: Some(ev.user),
                             nick: ev.nick,
                             roles: ev.roles,
@@ -132,19 +173,25 @@ impl<C: Cache> Worker<C> {
                             premium_since: ev.premium_since,
                             deaf: false,
                             mute: false,
-                        },
+                        }],
                         ev.guild_id,
                     )
                     .await?
             }
             Event::GuildMembersChunk(ev) => {
-                self.cache.store_members(ev.members, ev.guild_id).await?
+                cache_worker.store_members(ev.members, ev.guild_id).await?
             }
-            Event::GuildRoleCreate(ev) => self.cache.store_role(ev.role, ev.guild_id).await?,
-            Event::GuildRoleUpdate(ev) => self.cache.store_role(ev.role, ev.guild_id).await?,
-            Event::GuildRoleDelete(ev) => self.cache.delete_role(ev.role_id).await?,
-            Event::UserUpdate(ev) => self.cache.store_user(ev).await?,
-            Event::GuildEmojisUpdate(ev) => self.cache.store_emojis(ev.emojis, ev.guild_id).await?,
+            Event::GuildRoleCreate(ev) => {
+                cache_worker.store_roles(vec![ev.role], ev.guild_id).await?
+            }
+            Event::GuildRoleUpdate(ev) => {
+                cache_worker.store_roles(vec![ev.role], ev.guild_id).await?
+            }
+            Event::GuildRoleDelete(ev) => cache_worker.delete_role(ev.role_id).await?,
+            Event::UserUpdate(ev) => cache_worker.store_users(vec![ev]).await?,
+            Event::GuildEmojisUpdate(ev) => {
+                cache_worker.store_emojis(ev.emojis, ev.guild_id).await?
+            }
             _ => {
                 cachable = false;
             }
@@ -159,9 +206,13 @@ impl<C: Cache> Worker<C> {
         Ok(())
     }
 
-    async fn remove_member_and_user(&self, user_id: Snowflake, guild_id: Snowflake) -> Result<()> {
-        self.cache.delete_member(user_id, guild_id).await?;
-        self.cache.delete_user(user_id).await?;
+    async fn remove_member_and_user(
+        cache_worker: &CacheWorker,
+        user_id: Snowflake,
+        guild_id: Snowflake,
+    ) -> Result<()> {
+        cache_worker.delete_member(user_id, guild_id).await?;
+        cache_worker.delete_user(user_id).await?;
 
         Ok(())
     }

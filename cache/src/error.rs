@@ -4,7 +4,15 @@ pub type Result<T> = std::result::Result<T, CacheError>;
 pub enum CacheError {
     #[cfg(feature = "postgres")]
     #[error("Error occurred while interacting with DB: {0}")]
-    DatabaseError(#[from] tokio_postgres::Error),
+    DatabaseError(#[from] deadpool_postgres::tokio_postgres::Error),
+
+    #[cfg(feature = "postgres")]
+    #[error("Error occurred while operating on connection pool: {0}")]
+    PoolError(#[from] deadpool_postgres::PoolError),
+
+    #[cfg(feature = "postgres")]
+    #[error("Error occurred while building connection pool: {0}")]
+    PoolBuildError(#[from] deadpool_postgres::BuildError),
 
     #[error("Error occurred while serializing json: {0}")]
     JsonError(#[from] serde_json::Error),
