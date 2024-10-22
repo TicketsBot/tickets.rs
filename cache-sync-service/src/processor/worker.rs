@@ -12,7 +12,7 @@ use model::{
     Snowflake,
 };
 use prometheus::{
-    register_counter_vec, register_gauge, register_histogram_vec, CounterVec, Gauge, HistogramVec,
+    register_counter_vec, register_gauge, register_histogram, register_histogram_vec, CounterVec, Gauge, Histogram, HistogramVec
 };
 use serde_json::value::RawValue;
 use sharder::payloads::{event::Event, Dispatch};
@@ -34,6 +34,17 @@ lazy_static! {
     static ref TIME_TO_CACHE: HistogramVec = register_histogram_vec!(
         "time_to_cache",
         "Time taken to cache an event",
+        &["event_type"]
+    )
+    .unwrap();
+    static ref REAL_BATCH_SIZE_HISTOGRAM: Histogram = register_histogram!(
+        "real_batch_size",
+        "Real batch size of events",
+    )
+    .unwrap();
+    static ref EVENT_SIZE_HISTOGRAM: HistogramVec = register_histogram_vec!(
+        "event_size",
+        "Size of events",
         &["event_type"]
     )
     .unwrap();
@@ -89,6 +100,8 @@ impl Worker {
 
             debug!(size = batch.len(), "Received batch");
 
+            REAL_BATCH_SIZE_HISTOGRAM.observe(batch.len() as f64);
+
             // CONCURRENT_EVENTS_GUAGE.add(batch.len());
 
             let cache_worker = match self.cache.build_worker().await {
@@ -125,14 +138,24 @@ impl Worker {
             .with_label_values(&[event_name.as_str()])
             .inc();
 
+        EVENT_SIZE_HISTOGRAM
+            .with_label_values(&[event_name.as_str()])
+            .observe(std::mem::size_of_val(&payload.data) as f64);
+
         let now = Instant::now();
 
         let mut cachable = true;
         match payload.data {
-            Event::ChannelCreate(c) => cache_worker.store_channels(vec![c]).await?,
-            Event::ChannelUpdate(c) => cache_worker.store_channels(vec![c]).await?,
+            Event::ChannelCreate(c) => if let Some(guild_id) = c.guild_id {
+                cache_worker.store_channels(vec![c], guild_id).await?
+            },
+            Event::ChannelUpdate(c) => if let Some(guild_id) = c.guild_id {
+                cache_worker.store_channels(vec![c], guild_id).await?
+            },
             Event::ChannelDelete(c) => cache_worker.delete_channel(c.id).await?,
-            Event::ThreadCreate(t) => cache_worker.store_channels(vec![t]).await?,
+            Event::ThreadCreate(t) => if let Some(guild_id) = t.guild_id {
+                cache_worker.store_channels(vec![t], guild_id).await?
+            },
             Event::ThreadUpdate(t) => {
                 if t.thread_metadata
                     .as_ref()
@@ -141,18 +164,14 @@ impl Worker {
                 {
                     cache_worker.delete_channel(t.id).await?
                 } else {
-                    cache_worker.store_channels(vec![t]).await?
+                    if let Some(guild_id) = t.guild_id {
+                        cache_worker.store_channels(vec![t], guild_id).await?;
+                    }
                 }
             }
             Event::ThreadDelete(t) => cache_worker.delete_channel(t.id).await?,
-            Event::GuildCreate(mut g) => {
-                apply_guild_id_to_channels(&mut g);
-                cache_worker.store_guilds(vec![g]).await?;
-            }
-            Event::GuildUpdate(mut g) => {
-                apply_guild_id_to_channels(&mut g);
-                cache_worker.store_guilds(vec![g]).await?;
-            }
+            Event::GuildCreate(mut g) => cache_worker.store_guilds(vec![g]).await?,
+            Event::GuildUpdate(mut g) => cache_worker.store_guilds(vec![g]).await?,
             Event::GuildDelete(g) => cache_worker.delete_guild(g.id).await?,
             // When removing members, also remove the user, as it's too expensive to check if the user is in another guild.
             // It is cheaper to just fetch the user again later.
@@ -216,17 +235,4 @@ impl Worker {
 
         Ok(())
     }
-}
-
-fn apply_guild_id_to_channels(guild: &mut Guild) {
-    guild.channels.as_mut().map(|channels| {
-        channels
-            .iter_mut()
-            .for_each(|c| c.guild_id = Some(guild.id))
-    });
-
-    guild
-        .threads
-        .as_mut()
-        .map(|threads| threads.iter_mut().for_each(|t| t.guild_id = Some(guild.id)));
 }
