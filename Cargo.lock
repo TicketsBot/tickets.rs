@@ -973,6 +973,8 @@ name = "event-stream"
 version = "0.1.0"
 dependencies = [
  "common",
+ "lazy_static",
+ "prometheus",
  "rdkafka",
  "serde",
  "serde_json",

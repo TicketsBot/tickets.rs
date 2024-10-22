@@ -1,13 +1,17 @@
+use std::sync::Arc;
+
 use crate::{CacheError, Options, Result};
 use deadpool_postgres::Object;
 use model::channel::Channel;
 use model::guild::{Emoji, Guild, Member, Role};
 use model::user::User;
 use model::Snowflake;
+use tokio::task::JoinSet;
 
+#[derive(Debug, Clone)]
 pub struct Worker {
     options: Options,
-    conn: Conn,
+    conn: Arc<Conn>,
 }
 
 type Conn = Object;
@@ -16,7 +20,7 @@ impl Worker {
     pub fn new(options: Options, conn: Conn) -> Worker {
         Worker {
             options,
-            conn,
+            conn: Arc::new(conn),
         }
     }
 
@@ -79,31 +83,55 @@ impl Worker {
 
         query.push_str(r#" ON CONFLICT("guild_id") DO UPDATE SET "data" = excluded.data;"#);
 
-        self.conn
-            .simple_query(&query[..])
-            .await
-            .map_err(CacheError::DatabaseError)?;
+        let mut join_set = JoinSet::new();
+
+        let cloned = Arc::clone(&self.conn);
+        join_set.spawn(async move {
+            cloned.simple_query(query.as_str()).await.map_err(CacheError::DatabaseError).map(|_| ())
+        });
 
         for guild in guilds {
             if self.options.channels {
                 if let Some(channels) = guild.channels {
-                    self.store_channels(channels).await?;
+                    let cloned = self.clone();
+                    let guild_id = guild.id;
+                    join_set.spawn(async move {
+                        cloned.store_channels(channels, guild_id).await
+                    });
                 }
             }
 
             if self.options.threads {
                 if let Some(threads) = guild.threads {
-                    self.store_channels(threads).await?;
+                    let cloned = self.clone();
+                    let guild_id = guild.id;
+                    join_set.spawn(async move {
+                        cloned.store_channels(threads, guild_id).await
+                    });
                 }
             }
 
             if self.options.roles {
-                self.store_roles(guild.roles, guild.id).await?;
+                let cloned = self.clone();
+                let roles = guild.roles;
+                let id = guild.id;
+                join_set.spawn(async move {
+                    cloned.store_roles(roles, id).await
+                });
             }
 
             if self.options.emojis {
-                self.store_emojis(guild.emojis, guild.id).await?;
+                let cloned = self.clone();
+                let emojis = guild.emojis;
+                let id = guild.id;
+                join_set.spawn(async move {
+                    cloned.store_emojis(emojis, id).await
+                });
             }
+        }
+
+        while let Some(res) = join_set.join_next().await {
+            res??;
         }
 
         Ok(())
@@ -145,7 +173,7 @@ impl Worker {
     }
 
     #[tracing::instrument(skip(self, channels), fields(channel_count = channels.len()))]
-    pub async fn store_channels(&self, channels: Vec<Channel>) -> Result<()> {
+    pub async fn store_channels(&self, channels: Vec<Channel>, guild_id: Snowflake) -> Result<()> {
         if channels.is_empty() {
             return Ok(());
         }
@@ -156,7 +184,6 @@ impl Worker {
         let mut first = true;
         channels
             .into_iter()
-            .filter(|c| c.guild_id.is_some())
             .filter(|c| self.options.threads || !c.channel_type.is_thread())
             .try_for_each(|c| -> Result<()> {
                 if first {
@@ -169,7 +196,7 @@ impl Worker {
                 query.push_str(&format!(
                     r#"({}, {}, {}::jsonb)"#,
                     c.id.0,
-                    c.guild_id.unwrap().0,
+                    guild_id.0,
                     quote_literal(encoded)
                 ));
 

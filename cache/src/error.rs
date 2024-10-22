@@ -24,6 +24,9 @@ pub enum CacheError {
     #[error("Error receiving response from worker: {0}")]
     RecvError(#[from] tokio::sync::oneshot::error::RecvError),
 
+    #[error("Error joining tasks: {0}")]
+    JoinError(#[from] tokio::task::JoinError),
+
     #[error("Disconnected from database")]
     Disconnected,
 }
