@@ -9,7 +9,7 @@ use event_stream::Consumer;
 use lazy_static::lazy_static;
 use model::{guild::Member, Snowflake};
 use prometheus::{
-    register_counter_vec, register_gauge, register_histogram, register_histogram_vec, CounterVec, Gauge, Histogram, HistogramVec
+    register_counter_vec, register_gauge, register_gauge_vec, register_histogram, register_histogram_vec, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec
 };
 use serde_json::value::RawValue;
 use sharder::payloads::{event::Event, Dispatch};
@@ -45,6 +45,12 @@ lazy_static! {
         &["event_type"]
     )
     .unwrap();
+    static ref BUFFER_SIZE: GaugeVec = register_gauge_vec!(
+        "buffer_size",
+        "Size of the buffer",
+        &["worker_id"]
+    )
+    .unwrap();
 }
 
 pub struct Worker {
@@ -75,6 +81,7 @@ impl Worker {
         debug!(%self.id, "Starting worker");
 
         let tx = self.start_writer_loop();
+        let id_str = self.id.to_string();
 
         loop {
             let ev = match self.consumer.recv().await {
@@ -85,7 +92,9 @@ impl Worker {
                 }
             };
 
+            BUFFER_SIZE.with_label_values(&[&id_str]).inc();
             if let Err(e) = tx.send(ev.event).await {
+                BUFFER_SIZE.with_label_values(&[&id_str]).dec();
                 error!("Failed to send event to cache writer: {}", e);
                 break;
             }
@@ -194,8 +203,10 @@ impl Worker {
         user_id: Snowflake,
         guild_id: Snowflake,
     ) -> Result<()> {
-        cache_worker.delete_member(user_id, guild_id).await?;
-        cache_worker.delete_user(user_id).await?;
+        tokio::try_join!(
+            cache_worker.delete_member(user_id, guild_id),
+            cache_worker.delete_user(user_id)
+        )?;
 
         Ok(())
     }
@@ -205,6 +216,8 @@ impl Worker {
 
         let cache = Arc::clone(&self.cache);
         let batch_size = self.batch_size;
+        let id_str = self.id.to_string();
+
         tokio::spawn(async move {
             let mut join_set= JoinSet::new();
 
@@ -213,6 +226,8 @@ impl Worker {
                 while join_set.len() < batch_size {
                     match rx.recv().await {
                         Some(ev) => {
+                            BUFFER_SIZE.with_label_values(&[&id_str]).inc();
+
                             let cache_worker = cache_worker.clone();
                             join_set.spawn(async move {
                                 Self::handle_event(&cache_worker, ev).await
