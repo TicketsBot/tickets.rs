@@ -226,7 +226,7 @@ impl Worker {
                 while join_set.len() < batch_size {
                     match rx.recv().await {
                         Some(ev) => {
-                            BUFFER_SIZE.with_label_values(&[&id_str]).inc();
+                            BUFFER_SIZE.with_label_values(&[&id_str]).dec();
 
                             let cache_worker = cache_worker.clone();
                             join_set.spawn(async move {
