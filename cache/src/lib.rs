@@ -8,6 +8,8 @@ pub use options::Options;
 pub mod postgres;
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresCache;
+#[cfg(feature = "postgres")]
+pub use deadpool_postgres::tokio_postgres;
 
 #[cfg(feature = "memory")]
 mod memory;

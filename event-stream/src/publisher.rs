@@ -18,7 +18,7 @@ pub struct Publisher {
     last_flush: AtomicUsize,
 }
 
-const POLL_INTERVAL: usize = 250;
+const POLL_INTERVAL: usize = 100;
 
 #[cfg(feature = "metrics")]
 lazy_static! {
