@@ -3,21 +3,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::Result;
-use cache::{postgres::Worker as CacheWorker, PostgresCache};
+use crate::{Error, Result};
+use cache::{postgres::Worker as CacheWorker, CacheError, PostgresCache};
 use event_stream::Consumer;
 use lazy_static::lazy_static;
-use model::{
-    guild::{Guild, Member},
-    Snowflake,
-};
+use model::{guild::Member, Snowflake};
 use prometheus::{
     register_counter_vec, register_gauge, register_histogram, register_histogram_vec, CounterVec, Gauge, Histogram, HistogramVec
 };
 use serde_json::value::RawValue;
 use sharder::payloads::{event::Event, Dispatch};
-use tokio::{task::JoinSet, time::timeout};
-use tracing::{debug, error, trace};
+use tokio::{sync::mpsc, task::JoinSet, time::sleep};
+use tracing::{debug, error, info, trace, warn};
 
 lazy_static! {
     static ref EVENT_COUNTER: CounterVec = register_counter_vec!(
@@ -57,6 +54,8 @@ pub struct Worker {
     cache: Arc<PostgresCache>,
 }
 
+const BUFFER_FACTOR: usize = 4;
+
 impl Worker {
     pub fn new(
         id: usize,
@@ -75,9 +74,10 @@ impl Worker {
     pub async fn run(&self) {
         debug!(%self.id, "Starting worker");
 
-        'event_loop: loop {
-            let mut batch = Vec::with_capacity(self.batch_size);
-            let fst = match self.consumer.recv().await {
+        let tx = self.start_writer_loop();
+
+        loop {
+            let ev = match self.consumer.recv().await {
                 Ok(ev) => ev,
                 Err(e) => {
                     error!(error = %e, "Failed to receive event");
@@ -85,50 +85,14 @@ impl Worker {
                 }
             };
 
-            batch.push(fst);
-
-            for _ in 0..self.batch_size-1 {
-                match timeout(Duration::from_secs(1), self.consumer.recv()).await {
-                    Ok(Ok(ev)) => batch.push(ev),
-                    Ok(Err(e)) => {
-                        error!(error = %e, "Failed to receive event");
-                        continue 'event_loop;
-                    }
-                    Err(_) => break, // Timeout
-                }
+            if let Err(e) = tx.send(ev.event).await {
+                error!("Failed to send event to cache writer: {}", e);
+                break;
             }
-
-            debug!(size = batch.len(), "Received batch");
-
-            REAL_BATCH_SIZE_HISTOGRAM.observe(batch.len() as f64);
-
-            // CONCURRENT_EVENTS_GUAGE.add(batch.len());
-
-            let cache_worker = match self.cache.build_worker().await {
-                Ok(w) => Arc::new(w),
-                Err(e) => {
-                    error!(error = %e, "Failed to build cache worker");
-                    continue;
-                }
-            };
-
-            let mut set = JoinSet::new();
-            for ev in batch {
-                let cache_worker = Arc::clone(&cache_worker);
-                set.spawn(Self::handle_event(cache_worker, ev.event));
-            }
-
-            while let Some(res) = set.join_next().await {
-                if let Err(e) = res {
-                    error!(error = %e, "Failed to handle event");
-                }
-            }
-
-            // CONCURRENT_EVENTS_GUAGE.add(-batch.len());
         }
     }
 
-    async fn handle_event(cache_worker: Arc<CacheWorker>, raw: Box<RawValue>) -> Result<()> {
+    async fn handle_event(cache_worker: &CacheWorker, raw: Box<RawValue>) -> Result<()> {
         let payload: Dispatch = serde_json::from_str(raw.get())?;
 
         trace!(?payload, "Received event");
@@ -170,8 +134,8 @@ impl Worker {
                 }
             }
             Event::ThreadDelete(t) => cache_worker.delete_channel(t.id).await?,
-            Event::GuildCreate(mut g) => cache_worker.store_guilds(vec![g]).await?,
-            Event::GuildUpdate(mut g) => cache_worker.store_guilds(vec![g]).await?,
+            Event::GuildCreate(g) => cache_worker.store_guilds(vec![g]).await?,
+            Event::GuildUpdate(g) => cache_worker.store_guilds(vec![g]).await?,
             Event::GuildDelete(g) => cache_worker.delete_guild(g.id).await?,
             // When removing members, also remove the user, as it's too expensive to check if the user is in another guild.
             // It is cheaper to just fetch the user again later.
@@ -234,5 +198,89 @@ impl Worker {
         cache_worker.delete_user(user_id).await?;
 
         Ok(())
+    }
+
+    fn start_writer_loop(&self) -> mpsc::Sender<Box<RawValue>> {
+        let (tx, mut rx) = mpsc::channel(self.batch_size * BUFFER_FACTOR);
+
+        let cache = Arc::clone(&self.cache);
+        let batch_size = self.batch_size;
+        tokio::spawn(async move {
+            let mut join_set= JoinSet::new();
+
+            let mut cache_worker = Self::get_cache_worker(cache.as_ref()).await;
+            loop {
+                while join_set.len() < batch_size {
+                    match rx.recv().await {
+                        Some(ev) => {
+                            let cache_worker = cache_worker.clone();
+                            join_set.spawn(async move {
+                                Self::handle_event(&cache_worker, ev).await
+                            });
+                        },
+                        None => {
+                            info!("Cache writer channel closed");
+
+                            // Drain the join set
+                            while let Some(res) = join_set.join_next().await{
+                                match res {
+                                    Ok(Ok(_)) => {},
+                                    Ok(Err(e)) => error!(error = %e, "Failed to handle cache task"),
+                                    Err(e) => error!(error = %e, "Failed to join cache task"),
+                                }
+                            }
+
+                            return;
+                        }
+                    }
+                }
+
+                match join_set.join_next().await {
+                    Some(Ok(Ok(_))) => {},
+                    Some(Ok(Err(e))) => {
+                        error!(error = %e, "Failed to cache event data");
+
+                        let reconnect = match e {
+                            Error::CacheError(CacheError::PoolError(_)) => true,
+                            Error::CacheError(CacheError::DatabaseError(db_err)) => {
+                                db_err.is_closed()
+                            }
+                            _ => false,
+                        };
+
+                        if reconnect {
+                            warn!("Error was due to connection being closed or a pool error, going to get another connection from the pool");
+
+                            // Drain the join set
+                            while let Some(res) = join_set.join_next().await{
+                                match res {
+                                    Ok(Ok(_)) => {},
+                                    Ok(Err(e)) => error!(error = %e, "Failed to handle cache task"),
+                                    Err(e) => error!(error = %e, "Failed to join cache task"),
+                                }
+                            }
+
+                            drop(cache_worker);
+                            cache_worker = Self::get_cache_worker(cache.as_ref()).await;
+                        }
+                    },
+                    Some(Err(e)) => error!(error = %e, "Failed to handle join cache task"),
+                    None => warn!("Join set is empty"),
+                }
+            }
+        });
+
+        tx
+    }
+
+    async fn get_cache_worker(cache: &PostgresCache) -> CacheWorker {
+        let mut res = cache.build_worker().await;
+        while let Err(e) = res {
+            error!(error = %e, "Failed to build cache worker");
+            sleep(Duration::from_millis(250)).await;
+            res = cache.build_worker().await;
+        }
+
+        res.unwrap()
     }
 }
