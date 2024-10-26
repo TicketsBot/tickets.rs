@@ -47,7 +47,7 @@ impl Publisher {
     pub fn send(&self, ev: &event_forwarding::Event, _guild_id: u64) -> Result<()> {
         let marshalled = serde_json::to_vec(ev)?;
 
-        let record: BaseRecord<'_, String, Vec<u8>> = BaseRecord::to(&self.topic.as_str())
+        let record: BaseRecord<'_, (), Vec<u8>> = BaseRecord::to(&self.topic.as_str())
             .payload(&marshalled);
 
         let should_poll = self.since_last_poll.compare_exchange(POLL_INTERVAL, 0, Ordering::Relaxed, Ordering::Relaxed).is_ok();
