@@ -35,9 +35,9 @@ use crate::ShardIdentifier;
 
 use super::payloads;
 use super::payloads::event::Event;
-use super::payloads::parser::find_opcode;
-use super::payloads::parser::find_seq;
-use super::payloads::{Dispatch, Opcode};
+use super::payloads::parser::{find_event_type, find_opcode, find_seq};
+use super::payloads::Dispatch;
+use super::payloads::Opcode;
 use super::session_store::SessionData;
 use super::timer;
 use super::OutboundMessage;
@@ -483,15 +483,7 @@ impl<T: EventForwarder> Shard<T> {
 
         match opcode {
             Opcode::Dispatch => {
-                let dispatch = match serde_json::from_str(raw.as_str()) {
-                    Ok(dispatch) => dispatch,
-                    Err(e) => {
-                        error!(error = %e, raw = %raw, "Error deserializing dispatch payload");
-                        return;
-                    }
-                };
-
-                if let Err(e) = self.handle_event(dispatch, raw).await {
+                if let Err(e) = self.handle_event(raw).await {
                     error!(error = %e, "Error handling dispatch event");
                 }
             }
@@ -590,13 +582,25 @@ impl<T: EventForwarder> Shard<T> {
         }
     }
 
-    #[tracing::instrument(skip(self, payload, data), fields(event_type = %payload.data))]
-    async fn handle_event(&mut self, payload: Dispatch, data: String) -> Result<()> {
+    #[tracing::instrument(skip(self, data))]
+    async fn handle_event(&mut self, data: String) -> Result<()> {
+        let event_type = match find_event_type(data.as_str()) {
+            Some(v) => v,
+            None => return GatewayError::custom("Dispatch payload is missing `t` field").into(),
+        };
+
         // Gateway events
-        match &payload.data {
-            Event::Ready(ready) => {
+        match event_type.as_str() {
+            "READY" => {
+                // call deserialize_event and cast to Event::Ready
+                let dispatch = deserialize_event(data.as_str())?;
+                let ready = match dispatch.data {
+                    Event::Ready(ready) => ready,
+                    _ => Err(GatewayError::custom("Deserialized event is not READY"))?,
+                };
+
                 self.session_data = Some(SessionData {
-                    seq: payload.seq,
+                    seq: dispatch.seq,
                     session_id: ready.session_id.clone(),
                     resume_url: Some(ready.resume_gateway_url.clone()),
                 });
@@ -612,7 +616,7 @@ impl<T: EventForwarder> Shard<T> {
                 return Ok(());
             }
 
-            Event::Resumed(_) => {
+            "RESUMED" => {
                 info!("Received RESUME acknowledgement");
 
                 if !self.is_ready {
@@ -628,21 +632,27 @@ impl<T: EventForwarder> Shard<T> {
                 return Ok(());
             }
 
-            Event::GuildCreate(g) => {
+            "GUILD_CREATE" => {
                 self.increment_received_count().await;
 
                 #[cfg(feature = "whitelabel")]
-                if let Err(e) = self.store_whitelabel_guild(g.id).await {
-                    error!(error = %e, "Error storing whitelabel guild data");
+                {
+                    let dispatch = deserialize_event(data.as_str())?;
+                    let g = match dispatch.data {
+                        Event::GuildCreate(g) => g,
+                        _ => Err(GatewayError::custom("Deserialized event is not GUILD_CREATE"))?,
+                    };
+                    
+                    if let Err(e) = self.store_whitelabel_guild(g.id).await {
+                        error!(error = %e, "Error storing whitelabel guild data");
+                    }
                 }
             }
 
             _ => {}
         }
 
-        if is_whitelisted(&payload.data) {
-            let guild_id: Option<Snowflake> = super::event_forwarding::get_guild_id(&payload.data);
-
+        if is_whitelisted(event_type.as_str()) {
             let raw_payload = match RawValue::from_string(data) {
                 Ok(v) => v,
                 Err(e) => {
@@ -662,7 +672,7 @@ impl<T: EventForwarder> Shard<T> {
 
             if let Err(e) = self
                 .event_forwarder
-                .forward_event(&self.config, wrapped, guild_id)
+                .forward_event(&self.config, wrapped, None)
                 .await
             {
                 error!(error = %e, "Error while executing worker HTTP request");
@@ -848,4 +858,8 @@ async fn handle_writes(
             error!(error = ?e, "Error while sending write result back to caller");
         }
     }
+}
+
+fn deserialize_event(data: &str) -> Result<Dispatch> {
+    serde_json::from_str(data).map_err(|e| e.into())
 }

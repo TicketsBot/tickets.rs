@@ -46,31 +46,31 @@ pub fn get_guild_id(event: &Event) -> Option<Snowflake> {
 }
 
 // TODO: Don't hardcode, use feature flags or something
-pub fn is_whitelisted(event: &Event) -> bool {
+pub fn is_whitelisted(event: &str) -> bool {
     matches!(
         event,
         // Cache events
-        Event::ChannelCreate(_)
-            | Event::ChannelUpdate(_)
-            | Event::ChannelDelete(_)
-            | Event::ThreadCreate(_)
-            | Event::ThreadUpdate(_)
-            | Event::ThreadDelete(_)
-            | Event::GuildCreate(_)
-            | Event::GuildUpdate(_)
-            | Event::GuildDelete(_)
-            | Event::GuildBanAdd(_)
-            | Event::GuildMemberRemove(_)
-            | Event::GuildMemberUpdate(_)
-            | Event::GuildMembersChunk(_) // We never receive these
-            | Event::GuildRoleCreate(_)
-            | Event::GuildRoleUpdate(_)
-            | Event::GuildRoleDelete(_)
-            | Event::UserUpdate(_)
-            | Event::GuildEmojisUpdate(_)
+        "CHANNEL_CREATE"
+            | "CHANNEL_UPDATE"
+            | "CHANNEL_DELETE"
+            | "THREAD_CREATE"
+            | "THREAD_UPDATE"
+            | "THREAD_DELETE"
+            | "GUILD_CREATE"
+            | "GUILD_UPDATE"
+            | "GUILD_DELETE"
+            | "GUILD_BAN_ADD"
+            | "GUILD_MEMBER_REMOVE"
+            | "GUILD_MEMBER_UPDATE"
+            | "GUILD_MEMBERS_CHUNK" // We never receive these
+            | "GUILD_ROLE_CREATE"
+            | "GUILD_ROLE_UPDATE"
+            | "GUILD_ROLE_DELETE"
+            | "USER_UPDATE"
+            | "GUILD_EMOJIS_UPDATE"
 
             // Worker events
-            | Event::MessageCreate(_)
-            | Event::ThreadMembersUpdate(_)
+            | "MESSAGE_CREATE"
+            | "THREAD_MEMBERS_UPDATE"
     )
 }
