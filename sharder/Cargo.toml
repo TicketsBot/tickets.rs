@@ -41,7 +41,7 @@ hyper = { version = "0.14", features = ["server", "http1", "http2"], optional = 
 event-stream = { path = "../event-stream" }
 
 [features]
-default = ["use-mimalloc", "skip-initial-guild-creates", "use-sentry", "metrics", "resume-after-identify"]
+default = ["use-jemalloc", "skip-initial-guild-creates", "use-sentry", "metrics", "resume-after-identify"]
 compression = ["flate2", "reqwest/gzip"]
 whitelabel = []
 skip-initial-guild-creates = []
