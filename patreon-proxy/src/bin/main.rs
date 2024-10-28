@@ -1,51 +1,34 @@
-mod config;
-mod database;
-mod error;
-mod http;
-mod patreon;
-
-use config::Config;
-use database::Database;
-use patreon::oauth;
-use patreon::Entitlement;
-use patreon::Poller;
-
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
 use chrono::prelude::*;
 
+use patreon_proxy::patreon::oauth::OauthClient;
+use patreon_proxy::patreon::{Entitlement, Poller, Tokens};
+use patreon_proxy::{http, Config, Result};
 use sentry::types::Dsn;
 use sentry_tracing::EventFilter;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
-use crate::error::Error;
-use tracing::log::{debug, error, info};
+use tracing::{debug, error, info};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
-pub async fn main() -> Result<(), Error> {
-    let config = Config::new().expect("Failed to load config from environment variables");
+pub async fn main() -> Result<()> {
+    let config = Arc::new(Config::new().expect("Failed to load config from environment variables"));
 
     let _guard = configure_observability(&config);
 
-    info!("Connecting to database...");
-    let db_client = Database::connect(&config).await?;
-    db_client.create_schema().await?;
-    info!("Database connection established");
+    let oauth_client = OauthClient::new(Arc::clone(&config))?;
+    
+    let tokens = attempt_grant(&oauth_client, Some(10)).await?;
+    let expires_at = Instant::now() + Duration::from_secs(tokens.expires_in as u64);
 
-    let mut tokens = Arc::new(
-        db_client
-            .get_tokens(config.patreon_client_id.clone())
-            .await?,
-    );
-    tokens = Arc::new(handle_refresh(&tokens, &config, &db_client).await?);
-
-    let mut poller = Poller::new(config.patreon_campaign_id.clone(), Arc::clone(&tokens));
+    let mut poller = Poller::new(config.patreon_campaign_id.clone(), tokens);
 
     let mut server_started = false;
 
@@ -60,11 +43,11 @@ pub async fn main() -> Result<(), Error> {
         info!("Starting loop");
 
         // Patreon issues tokens that last 1 month, but I have noticed some issues refreshing them close to the deadline
-        if (current_time_seconds() + (86400 * 3)) > tokens.expires {
+        if (expires_at - Instant::now()) < Duration::from_secs(86400 * 3) {
             info!("Needs new credentials");
-            tokens = Arc::new(handle_refresh(&tokens, &config, &db_client).await?);
-            poller.tokens = Arc::clone(&tokens);
-            info!("Retrieved new credentials");
+            let tokens = attempt_grant(&oauth_client, None).await?;
+            poller = Poller::new(config.patreon_campaign_id.clone(), tokens);
+            info!(?expires_at, "Retrieved new credentials");
         }
 
         info!("Polling");
@@ -99,33 +82,30 @@ pub async fn main() -> Result<(), Error> {
     }
 }
 
-fn current_time_seconds() -> i64 {
-    Utc::now().timestamp()
-}
+async fn attempt_grant(oauth_client: &OauthClient, max_retries: Option<usize>) -> Result<Tokens> {
+    let mut retries = 0usize;
 
-async fn handle_refresh(
-    tokens: &database::Tokens,
-    config: &Config,
-    db_client: &Database,
-) -> Result<database::Tokens, Error> {
-    info!("handle_refresh called");
-    let new_tokens = oauth::refresh_tokens(
-        tokens.refresh_token.clone(),
-        config.patreon_client_id.clone(),
-        config.patreon_client_secret.clone(),
-    )
-    .await?;
+    loop {
+        info!("Attempting to refresh credentials");
 
-    let tokens = database::Tokens::new(
-        new_tokens.access_token,
-        new_tokens.refresh_token,
-        current_time_seconds() + new_tokens.expires_in,
-    );
-    db_client
-        .update_tokens(config.patreon_client_id.clone(), &tokens)
-        .await?;
+        let err = match oauth_client.grant_credentials().await {
+            Ok(tokens) => return Ok(tokens),
+            Err(e) => {
+                error!(error = %e, "Failed to refresh credentials, waiting 30s");
+                e
+            }
+        };
 
-    Ok(tokens)
+        retries += 1;
+        if let Some(max) = max_retries {
+            if retries >= max {
+                error!("Failed to refresh credentials after {} attempts", max);
+                return Err(err);
+            }
+        }
+
+        sleep(Duration::from_secs(30)).await;
+    }
 }
 
 fn configure_observability(config: &Config) -> sentry::ClientInitGuard {

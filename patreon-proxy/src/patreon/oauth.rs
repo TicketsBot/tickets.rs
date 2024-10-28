@@ -1,28 +1,56 @@
-use crate::error::Error;
-use serde::Deserialize;
+use std::{sync::Arc, time::Duration};
 
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct PatreonResponse {
-    pub access_token: String,
-    pub refresh_token: String,
-    pub expires_in: i64,
-    scope: String,
-    token_type: String,
+use crate::{Config, Error, Result};
+use tracing::error;
+
+use super::models::Tokens;
+
+pub struct OauthClient {
+    client: reqwest::Client,
+    config: Arc<Config>,
 }
 
-pub async fn refresh_tokens(
-    refresh_token: String,
-    client_id: String,
-    client_secret: String,
-) -> Result<PatreonResponse, Error> {
-    let uri = format!("https://www.patreon.com/api/oauth2/token?grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", refresh_token, client_id, client_secret);
+const TOKEN_URI: &'static str = "https://www.patreon.com/api/oauth2/token";
+const USER_AGENT: &'static str =
+    "ticketsbot.net/patreon-proxy (https://github.com/TicketsBot/tickets.rs)";
 
-    let client = reqwest::ClientBuilder::new()
-        .use_rustls_tls()
-        .build()
-        .unwrap();
-    let res: PatreonResponse = client.post(&uri).send().await?.json().await?;
+impl OauthClient {
+    pub fn new(config: Arc<Config>) -> Result<Self> {
+        let client = reqwest::ClientBuilder::new()
+            .use_rustls_tls()
+            .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(15))
+            .build()?;
 
-    Ok(res)
+        Ok(OauthClient { client, config })
+    }
+
+    pub async fn grant_credentials(&self) -> Result<Tokens> {
+        let form_body = [
+            ("grant_type", "client_credentials"),
+            ("client_id", self.config.patreon_client_id.as_str()),
+            ("client_secret", self.config.patreon_client_secret.as_str()),
+        ];
+
+        let res = self.client.post(TOKEN_URI)
+            .form(&form_body)
+            .header("User-Agent", USER_AGENT)
+            .send().await?;
+        
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = match res.bytes().await {
+                Ok(b) => String::from_utf8_lossy(&b).to_string(),
+                Err(e) => {
+                    error!(error = %e, "Failed to ready response body for non-2xx status code");
+                    String::from("Failed to read response body")
+                }
+            };
+
+            error!(%status, %body, "Failed to perform client_credentials exchange");
+            return Error::PatreonError(status).into();
+        }
+
+        Ok(res.json().await?)
+    }
 }

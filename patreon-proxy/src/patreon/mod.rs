@@ -5,6 +5,7 @@ mod poller;
 mod tier;
 
 pub use entitlement::Entitlement;
+pub use models::Tokens;
 pub use models::PledgeResponse;
 pub use poller::Poller;
 pub use tier::Tier;

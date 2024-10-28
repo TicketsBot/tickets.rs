@@ -2273,10 +2273,8 @@ name = "patreon-proxy"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "deadpool-postgres 0.10.5",
  "envy",
  "reqwest 0.11.27",
- "rustls 0.21.12",
  "sentry 0.31.8",
  "sentry-tracing 0.31.8",
  "serde",
@@ -2284,7 +2282,6 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-postgres",
  "tracing",
  "tracing-subscriber 0.3.18",
  "url",
@@ -2408,7 +2405,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d2234cdee9408b523530a9b6d2d6b373d1db34f6a8e51dc03ded1828d7fb67c"
 dependencies = [
  "bytes 1.6.0",
- "chrono",
  "fallible-iterator",
  "postgres-protocol",
 ]

@@ -1,9 +1,7 @@
+use super::models::Tokens;
 use super::Entitlement;
 use super::PledgeResponse;
-use crate::database::Tokens;
 use std::collections::HashMap;
-
-use std::sync::Arc;
 
 use crate::error::Error;
 use std::time::Duration;
@@ -12,11 +10,11 @@ use tracing::log::{debug, error};
 pub struct Poller {
     client: reqwest::Client,
     campaign_id: String,
-    pub tokens: Arc<Tokens>,
+    tokens: Tokens,
 }
 
 impl Poller {
-    pub fn new(campaign_id: String, tokens: Arc<Tokens>) -> Poller {
+    pub fn new(campaign_id: String, tokens: Tokens) -> Poller {
         let client = reqwest::ClientBuilder::new()
             .use_rustls_tls()
             .timeout(Duration::from_secs(30))

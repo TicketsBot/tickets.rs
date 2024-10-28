@@ -7,6 +7,14 @@ use std::collections::HashMap;
 use super::Entitlement;
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+pub struct Tokens {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_in: i64,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct PledgeResponse {
     pub data: Vec<Member>,
     pub included: Vec<PatronMetadata>,
