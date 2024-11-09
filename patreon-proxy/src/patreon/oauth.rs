@@ -3,26 +3,27 @@ use std::{sync::Arc, time::Duration};
 use crate::{Config, Error, Result};
 use tracing::error;
 
-use super::models::Tokens;
+use super::{models::Tokens, ratelimiter::RateLimiter};
 
-pub struct OauthClient {
+pub struct OauthClient<T: RateLimiter> {
     client: reqwest::Client,
     config: Arc<Config>,
+    ratelimiter: Arc<T>,
 }
 
 const TOKEN_URI: &'static str = "https://www.patreon.com/api/oauth2/token";
 const USER_AGENT: &'static str =
     "ticketsbot.net/patreon-proxy (https://github.com/TicketsBot/tickets.rs)";
 
-impl OauthClient {
-    pub fn new(config: Arc<Config>) -> Result<Self> {
+impl<T: RateLimiter> OauthClient<T> {
+    pub fn new(config: Arc<Config>, ratelimiter: Arc<T>) -> Result<Self> {
         let client = reqwest::ClientBuilder::new()
             .use_rustls_tls()
             .timeout(Duration::from_secs(15))
             .connect_timeout(Duration::from_secs(15))
             .build()?;
 
-        Ok(OauthClient { client, config })
+        Ok(OauthClient { client, config, ratelimiter })
     }
 
     pub async fn grant_credentials(&self) -> Result<Tokens> {
@@ -32,11 +33,16 @@ impl OauthClient {
             ("client_secret", self.config.patreon_client_secret.as_str()),
         ];
 
-        let res = self.client.post(TOKEN_URI)
+        self.ratelimiter.wait().await;
+
+        let res = self
+            .client
+            .post(TOKEN_URI)
             .form(&form_body)
             .header("User-Agent", USER_AGENT)
-            .send().await?;
-        
+            .send()
+            .await?;
+
         if !res.status().is_success() {
             let status = res.status();
             let body = match res.bytes().await {

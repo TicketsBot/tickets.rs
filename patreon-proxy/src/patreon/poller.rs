@@ -1,20 +1,23 @@
 use super::models::Tokens;
+use super::ratelimiter::RateLimiter;
 use super::Entitlement;
 use super::PledgeResponse;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::error::Error;
 use std::time::Duration;
 use tracing::log::{debug, error};
 
-pub struct Poller {
+pub struct Poller<T: RateLimiter> {
     client: reqwest::Client,
     campaign_id: String,
     tokens: Tokens,
+    ratelimiter: Arc<T>,
 }
 
-impl Poller {
-    pub fn new(campaign_id: String, tokens: Tokens) -> Poller {
+impl<T: RateLimiter> Poller<T> {
+    pub fn new(campaign_id: String, tokens: Tokens, ratelimiter: Arc<T>) -> Self {
         let client = reqwest::ClientBuilder::new()
             .use_rustls_tls()
             .timeout(Duration::from_secs(30))
@@ -26,6 +29,7 @@ impl Poller {
             client,
             campaign_id,
             tokens,
+            ratelimiter,
         }
     }
 
@@ -47,6 +51,8 @@ impl Poller {
     }
 
     async fn poll_page(&self, uri: &str) -> Result<PledgeResponse, Error> {
+        self.ratelimiter.wait().await;
+
         debug!("Polling {}", uri);
 
         let res = self

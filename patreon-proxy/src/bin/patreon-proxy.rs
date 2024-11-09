@@ -5,6 +5,7 @@ use std::sync::{Arc, RwLock};
 use chrono::prelude::*;
 
 use patreon_proxy::patreon::oauth::OauthClient;
+use patreon_proxy::patreon::ratelimiter::{GovernorRateLimiter, RateLimiter};
 use patreon_proxy::patreon::{Entitlement, Poller, Tokens};
 use patreon_proxy::{http, Config, Result};
 use sentry::types::Dsn;
@@ -23,12 +24,13 @@ pub async fn main() -> Result<()> {
 
     let _guard = configure_observability(&config);
 
-    let oauth_client = OauthClient::new(Arc::clone(&config))?;
-    
+    let ratelimiter = Arc::new(GovernorRateLimiter::new(99));
+    let oauth_client = OauthClient::new(Arc::clone(&config), Arc::clone(&ratelimiter))?;
+
     let tokens = attempt_grant(&oauth_client, Some(10)).await?;
     let expires_at = Instant::now() + Duration::from_secs(tokens.expires_in as u64);
 
-    let mut poller = Poller::new(config.patreon_campaign_id.clone(), tokens);
+    let mut poller = Poller::new(config.patreon_campaign_id.clone(), tokens, Arc::clone(&ratelimiter));
 
     let mut server_started = false;
 
@@ -46,7 +48,7 @@ pub async fn main() -> Result<()> {
         if (expires_at - Instant::now()) < Duration::from_secs(86400 * 3) {
             info!("Needs new credentials");
             let tokens = attempt_grant(&oauth_client, None).await?;
-            poller = Poller::new(config.patreon_campaign_id.clone(), tokens);
+            poller = Poller::new(config.patreon_campaign_id.clone(), tokens, Arc::clone(&ratelimiter));
             info!(?expires_at, "Retrieved new credentials");
         }
 
@@ -82,7 +84,7 @@ pub async fn main() -> Result<()> {
     }
 }
 
-async fn attempt_grant(oauth_client: &OauthClient, max_retries: Option<usize>) -> Result<Tokens> {
+async fn attempt_grant<T: RateLimiter>(oauth_client: &OauthClient<T>, max_retries: Option<usize>) -> Result<Tokens> {
     let mut retries = 0usize;
 
     loop {
