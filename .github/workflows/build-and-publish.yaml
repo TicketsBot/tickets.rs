@@ -27,6 +27,8 @@ jobs:
             dockerfile: patreon-proxy/Dockerfile
           - package: cache-sync-service
             dockerfile: cache-sync-service/Dockerfile
+          - package: bot-list-updater
+            dockerfile: bot-list-updater/Dockerfile
     permissions:
       contents: read
       packages: write
