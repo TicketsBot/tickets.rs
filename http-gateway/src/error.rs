@@ -29,8 +29,8 @@ pub enum Error {
     #[error("error while performing cache operation: {0}")]
     CacheError(#[from] cache::CacheError),
 
-    #[error("token not found for bot {0}")]
-    TokenNotFound(Snowflake),
+    #[error("bot with ID {0} not found")]
+    BotNotFound(Snowflake),
 
     #[error("error occurred while forwarding event to worker: {0}")]
     ReqwestError(reqwest::Error),

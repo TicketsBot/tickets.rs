@@ -5,7 +5,7 @@ use serde::Deserialize;
 pub struct Config {
     pub server_addr: Box<str>,
     pub public_bot_id: Snowflake,
-    pub public_token: Box<str>,
+    pub public_token: String,
     #[serde(with = "shim")]
     pub public_public_key: ed25519_dalek::PublicKey,
 

@@ -1,16 +1,13 @@
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 
-use crate::{
-    Table, Whitelabel, WhitelabelErrorTable, WhitelabelGuilds, WhitelabelKeys, WhitelabelStatus,
-};
+use crate::{Table, Whitelabel, WhitelabelErrorTable, WhitelabelGuilds, WhitelabelStatus};
 
 pub struct Database {
     pub whitelabel: Whitelabel,
     pub whitelabel_errors: WhitelabelErrorTable,
     pub whitelabel_guilds: WhitelabelGuilds,
     pub whitelabel_status: WhitelabelStatus,
-    pub whitelabel_keys: WhitelabelKeys,
 }
 
 impl Database {
@@ -22,7 +19,6 @@ impl Database {
             whitelabel_errors: WhitelabelErrorTable::new(Arc::clone(&pool)),
             whitelabel_guilds: WhitelabelGuilds::new(Arc::clone(&pool)),
             whitelabel_status: WhitelabelStatus::new(Arc::clone(&pool)),
-            whitelabel_keys: WhitelabelKeys::new(Arc::clone(&pool)),
         })
     }
 
@@ -31,7 +27,6 @@ impl Database {
         self.whitelabel_errors.create_schema().await?;
         self.whitelabel_guilds.create_schema().await?;
         self.whitelabel_status.create_schema().await?;
-        self.whitelabel_keys.create_schema().await?;
 
         Ok(())
     }
