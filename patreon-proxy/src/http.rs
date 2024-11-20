@@ -47,6 +47,10 @@ pub async fn listen(
     let data = warp::any().map(move || Arc::clone(&data));
     let last_poll_time = warp::any().map(move || Arc::clone(&last_poll_time));
 
+    let healthz = warp::path("healthz")
+        .and(data.clone())
+        .and_then(healthz);
+
     let is_premium = warp::path("ispremium")
         .and(data.clone())
         .and(warp::query::<HashMap<String, String>>())
@@ -60,13 +64,23 @@ pub async fn listen(
 
     let count = warp::path("count").and(data.clone()).and_then(patron_count);
 
-    warp::serve(ping.or(is_premium).or(all).or(count))
+    warp::serve(ping.or(healthz).or(is_premium).or(all).or(count))
         .run(addr)
         .await;
 }
 
 async fn ping() -> Result<Json, warp::Rejection> {
     Ok(reply::json(&PingResponse { success: true }))
+}
+
+async fn healthz(
+    patrons: Arc<RwLock<HashMap<String, Vec<Entitlement>>>>,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    if patrons.read().unwrap().is_empty() {
+        Ok(reply::with_status("Service Unavailable", StatusCode::SERVICE_UNAVAILABLE))
+    } else {
+        Ok(reply::with_status("OK", StatusCode::OK))
+    }
 }
 
 async fn is_premium(
@@ -91,6 +105,15 @@ async fn is_premium(
     let mut user_id: Option<&str> = None;
 
     let patrons = patrons.read().unwrap();
+
+    if patrons.is_empty() {
+        return Ok(reply::with_status(
+            reply::json(&json!({
+                "error": "No patrons found"
+            })),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ));
+    }
 
     // any so we stop at the first true
     // we need to find the highest tier, so we need to only break at
@@ -138,11 +161,20 @@ async fn is_premium(
 async fn patron_count(
     patrons: Arc<RwLock<HashMap<String, Vec<Entitlement>>>>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    let count = patrons.read().unwrap().len();
+    let patrons = patrons.read().unwrap();
+
+    if patrons.is_empty() {
+        return Ok(reply::with_status(
+            reply::json(&json!({
+                "error": "No patrons found"
+            })),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ));
+    }
 
     Ok(reply::with_status(
         reply::json(&json!({
-            "count": count
+            "count": patrons.len()
         })),
         StatusCode::OK,
     ))
@@ -154,6 +186,15 @@ async fn all_patrons(
     query: HashMap<String, String>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let mut patrons = patrons.read().unwrap().clone();
+    
+    if patrons.is_empty() {
+        return Ok(reply::with_status(
+            reply::json(&json!({
+                "error": "No patrons found"
+            })),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ));
+    }
 
     let legacy_only = query.get("legacy_only").map_or(false, |v| v == "true");
     if legacy_only {

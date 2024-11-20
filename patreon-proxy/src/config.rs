@@ -11,6 +11,7 @@ pub struct Config {
     pub debug_mode: bool,
     #[serde(default = "returns_true")]
     pub json_log: bool,
+    pub requests_per_minute: u32,
 }
 
 impl Config {

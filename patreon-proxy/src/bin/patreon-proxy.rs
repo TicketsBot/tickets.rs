@@ -24,7 +24,7 @@ pub async fn main() -> Result<()> {
 
     let _guard = configure_observability(&config);
 
-    let ratelimiter = Arc::new(GovernorRateLimiter::new(99));
+    let ratelimiter = Arc::new(GovernorRateLimiter::new(config.requests_per_minute));
     let oauth_client = OauthClient::new(Arc::clone(&config), Arc::clone(&ratelimiter))?;
 
     let tokens = attempt_grant(&oauth_client, Some(10)).await?;
@@ -32,14 +32,14 @@ pub async fn main() -> Result<()> {
 
     let mut poller = Poller::new(config.patreon_campaign_id.clone(), tokens, Arc::clone(&ratelimiter));
 
-    let mut server_started = false;
-
     let data: Arc<RwLock<HashMap<String, Vec<Entitlement>>>> =
         Arc::new(RwLock::new(HashMap::new()));
 
     let last_poll_time = Arc::new(RwLock::new(
         DateTime::from_timestamp_millis(0).expect("Failed to create DateTime from timestamp"),
     ));
+
+    start_server(&config, Arc::clone(&data), Arc::clone(&last_poll_time));
 
     loop {
         info!("Starting loop");
@@ -71,11 +71,6 @@ pub async fn main() -> Result<()> {
                 }
 
                 debug!("Data updated");
-
-                if !server_started {
-                    start_server(&config, Arc::clone(&data), Arc::clone(&last_poll_time));
-                    server_started = true;
-                }
             }
             Err(e) => error!("An error occured whilst polling Patreon: {}", e),
         };
