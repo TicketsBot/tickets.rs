@@ -29,6 +29,8 @@ jobs:
             dockerfile: cache-sync-service/Dockerfile
           - package: bot-list-updater
             dockerfile: bot-list-updater/Dockerfile
+          - package: stats-channel-updater
+            dockerfile: stats-channel-updater/Dockerfile
     permissions:
       contents: read
       packages: write

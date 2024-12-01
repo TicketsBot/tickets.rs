@@ -4,6 +4,7 @@ use crate::AppError;
 use reqwest::blocking as reqwest;
 use serde::{Deserialize, Serialize};
 use std::str;
+use thousands::Separable;
 
 pub struct Client {
     config: Config,
@@ -43,7 +44,7 @@ impl Client {
 
     pub fn update_channel(&self, server_count: usize) -> Result<()> {
         let body = ChannelUpdateBody {
-            name: format!("Server Count: {}", server_count),
+            name: format!("Server Count: {}", server_count.separate_with_commas()),
         };
 
         let url = format!(

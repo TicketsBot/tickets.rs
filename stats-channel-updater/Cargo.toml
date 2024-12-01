@@ -10,3 +10,4 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 log = "0.4"
 env_logger = "0.9"
+thousands = "0.2"
